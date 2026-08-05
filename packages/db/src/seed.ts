@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm'
+import { eq, inArray } from 'drizzle-orm'
 import { generateMockSeries, generateToken, hashPassword, hashToken } from '@tern/shared'
 import { createDatabase } from './client.js'
 import { loadEnv } from './env.js'
@@ -19,6 +19,9 @@ const DAYS = 90
 const INTERVAL_S = 300 // one sample per 5 minutes — 90 days × 12 controls ≈ 311k rows
 
 const DEMO_PASSWORD = 'tern-demo-password'
+const DEMO_ADMIN_EMAIL = 'admin@acme.example'
+const DEMO_USER_EMAIL = 'user@acme.example'
+const DEMO_EMAILS = [DEMO_ADMIN_EMAIL, DEMO_USER_EMAIL]
 
 interface ControlSpec {
   key: string
@@ -166,8 +169,13 @@ async function main() {
 
   try {
     console.warn('→ resetting demo tenant')
-    // Cascades clear every child table, so re-seeding is safe to repeat.
+    // Deleting the tenant cascades to controls, checks, incidents and
+    // memberships — but users are global and survive it. Removing them too is
+    // what actually makes re-seeding repeatable: otherwise the second run hits
+    // the unique email constraint, and the demo admin is left with no
+    // membership at all, which fails much later and much less obviously.
     await db.delete(s.tenants).where(eq(s.tenants.slug, 'acme'))
+    await db.delete(s.users).where(inArray(s.users.email, DEMO_EMAILS))
 
     console.warn('→ creating tenant')
     const [tenant] = await db
@@ -193,7 +201,7 @@ async function main() {
     const [admin] = await db
       .insert(s.users)
       .values({
-        email: 'admin@acme.example',
+        email: DEMO_ADMIN_EMAIL,
         name: 'Ada Admin',
         passwordHash,
         locale: 'en',
@@ -203,7 +211,7 @@ async function main() {
     const [member] = await db
       .insert(s.users)
       .values({
-        email: 'user@acme.example',
+        email: DEMO_USER_EMAIL,
         name: 'Uma User',
         passwordHash,
         locale: 'fr',
@@ -414,8 +422,8 @@ async function main() {
     console.warn(
       `  tenant       acme (public) — ${CONTROLS.length} controls, ${totalPoints} points`,
     )
-    console.warn(`  admin        admin@acme.example / ${DEMO_PASSWORD}`)
-    console.warn(`  user         user@acme.example / ${DEMO_PASSWORD}`)
+    console.warn(`  admin        ${DEMO_ADMIN_EMAIL} / ${DEMO_PASSWORD}`)
+    console.warn(`  user         ${DEMO_USER_EMAIL} / ${DEMO_PASSWORD}`)
     console.warn(`  ingest key   ${apiKey}`)
     console.warn('')
     console.warn('  This key is shown once — it is stored only as a hash.')

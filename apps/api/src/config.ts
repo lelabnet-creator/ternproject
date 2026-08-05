@@ -63,6 +63,13 @@ const schema = z.object({
    */
   AUTH_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(10),
 
+  /**
+   * Redemption attempts per minute per IP. A pairing PIN carries about 40 bits
+   * of entropy, which is only enough because guessing is this slow and the code
+   * dies after a handful of wrong tries.
+   */
+  PAIR_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(10),
+
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   // `silent` is a real pino level, and the one tests want: an integration suite
   // that prints a request log per assertion buries the failure that matters.
