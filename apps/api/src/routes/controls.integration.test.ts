@@ -1,0 +1,244 @@
+import { and, eq } from 'drizzle-orm'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { schema } from '@tern/db'
+import { createFixture, login, type TestFixture } from '../test/harness.js'
+
+let fx: TestFixture
+let adminCookie: string
+
+beforeAll(async () => {
+  fx = await createFixture()
+  adminCookie = await login(fx.app, fx.users.admin.email)
+}, 30_000)
+
+afterAll(async () => {
+  await fx.cleanup()
+})
+
+const create = (body: Record<string, unknown>) =>
+  fx.app.inject({
+    method: 'POST',
+    url: `/api/v1/${fx.slug}/controls`,
+    headers: { cookie: adminCookie },
+    payload: { key: `c-${Date.now()}-${Math.floor(performance.now())}`, name: 'Test', ...body },
+  })
+
+describe('creating a control', () => {
+  it('requires admin', async () => {
+    const memberCookie = await login(fx.app, fx.users.member.email)
+    const response = await fx.app.inject({
+      method: 'POST',
+      url: `/api/v1/${fx.slug}/controls`,
+      headers: { cookie: memberCookie },
+      payload: { key: 'nope', name: 'Nope' },
+    })
+    // A user can communicate about incidents but not reconfigure what is
+    // monitored.
+    expect(response.statusCode).toBe(403)
+  })
+
+  it('constrains the key to what is safe in a URL, a script and an alert label', async () => {
+    for (const key of ['Has Space', 'UPPER', 'quote"key', 'slash/key', '-leading']) {
+      const response = await create({ key })
+      expect(response.statusCode, `key ${key} should be rejected`).toBe(400)
+    }
+    expect((await create({ key: 'good.key_1-2' })).statusCode).toBe(201)
+  })
+
+  it('reports a duplicate key plainly', async () => {
+    const key = `dupe-${Date.now()}`
+    expect((await create({ key })).statusCode).toBe(201)
+
+    const second = await create({ key })
+    expect(second.statusCode).toBe(409)
+    expect(second.json().message).toMatch(/already exists/i)
+  })
+
+  it('refuses a degraded threshold at or above the down threshold', async () => {
+    // Otherwise the degraded band is unreachable: the control jumps straight
+    // from healthy to down and the middle state silently never appears.
+    const response = await create({ degradedThresholdMs: 3000, downThresholdMs: 1000 })
+    expect(response.statusCode).toBe(400)
+    expect(response.json().message).toMatch(/degraded/i)
+
+    expect((await create({ degradedThresholdMs: 500, downThresholdMs: 3000 })).statusCode).toBe(201)
+  })
+
+  it('refuses a probe control with no usable probe configuration', async () => {
+    // A non-push control without a valid probe would simply never run, and
+    // nothing downstream would say why.
+    const bad = await create({ kind: 'http', config: { method: 'GET' } })
+    expect(bad.statusCode).toBe(400)
+
+    const good = await create({
+      kind: 'http',
+      config: { url: 'https://example.com', assertions: [] },
+    })
+    expect(good.statusCode).toBe(201)
+  })
+})
+
+describe('tenant isolation', () => {
+  it('404s on a control belonging to another tenant', async () => {
+    const other = await createFixture()
+    try {
+      const response = await fx.app.inject({
+        method: 'PATCH',
+        url: `/api/v1/${fx.slug}/controls/${other.controls.publicId}`,
+        headers: { cookie: adminCookie },
+        payload: { name: 'Hijacked' },
+      })
+      expect(response.statusCode).toBe(404)
+    } finally {
+      await other.cleanup()
+    }
+  }, 30_000)
+})
+
+describe('simulation', () => {
+  it('marks generated rows synthetic so they cannot become an SLA figure', async () => {
+    const created = await create({ key: `sim-${Date.now()}` })
+    const id = created.json().id
+
+    const response = await fx.app.inject({
+      method: 'POST',
+      url: `/api/v1/${fx.slug}/controls/${id}/simulate`,
+      headers: { cookie: adminCookie },
+      payload: { days: 2, intervalS: 3600 },
+    })
+    expect(response.statusCode).toBe(200)
+    expect(response.json().inserted).toBeGreaterThan(0)
+
+    const rows = await fx.app.db.select().from(schema.checks).where(eq(schema.checks.controlId, id))
+    expect(rows.length).toBeGreaterThan(0)
+    // The continuous aggregates filter on this flag, so a demo can never leak
+    // into a published uptime number.
+    expect(rows.every((r) => r.synthetic)).toBe(true)
+  })
+
+  it('replaces rather than appends when run twice', async () => {
+    const created = await create({ key: `sim2-${Date.now()}` })
+    const id = created.json().id
+
+    const simulate = (days: number) =>
+      fx.app.inject({
+        method: 'POST',
+        url: `/api/v1/${fx.slug}/controls/${id}/simulate`,
+        headers: { cookie: adminCookie },
+        payload: { days, intervalS: 3600 },
+      })
+
+    await simulate(4)
+    const second = await simulate(2)
+
+    const rows = await fx.app.db.select().from(schema.checks).where(eq(schema.checks.controlId, id))
+
+    // Running the simulation again with different settings should show the
+    // second result, not both overlaid.
+    expect(rows).toHaveLength(second.json().inserted)
+  })
+
+  it('purges simulation data in one call, leaving real data alone', async () => {
+    const created = await create({ key: `sim3-${Date.now()}` })
+    const id = created.json().id
+
+    await fx.app.db.insert(schema.checks).values({
+      tenantId: fx.tenantId,
+      controlId: id,
+      status: 'operational',
+      synthetic: false,
+    })
+    await fx.app.inject({
+      method: 'POST',
+      url: `/api/v1/${fx.slug}/controls/${id}/simulate`,
+      headers: { cookie: adminCookie },
+      payload: { days: 1, intervalS: 3600 },
+    })
+
+    const purge = await fx.app.inject({
+      method: 'DELETE',
+      url: `/api/v1/${fx.slug}/controls/${id}/simulate`,
+      headers: { cookie: adminCookie },
+    })
+    expect(purge.json().deleted).toBeGreaterThan(0)
+
+    const left = await fx.app.db
+      .select()
+      .from(schema.checks)
+      .where(and(eq(schema.checks.controlId, id), eq(schema.checks.synthetic, false)))
+    expect(left).toHaveLength(1)
+  })
+})
+
+describe('script generation', () => {
+  it('returns all ten languages with the control key and thresholds baked in', async () => {
+    const created = await create({
+      key: `scripted-${Date.now()}`,
+      degradedThresholdMs: 750,
+      downThresholdMs: 4000,
+    })
+    const id = created.json().id
+    const key = created.json().key
+
+    const response = await fx.app.inject({
+      method: 'GET',
+      url: `/api/v1/${fx.slug}/controls/${id}/scripts`,
+      headers: { cookie: adminCookie },
+    })
+    expect(response.statusCode).toBe(200)
+
+    const body = response.json()
+    expect(body.languages).toHaveLength(10)
+    for (const language of body.languages) {
+      const script: string = body.scripts[language.id]
+      expect(script, language.id).toContain(key)
+      expect(script, language.id).toContain('750')
+      expect(script, language.id).toContain('4000')
+    }
+  })
+
+  it('inlines a placeholder rather than pretending it can recover a stored key', async () => {
+    // Existing keys are stored only as hashes. Returning anything that looked
+    // like a real key here would be a lie.
+    const created = await create({ key: `placeholder-${Date.now()}` })
+    const response = await fx.app.inject({
+      method: 'GET',
+      url: `/api/v1/${fx.slug}/controls/${created.json().id}/scripts`,
+      headers: { cookie: adminCookie },
+    })
+    expect(response.json().scripts.python).toContain('tern_YOUR_API_KEY')
+  })
+})
+
+describe('probe dry run', () => {
+  it('reports a connection failure as down with the reason', async () => {
+    // Port 9 on localhost refuses; the message must name that rather than say
+    // "check failed".
+    const response = await fx.app.inject({
+      method: 'POST',
+      url: `/api/v1/${fx.slug}/probe/run`,
+      headers: { cookie: adminCookie },
+      payload: {
+        probe: { type: 'tcp', host: '127.0.0.1', port: 9, timeoutMs: 2000, assertions: [] },
+      },
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(response.json().status).toBe('down')
+    expect(response.json().message).toBeTruthy()
+  }, 15_000)
+
+  it('does not return the raw response body', async () => {
+    // `debug` can hold a full response, and this endpoint is reachable by
+    // anyone who can edit a control.
+    const response = await fx.app.inject({
+      method: 'POST',
+      url: `/api/v1/${fx.slug}/probe/run`,
+      headers: { cookie: adminCookie },
+      payload: {
+        probe: { type: 'tcp', host: '127.0.0.1', port: 9, timeoutMs: 2000, assertions: [] },
+      },
+    })
+    expect(response.json().debug).toBeUndefined()
+  }, 15_000)
+})
