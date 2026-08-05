@@ -2,18 +2,20 @@
 
 ## Current Task
 
-Milestone J1 (foundation + data layer) is complete; J2 (API, auth/MFA, RBAC, ingestion, probes,
-PIN pairing) is next.
+Milestones J1 (foundation) and J2 (API, auth, ingestion, pairing) are complete. J3 is next:
+design system, TERN SVG assets, PWA shell, i18n, and the public status page with its D3 charts.
 
 ## Key Decisions
 
-- TimescaleDB `-ha` image for `timescaledb_toolkit`: `percentile_agg` rolls up, so p95 over a year
-  comes from 1-minute sketches instead of raw scans.
-- Incident impact is stored per control (`incident_impacts`), not as one severity per incident.
-- Host ports moved to 5433 (database) and 3011 (API) — the defaults were taken on this machine.
+- Rate limits are configurable per surface (`AUTH_RATE_LIMIT_MAX`, `PAIR_RATE_LIMIT_MAX`), raised
+  for the test suite and verified by dedicated tests that lower them again.
+- Ingestion accepts API keys only, never a browser session — a cookie writing measurements would
+  make CSRF a data-integrity problem.
+- Probe semantics live in `packages/shared` with JSON Schema + conformance fixtures under
+  `schemas/`, so the Rust agent can be held to the same behaviour.
 
 ## Next Steps
 
-- `packages/shared`: probe spec + JSON Schema export + conformance fixtures.
-- `apps/api`: Fastify with auth/rbac/tenant plugins, TOTP MFA, sessions, API keys, ingestion, SSE.
-- Sweeper, probe evaluator and per-tenant retention jobs.
+- Design tokens (light/dark), TERN logo/wordmark/favicon SVGs, `BRANDING.md`.
+- Vite + React shell, PWA manifest, i18n (fr/en), timezone rendering.
+- Public status page `/s/:slug` and the six D3 charts + `charts/registry.ts`.
