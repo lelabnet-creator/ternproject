@@ -11,4 +11,7 @@
 process.env.NODE_ENV = 'test'
 process.env.AUTH_RATE_LIMIT_MAX ??= '1000'
 process.env.PAIR_RATE_LIMIT_MAX ??= '1000'
+// The subscribe endpoint sends mail; MailHog catches it, but the suite would
+// still trip its own signup limit within a handful of tests.
+process.env.SUBSCRIBE_RATE_LIMIT_MAX ??= '1000'
 process.env.LOG_LEVEL ??= 'silent'

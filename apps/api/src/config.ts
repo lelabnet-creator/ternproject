@@ -70,6 +70,20 @@ const schema = z.object({
    */
   PAIR_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(10),
 
+  /** Signups per minute per IP. Writing a row and sending mail deserves a tight bound. */
+  SUBSCRIBE_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(5),
+
+  // ── Mail ──────────────────────────────────────────────────────────────────
+  SMTP_HOST: z.string().default('localhost'),
+  SMTP_PORT: z.coerce.number().int().positive().default(1025),
+  SMTP_USER: z.string().optional(),
+  SMTP_PASSWORD: z.string().optional(),
+  SMTP_SECURE: z
+    .string()
+    .default('false')
+    .transform((v) => v === 'true'),
+  MAIL_FROM: z.string().default('TERN Status <status@example.com>'),
+
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   // `silent` is a real pino level, and the one tests want: an integration suite
   // that prints a request log per assertion buries the failure that matters.
