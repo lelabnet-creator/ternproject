@@ -18,7 +18,8 @@
   },
   "dependencies": {
     "drizzle-orm": "^0.44.6",
-    "postgres": "^3.4.7"
+    "postgres": "^3.4.7",
+    "@tern/shared": "workspace:*"
   },
   "devDependencies": {
     "dotenv": "^17.2.3",
