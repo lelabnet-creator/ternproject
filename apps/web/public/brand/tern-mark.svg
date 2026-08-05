@@ -1,0 +1,20 @@
+<!--
+  TERN — the mark.
+
+  A tern in flight, reduced to swept wings and the forked tail that identifies
+  the species. Drawn on a 24×24 grid with 1.5 stroke so it sits correctly
+  alongside Lucide icons, and painted in currentColor so it inherits the theme
+  rather than carrying its own palette.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+     stroke="currentColor" stroke-width="1.5" stroke-linecap="round"
+     stroke-linejoin="round" role="img" aria-label="TERN">
+  <!-- Leading wing, swept back from the shoulder. -->
+  <path d="M3 8.5c3.2-.4 6-.1 8.4 1.1" />
+  <!-- Body: head low and forward, the posture of a bird scanning the water. -->
+  <path d="M11.4 9.6c1.9 1 3.2 2.3 4 3.9l1.9-.9-.7 1.9 2.4-.3-1.6 1.7" />
+  <!-- Trailing wing. -->
+  <path d="M21 7.6c-2.6 1.5-4.9 3-6.7 4.6" />
+  <!-- Forked tail. -->
+  <path d="M15.4 13.5 8.6 19m6.8-5.5-1.1 6.4" />
+</svg>

@@ -1,0 +1,230 @@
+/*
+ * Design tokens.
+ *
+ * Every colour, space and radius in the product resolves here. Components never
+ * carry a raw hex: a status page is rebranded per tenant, and a value written
+ * inline is one the tenant can never change.
+ *
+ * Both themes are defined together rather than one being derived from the
+ * other. Dark mode is not an inversion — inverted greys go muddy and inverted
+ * status colours stop being legible against a dark surface.
+ */
+
+:root {
+  /* ── Spacing: 4px rhythm, no ad-hoc values ─────────────────────────────── */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-12: 3rem;
+
+  /* ── Radius ────────────────────────────────────────────────────────────── */
+  --radius-sm: 0.5rem; /* form controls */
+  --radius-md: 0.75rem; /* cards, panels */
+  --radius-full: 9999px;
+
+  /* ── Type ──────────────────────────────────────────────────────────────── */
+  --font-sans: 'Fira Sans', system-ui, -apple-system, sans-serif;
+  /* Numbers, timestamps and status keys. Tabular figures stop a live latency
+     readout from shifting the layout every time a digit changes width. */
+  --font-mono: 'Fira Code', ui-monospace, 'SF Mono', Menlo, monospace;
+
+  --text-xs: 0.75rem;
+  --text-sm: 0.875rem;
+  --text-base: 1rem;
+  --text-lg: 1.125rem;
+  --text-xl: 1.5rem;
+  --text-2xl: 2rem;
+
+  --leading-tight: 1.25;
+  --leading-normal: 1.6;
+
+  /* ── Motion ────────────────────────────────────────────────────────────── */
+  --duration-fast: 150ms;
+  --duration-base: 220ms;
+  /* Exits are quicker than entrances; matching them makes dismissal feel slow. */
+  --duration-exit: 140ms;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in: cubic-bezier(0.4, 0, 1, 1);
+
+  /* ── Elevation: one scale, three steps ─────────────────────────────────── */
+  --shadow-card: 0 1px 2px rgb(15 23 42 / 0.06), 0 1px 3px rgb(15 23 42 / 0.1);
+  --shadow-sheet: 0 4px 12px rgb(15 23 42 / 0.1), 0 2px 4px rgb(15 23 42 / 0.06);
+  --shadow-modal: 0 20px 40px rgb(15 23 42 / 0.18);
+
+  --z-sticky: 10;
+  --z-drawer: 40;
+  --z-modal: 100;
+  --z-toast: 1000;
+}
+
+/* ── Light theme ─────────────────────────────────────────────────────────── */
+:root,
+[data-theme='light'] {
+  --color-bg: #f8fafc;
+  --color-surface: #ffffff;
+  --color-surface-raised: #ffffff;
+  --color-fg: #0f172a;
+  --color-fg-muted: #475569; /* 7.4:1 on --color-surface */
+  --color-fg-subtle: #64748b; /* 4.8:1 — the floor for secondary text */
+  --color-border: #e2e8f0;
+  --color-border-strong: #cbd5e1;
+  --color-accent: #15803d;
+  --color-accent-fg: #ffffff;
+  --color-focus: #2563eb;
+  --color-scrim: rgb(15 23 42 / 0.45);
+
+  /*
+   * Status colours are chosen per theme so each keeps ≥4.5:1 against its own
+   * background, and so degraded and down stay distinguishable to a viewer with
+   * deuteranopia. Colour never carries the meaning alone — every status also
+   * renders an icon and a label.
+   */
+  --status-operational: #15803d;
+  --status-degraded: #b45309;
+  --status-partial: #c2410c;
+  --status-down: #b91c1c;
+  --status-maintenance: #0369a1;
+  --status-unknown: #52525b;
+
+  /* Muted fills for heatmap cells and chart bands. */
+  --status-operational-soft: #bbf7d0;
+  --status-degraded-soft: #fde68a;
+  --status-partial-soft: #fed7aa;
+  --status-down-soft: #fecaca;
+  --status-maintenance-soft: #bae6fd;
+  --status-unknown-soft: #e4e4e7;
+}
+
+/* ── Dark theme ──────────────────────────────────────────────────────────── */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --color-bg: #0f172a;
+    --color-surface: #1e293b;
+    --color-surface-raised: #263449;
+    --color-fg: #f8fafc;
+    --color-fg-muted: #cbd5e1;
+    --color-fg-subtle: #94a3b8;
+    --color-border: #334155;
+    --color-border-strong: #475569;
+    --color-accent: #22c55e;
+    --color-accent-fg: #052e16;
+    --color-focus: #60a5fa;
+    --color-scrim: rgb(2 6 23 / 0.7);
+
+    --status-operational: #4ade80;
+    --status-degraded: #fbbf24;
+    --status-partial: #fb923c;
+    --status-down: #f87171;
+    --status-maintenance: #38bdf8;
+    --status-unknown: #94a3b8;
+
+    --status-operational-soft: #14532d;
+    --status-degraded-soft: #713f12;
+    --status-partial-soft: #7c2d12;
+    --status-down-soft: #7f1d1d;
+    --status-maintenance-soft: #075985;
+    --status-unknown-soft: #334155;
+
+    /* Shadows barely read on dark surfaces; elevation comes from the raised
+       surface colour instead, with only a faint depth cue retained. */
+    --shadow-card: 0 1px 2px rgb(0 0 0 / 0.3);
+    --shadow-sheet: 0 4px 12px rgb(0 0 0 / 0.4);
+    --shadow-modal: 0 20px 40px rgb(0 0 0 / 0.55);
+  }
+}
+
+/* The toggle must win over the media query in both directions. */
+[data-theme='dark'] {
+  --color-bg: #0f172a;
+  --color-surface: #1e293b;
+  --color-surface-raised: #263449;
+  --color-fg: #f8fafc;
+  --color-fg-muted: #cbd5e1;
+  --color-fg-subtle: #94a3b8;
+  --color-border: #334155;
+  --color-border-strong: #475569;
+  --color-accent: #22c55e;
+  --color-accent-fg: #052e16;
+  --color-focus: #60a5fa;
+  --color-scrim: rgb(2 6 23 / 0.7);
+
+  --status-operational: #4ade80;
+  --status-degraded: #fbbf24;
+  --status-partial: #fb923c;
+  --status-down: #f87171;
+  --status-maintenance: #38bdf8;
+  --status-unknown: #94a3b8;
+
+  --status-operational-soft: #14532d;
+  --status-degraded-soft: #713f12;
+  --status-partial-soft: #7c2d12;
+  --status-down-soft: #7f1d1d;
+  --status-maintenance-soft: #075985;
+  --status-unknown-soft: #334155;
+
+  --shadow-card: 0 1px 2px rgb(0 0 0 / 0.3);
+  --shadow-sheet: 0 4px 12px rgb(0 0 0 / 0.4);
+  --shadow-modal: 0 20px 40px rgb(0 0 0 / 0.55);
+}
+
+/* ── Base ────────────────────────────────────────────────────────────────── */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  /* 16px minimum on mobile: anything smaller makes iOS zoom on focus. */
+  font-size: 100%;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  /* dvh, not vh: mobile browser chrome makes 100vh taller than the viewport. */
+  min-height: 100dvh;
+  background: var(--color-bg);
+  color: var(--color-fg);
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  line-height: var(--leading-normal);
+  -webkit-font-smoothing: antialiased;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+/* Interactive targets meet 44px without needing per-component reminders. */
+button,
+[role='button'],
+a.tern-target {
+  min-height: 44px;
+  min-width: 44px;
+  touch-action: manipulation;
+  cursor: pointer;
+}
+
+/* Numbers that update in place must not resize their column. */
+.tabular {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

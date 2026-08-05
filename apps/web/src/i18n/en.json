@@ -1,0 +1,63 @@
+{
+  "status": {
+    "operational": "Operational",
+    "degraded": "Degraded",
+    "partial": "Partial outage",
+    "down": "Major outage",
+    "maintenance": "Under maintenance",
+    "unknown": "No data"
+  },
+  "overall": {
+    "operational": "All systems operational",
+    "degraded": "Degraded performance",
+    "partial": "Partial outage — {{count}} component affected",
+    "partial_other": "Partial outage — {{count}} components affected",
+    "down": "Major outage — {{count}} component affected",
+    "down_other": "Major outage — {{count}} components affected",
+    "maintenance": "Maintenance in progress",
+    "unknown": "Status unavailable"
+  },
+  "page": {
+    "lastUpdated": "Updated {{when}}",
+    "uptimeWindow": "{{days}}-day uptime",
+    "live": "Live",
+    "offline": "Offline — showing the last known status from {{when}}",
+    "noData": "No data yet",
+    "noDataHint": "This component has not reported since it was created.",
+    "loadError": "Could not load status",
+    "retry": "Retry"
+  },
+  "chart": {
+    "uptimeRibbon": "Daily uptime over the last {{days}} days",
+    "latency": "Response time",
+    "p50": "median",
+    "p95": "95th percentile",
+    "p99": "99th percentile",
+    "today": "Today",
+    "noRecord": "No record"
+  },
+  "incident": {
+    "active": "Active incidents",
+    "past": "Past incidents",
+    "postmortem": "Postmortem",
+    "started": "Started {{when}}",
+    "resolved": "Resolved {{when}}",
+    "none": "No incidents reported in this period."
+  },
+  "maintenance": {
+    "upcoming": "Scheduled maintenance",
+    "window": "{{start}} → {{end}}"
+  },
+  "period": {
+    "24h": "24 hours",
+    "7d": "7 days",
+    "30d": "30 days",
+    "90d": "90 days",
+    "1y": "1 year"
+  },
+  "theme": {
+    "toggle": "Switch theme",
+    "light": "Light",
+    "dark": "Dark"
+  }
+}

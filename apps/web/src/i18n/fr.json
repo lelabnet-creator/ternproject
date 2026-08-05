@@ -1,0 +1,63 @@
+{
+  "status": {
+    "operational": "Opérationnel",
+    "degraded": "Dégradé",
+    "partial": "Panne partielle",
+    "down": "Panne majeure",
+    "maintenance": "En maintenance",
+    "unknown": "Aucune donnée"
+  },
+  "overall": {
+    "operational": "Tous les systèmes sont opérationnels",
+    "degraded": "Performances dégradées",
+    "partial": "Panne partielle — {{count}} composant affecté",
+    "partial_other": "Panne partielle — {{count}} composants affectés",
+    "down": "Panne majeure — {{count}} composant affecté",
+    "down_other": "Panne majeure — {{count}} composants affectés",
+    "maintenance": "Maintenance en cours",
+    "unknown": "Statut indisponible"
+  },
+  "page": {
+    "lastUpdated": "Mis à jour {{when}}",
+    "uptimeWindow": "Disponibilité sur {{days}} jours",
+    "live": "En direct",
+    "offline": "Hors ligne — dernier statut connu du {{when}}",
+    "noData": "Aucune donnée",
+    "noDataHint": "Ce composant n'a rien remonté depuis sa création.",
+    "loadError": "Impossible de charger le statut",
+    "retry": "Réessayer"
+  },
+  "chart": {
+    "uptimeRibbon": "Disponibilité quotidienne sur les {{days}} derniers jours",
+    "latency": "Temps de réponse",
+    "p50": "médiane",
+    "p95": "95e centile",
+    "p99": "99e centile",
+    "today": "Aujourd'hui",
+    "noRecord": "Aucun relevé"
+  },
+  "incident": {
+    "active": "Incidents en cours",
+    "past": "Incidents passés",
+    "postmortem": "Analyse post-incident",
+    "started": "Début {{when}}",
+    "resolved": "Résolu {{when}}",
+    "none": "Aucun incident signalé sur cette période."
+  },
+  "maintenance": {
+    "upcoming": "Maintenance planifiée",
+    "window": "{{start}} → {{end}}"
+  },
+  "period": {
+    "24h": "24 heures",
+    "7d": "7 jours",
+    "30d": "30 jours",
+    "90d": "90 jours",
+    "1y": "1 an"
+  },
+  "theme": {
+    "toggle": "Changer de thème",
+    "light": "Clair",
+    "dark": "Sombre"
+  }
+}
