@@ -1,0 +1,49 @@
+# Development stack for TERN.
+#
+# `docker compose up -d` gives you everything the app needs locally: a
+# TimescaleDB-enabled PostgreSQL and a mail catcher so notification work can be
+# verified without sending real email.
+
+name: tern
+
+services:
+  db:
+    image: timescale/timescaledb:2.17.2-pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: tern
+      POSTGRES_PASSWORD: tern
+      POSTGRES_DB: tern
+      # Deterministic ordering keeps seeded data and test assertions stable
+      # across machines.
+      LANG: C.UTF-8
+    command:
+      - postgres
+      - -c
+      - shared_preload_libraries=timescaledb
+      - -c
+      - timescaledb.telemetry_level=off
+    ports:
+      - '5432:5432'
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U tern -d tern']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+
+  # Catches every outgoing email. Web UI on http://localhost:8025 — this is how
+  # subscriber double opt-in and incident notifications get verified.
+  mailhog:
+    image: mailhog/mailhog:v1.0.1
+    restart: unless-stopped
+    ports:
+      - '1025:1025' # SMTP
+      - '8025:8025' # Web UI
+    logging:
+      driver: none
+
+volumes:
+  db-data:
