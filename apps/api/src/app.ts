@@ -1,0 +1,51 @@
+import Fastify, { type FastifyInstance } from 'fastify'
+import {
+  serializerCompiler,
+  validatorCompiler,
+  type ZodTypeProvider,
+} from 'fastify-type-provider-zod'
+import { config, isProduction } from './config.js'
+import contextPlugin from './plugins/context.js'
+import dbPlugin from './plugins/db.js'
+
+export async function buildApp(): Promise<FastifyInstance> {
+  const app = Fastify({
+    logger: {
+      level: config.LOG_LEVEL,
+      transport: isProduction ? undefined : { target: 'pino-pretty' },
+      // The bearer token, the session cookie and any probe auth header must
+      // never reach the log — a log file is not a place to store credentials.
+      redact: {
+        paths: ['req.headers.authorization', 'req.headers.cookie', 'res.headers["set-cookie"]'],
+        remove: true,
+      },
+    },
+    // Empty by default. Believing X-Forwarded-For from an untrusted source lets
+    // a caller pick its own IP, which would defeat both rate limiting and the
+    // per-tenant IP allowlist.
+    trustProxy: config.TRUSTED_PROXIES.length > 0 ? config.TRUSTED_PROXIES : false,
+  }).withTypeProvider<ZodTypeProvider>()
+
+  app.setValidatorCompiler(validatorCompiler)
+  app.setSerializerCompiler(serializerCompiler)
+
+  await app.register(import('@fastify/sensible'))
+  await app.register(import('@fastify/cookie'))
+  await app.register(import('@fastify/cors'), {
+    // Credentials travel in a cookie, so the origin cannot be a wildcard.
+    origin: config.PUBLIC_BASE_URL,
+    credentials: true,
+  })
+
+  await app.register(dbPlugin)
+  await app.register(contextPlugin)
+
+  app.get('/health', async () => {
+    await app.sql`SELECT 1`
+    return { status: 'ok' }
+  })
+
+  await app.register(import('./routes/auth.js'), { prefix: '/api/v1/auth' })
+
+  return app
+}

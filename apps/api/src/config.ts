@@ -56,8 +56,17 @@ const schema = z.object({
         .filter(Boolean),
     ),
 
+  /**
+   * Attempts per minute per IP on /auth/*. Ten is deliberately low: these are
+   * the endpoints an attacker actually reaches for, and a correct Argon2 verify
+   * is worth nothing if it can be attempted ten thousand times a minute.
+   */
+  AUTH_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(10),
+
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
-  LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
+  // `silent` is a real pino level, and the one tests want: an integration suite
+  // that prints a request log per assertion buries the failure that matters.
+  LOG_LEVEL: z.enum(['silent', 'fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
 })
 
 const parsed = schema.safeParse(process.env)
