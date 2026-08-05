@@ -39,6 +39,7 @@ export async function buildApp(): Promise<FastifyInstance> {
 
   await app.register(dbPlugin)
   await app.register(contextPlugin)
+  await app.register(import('./plugins/jobs.js'))
 
   app.get('/health', async () => {
     await app.sql`SELECT 1`

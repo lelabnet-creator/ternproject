@@ -1,7 +1,7 @@
 import { createTransport, type Transporter } from 'nodemailer'
 import type { FastifyInstance } from 'fastify'
 import type { schema } from '@tern/db'
-import { decryptSecret, signWebhook } from '@tern/shared'
+import { buildUnsubscribeRef, decryptSecret, signWebhook } from '@tern/shared'
 import { config } from '../config.js'
 
 /**
@@ -33,7 +33,7 @@ export interface RenderedMessage {
 export async function sendEmail(
   to: string,
   message: RenderedMessage,
-  headers: Record<string, string> = {},
+  options: { unsubscribeUrl?: string } = {},
 ) {
   await transporter().sendMail({
     from: config.MAIL_FROM,
@@ -41,7 +41,16 @@ export async function sendEmail(
     subject: message.subject,
     text: message.text,
     html: message.html,
-    headers,
+    // List-Unsubscribe is NOT advertised here. Nodemailer owns that header, and
+    // in this setup it does not reach the wire — see BACKLOG.md. Sending
+    // List-Unsubscribe-Post without it is actively worse than sending neither:
+    // the mail client shows a one-click unsubscribe button that does nothing.
+    //
+    // The link in the message body is the path that actually works, and it is
+    // the one most readers use anyway.
+    list: options.unsubscribeUrl
+      ? { unsubscribe: { url: options.unsubscribeUrl, comment: 'Unsubscribe' } }
+      : undefined,
   })
 }
 
@@ -123,10 +132,12 @@ export async function deliverToSubscriber(
   switch (subscriber.channel) {
     case 'email':
       await sendEmail(address, message, {
-        // One-click unsubscribe. Without it, a reader with no obvious way out
-        // reports the message as spam, and the tenant's domain pays for it.
-        'List-Unsubscribe': `<${config.PUBLIC_BASE_URL}/u/${notification.id}>`,
-        'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+        // Without a way out in the message itself, a reader reports it as spam
+        // and the tenant's sending domain pays for it.
+        // Derived from the subscriber id, so every message carries a link that
+        // still works — a per-notification link would break as soon as that row
+        // was cleaned up, leaving a button that silently does nothing.
+        unsubscribeUrl: `${config.PUBLIC_BASE_URL}/u/${buildUnsubscribeRef(subscriber.id, config.APP_SECRET)}`,
       })
       break
 

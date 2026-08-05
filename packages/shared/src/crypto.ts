@@ -114,6 +114,62 @@ export function blindIndex(value: string, appSecret: string): string {
   return createHmac('sha256', appSecret).update(value.trim().toLowerCase()).digest('hex')
 }
 
+/**
+ * A reproducible capability reference for a subscriber's unsubscribe link.
+ *
+ * Derived rather than stored: the plaintext issued at signup exists only in that
+ * one confirmation email, so a later notification cannot reproduce it. Deriving
+ * from the id lets every message carry a working link with nothing extra kept in
+ * the database and nothing guessable without APP_SECRET.
+ *
+ * Kept deliberately compact — the id as raw base64url bytes and the HMAC
+ * truncated to 128 bits — because the resulting URL goes in a List-Unsubscribe
+ * header. A long value there is silently dropped during header folding, which
+ * produced mail advertising one-click unsubscribe with no address to use.
+ * 128 bits is far beyond what an unguessable capability needs.
+ */
+const UNSUBSCRIBE_TOKEN_BYTES = 16
+
+function uuidToCompact(uuid: string): string {
+  return Buffer.from(uuid.replace(/-/g, ''), 'hex').toString('base64url')
+}
+
+function compactToUuid(compact: string): string | null {
+  const bytes = Buffer.from(compact, 'base64url')
+  if (bytes.length !== 16) return null
+  const hex = bytes.toString('hex')
+  return [
+    hex.slice(0, 8),
+    hex.slice(8, 12),
+    hex.slice(12, 16),
+    hex.slice(16, 20),
+    hex.slice(20),
+  ].join('-')
+}
+
+export function deriveUnsubscribeToken(subscriberId: string, appSecret: string): string {
+  return createHmac('sha256', appSecret)
+    .update(`unsubscribe:${subscriberId}`)
+    .digest()
+    .subarray(0, UNSUBSCRIBE_TOKEN_BYTES)
+    .toString('base64url')
+}
+
+export function buildUnsubscribeRef(subscriberId: string, appSecret: string): string {
+  return `${uuidToCompact(subscriberId)}${deriveUnsubscribeToken(subscriberId, appSecret)}`
+}
+
+/** Returns the subscriber id if the reference verifies, or null. */
+export function parseUnsubscribeRef(ref: string, appSecret: string): string | null {
+  // 16 bytes of id and 16 of token both encode to 22 base64url characters.
+  if (ref.length !== 44) return null
+
+  const id = compactToUuid(ref.slice(0, 22))
+  if (!id) return null
+
+  return constantTimeEqual(ref.slice(22), deriveUnsubscribeToken(id, appSecret)) ? id : null
+}
+
 // ── Webhook signatures ──────────────────────────────────────────────────────
 
 /**

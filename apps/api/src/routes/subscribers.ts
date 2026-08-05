@@ -2,7 +2,13 @@ import { and, eq } from 'drizzle-orm'
 import { z } from 'zod'
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod'
 import { schema } from '@tern/db'
-import { blindIndex, encryptSecret, generateToken, hashToken } from '@tern/shared'
+import {
+  blindIndex,
+  encryptSecret,
+  generateToken,
+  hashToken,
+  parseUnsubscribeRef,
+} from '@tern/shared'
 import { config } from '../config.js'
 import { audit } from '../services/audit.js'
 import { sendEmail } from '../services/transports.js'
@@ -173,9 +179,17 @@ const routes: FastifyPluginAsyncZod = async (app) => {
       },
     },
     async (req) => {
+      // Accepts both forms: the derived `<id>.<token>` reference carried by every
+      // notification, and the one-off token issued at signup.
+      const subscriberId = parseUnsubscribeRef(req.params.token, config.APP_SECRET)
+
       const deleted = await app.db
         .delete(schema.subscribers)
-        .where(eq(schema.subscribers.unsubscribeTokenHash, hashToken(req.params.token)))
+        .where(
+          subscriberId
+            ? eq(schema.subscribers.id, subscriberId)
+            : eq(schema.subscribers.unsubscribeTokenHash, hashToken(req.params.token)),
+        )
         .returning({ id: schema.subscribers.id, tenantId: schema.subscribers.tenantId })
 
       if (deleted.length > 0) {
