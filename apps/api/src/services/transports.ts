@@ -1,6 +1,6 @@
 import { createTransport, type Transporter } from 'nodemailer'
 import type { FastifyInstance } from 'fastify'
-import { schema } from '@tern/db'
+import type { schema } from '@tern/db'
 import { decryptSecret, signWebhook } from '@tern/shared'
 import { config } from '../config.js'
 
