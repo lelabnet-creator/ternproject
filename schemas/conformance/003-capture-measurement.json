@@ -1,0 +1,17 @@
+{
+  "name": "a captured JSONPath value becomes the control's measurement",
+  "why": "This is what lets a queue depth or session count be charted without writing any script. The value must survive even when the assertion itself passes.",
+  "assertions": [
+    {
+      "type": "json_path",
+      "severity": "degraded",
+      "path": "$.metrics.pending",
+      "comparator": "lt",
+      "value": 500,
+      "as": "number",
+      "capture": true
+    }
+  ],
+  "observation": { "statusCode": 200, "body": "{\"metrics\":{\"pending\":137}}" },
+  "expect": { "status": "operational", "value": 137, "failing": [] }
+}

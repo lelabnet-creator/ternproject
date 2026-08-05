@@ -1,3 +1,5 @@
 export * from './crypto.js'
 export * from './mock.js'
+export * from './probe.js'
+export * from './probe-runner.js'
 export * from './status.js'

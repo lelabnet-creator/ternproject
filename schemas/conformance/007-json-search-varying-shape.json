@@ -1,0 +1,18 @@
+{
+  "name": "json_search finds a value wherever it sits in the document",
+  "why": "Some health endpoints move fields between versions or between their success and error shapes. Searching by key rather than by fixed path is what keeps a probe working across an upgrade nobody announced.",
+  "assertions": [
+    {
+      "type": "json_search",
+      "severity": "down",
+      "key": "state",
+      "comparator": "eq",
+      "value": "healthy"
+    }
+  ],
+  "observation": {
+    "statusCode": 200,
+    "body": "{\"components\":[{\"name\":\"db\",\"state\":\"healthy\"},{\"name\":\"cache\",\"state\":\"healthy\"}]}"
+  },
+  "expect": { "status": "operational", "value": null, "failing": [] }
+}

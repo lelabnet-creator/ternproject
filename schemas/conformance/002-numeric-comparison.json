@@ -1,0 +1,17 @@
+{
+  "name": "ordering comparisons are numeric, never lexicographic",
+  "why": "A JSON body carrying \"9\" as a string must not read as greater than 10. String ordering here would silently stop a threshold from firing — the failure mode nobody notices until an outage goes unreported.",
+  "assertions": [
+    {
+      "type": "json_path",
+      "severity": "down",
+      "path": "$.queue.depth",
+      "comparator": "lt",
+      "value": 10,
+      "as": "number",
+      "capture": false
+    }
+  ],
+  "observation": { "statusCode": 200, "body": "{\"queue\":{\"depth\":\"9\"}}" },
+  "expect": { "status": "operational", "value": null, "failing": [] }
+}

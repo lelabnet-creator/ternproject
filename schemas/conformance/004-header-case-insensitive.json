@@ -1,0 +1,18 @@
+{
+  "name": "header names are matched case-insensitively",
+  "why": "HTTP header names are case-insensitive per RFC 9110. Comparing them literally is a bug that only appears against some servers, which makes it the kind of difference two implementations drift on silently.",
+  "assertions": [
+    {
+      "type": "header",
+      "severity": "down",
+      "name": "Content-Type",
+      "comparator": "contains",
+      "value": "application/json"
+    }
+  ],
+  "observation": {
+    "statusCode": 200,
+    "headers": { "content-type": "application/json; charset=utf-8" }
+  },
+  "expect": { "status": "operational", "value": null, "failing": [] }
+}

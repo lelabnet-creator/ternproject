@@ -1,0 +1,10 @@
+{
+  "name": "a failing down assertion outranks a failing degraded one",
+  "why": "Several assertions can fail at once. The reported status must be the worst, and the message must cite a down-severity failure rather than whichever assertion happened to be listed first.",
+  "assertions": [
+    { "type": "latency", "severity": "degraded", "comparator": "lt", "ms": 100 },
+    { "type": "status_code", "severity": "down", "eq": 200 }
+  ],
+  "observation": { "statusCode": 503, "latencyMs": 900 },
+  "expect": { "status": "down", "value": null, "failing": ["latency", "status_code"] }
+}

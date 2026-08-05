@@ -1,0 +1,11 @@
+{
+  "name": "status code in range, latency splits degraded from down",
+  "why": "The three-state model comes from per-assertion severity alone: a slow but working service is degraded, not down. This is the base case both implementations must agree on.",
+  "assertions": [
+    { "type": "status_code", "severity": "down", "in": [200, 204] },
+    { "type": "latency", "severity": "degraded", "comparator": "lt", "ms": 500 },
+    { "type": "latency", "severity": "down", "comparator": "lt", "ms": 3000 }
+  ],
+  "observation": { "statusCode": 200, "latencyMs": 820 },
+  "expect": { "status": "degraded", "value": null, "failing": ["latency"] }
+}

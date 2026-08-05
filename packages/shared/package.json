@@ -9,7 +9,8 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "gen:schema": "tsx src/gen-schema.ts"
   },
   "dependencies": {
     "@node-rs/argon2": "^2.0.2",

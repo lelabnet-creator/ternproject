@@ -1,0 +1,7 @@
+{
+  "name": "an invalid regex fails the assertion instead of crashing the probe",
+  "why": "Patterns come from users. An unbalanced bracket is a configuration mistake and must be reported as a failed check, not take down the probe run — and both implementations must choose the same side of that.",
+  "assertions": [{ "type": "body", "severity": "down", "comparator": "matches", "value": "ok[" }],
+  "observation": { "statusCode": 200, "body": "ok" },
+  "expect": { "status": "down", "value": null, "failing": ["body"] }
+}

@@ -1,0 +1,73 @@
+{
+  "$id": "https://tern.dev/schemas/probe-result.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": ["operational", "degraded", "partial", "down", "maintenance", "unknown"]
+    },
+    "latencyMs": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "value": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "message": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "assertions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string"
+          },
+          "passed": {
+            "type": "boolean"
+          },
+          "severity": {
+            "type": "string",
+            "enum": ["degraded", "down"]
+          },
+          "detail": {
+            "type": "string"
+          }
+        },
+        "required": ["type", "passed", "severity", "detail"]
+      }
+    },
+    "debug": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string"
+      },
+      "additionalProperties": {}
+    }
+  },
+  "required": ["status", "latencyMs", "value", "message", "assertions"]
+}

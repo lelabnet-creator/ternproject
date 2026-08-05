@@ -1,0 +1,10 @@
+{
+  "name": "an unreachable target short-circuits every assertion",
+  "why": "Assertions about a response that never arrived would report misleading detail such as \"expected 200, got undefined\". The transport error is the whole message.",
+  "assertions": [
+    { "type": "status_code", "severity": "down", "eq": 200 },
+    { "type": "latency", "severity": "degraded", "comparator": "lt", "ms": 500 }
+  ],
+  "observation": { "error": "connection refused" },
+  "expect": { "status": "down", "value": null, "failing": [] }
+}
