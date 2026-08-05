@@ -34,6 +34,7 @@
     "@types/node": "^22.15.3",
     "eslint": "^9.39.0",
     "eslint-config-prettier": "^10.1.5",
+    "playwright": "^1.62.1",
     "prettier": "^3.6.2",
     "tsx": "^4.20.3",
     "turbo": "^2.5.8",

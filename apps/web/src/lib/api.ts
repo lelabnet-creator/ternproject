@@ -1,0 +1,108 @@
+import type { CheckStatusValue } from '@tern/shared'
+
+/**
+ * Typed client for the public API.
+ *
+ * Hand-written rather than generated: the public surface is small, deliberately
+ * stable, and the point of writing the types out is that a change to the API
+ * shape breaks the build here instead of rendering a blank card at runtime.
+ */
+
+export interface StatusComponent {
+  id: string
+  key: string
+  name: string
+  description: string | null
+  groupId: string | null
+  status: CheckStatusValue
+  lastCheckAt: string | null
+  latencyMs: number | null
+  value: number | null
+  valueUnit: string | null
+  valueLabel: string | null
+  slaTarget: number | null
+}
+
+export interface StatusGroup {
+  id: string
+  parentId: string | null
+  name: string
+  position: number
+  status: CheckStatusValue
+}
+
+export interface StatusSummary {
+  tenant: {
+    slug: string
+    name: string
+    retentionMode: 'live' | 'historical'
+    retentionDays: number
+    defaultLocale: string
+    defaultTimezone: string
+    branding: Record<string, unknown>
+  }
+  overall: { status: CheckStatusValue; affectedCount: number }
+  groups: StatusGroup[]
+  components: StatusComponent[]
+  incidents: {
+    id: string
+    title: string
+    severity: string
+    status: string
+    startedAt: string
+    resolvedAt: string | null
+    impacts: { controlId: string; impact: string }[]
+  }[]
+  maintenances: {
+    id: string
+    title: string
+    status: string
+    scheduledStart: string
+    scheduledEnd: string
+    controlIds: string[]
+  }[]
+  generatedAt: string
+}
+
+export interface UptimeResponse {
+  period: string
+  days: {
+    controlId: string
+    day: string
+    uptimePct: number | null
+    samples: number
+    worstStatus: CheckStatusValue
+  }[]
+}
+
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message)
+    this.name = 'ApiError'
+  }
+}
+
+async function get<T>(path: string): Promise<T> {
+  const response = await fetch(path, {
+    // The session cookie has to travel for private tenants and viewer devices.
+    credentials: 'same-origin',
+    headers: { Accept: 'application/json' },
+  })
+
+  if (!response.ok) {
+    // A private tenant answers 404 by design, so the message must not claim the
+    // page does not exist — the caller decides how to phrase it.
+    throw new ApiError(`Request failed: ${response.status}`, response.status)
+  }
+
+  return (await response.json()) as T
+}
+
+export const api = {
+  summary: (slug: string) => get<StatusSummary>(`/api/v1/public/${slug}/summary.json`),
+  uptime: (slug: string, period: string) =>
+    get<UptimeResponse>(`/api/v1/public/${slug}/uptime.json?period=${period}`),
+}
