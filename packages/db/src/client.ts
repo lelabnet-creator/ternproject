@@ -16,17 +16,28 @@ export function databaseUrl(): string {
  * Opens a connection pool and returns both the Drizzle handle and the raw
  * client — migrations and the seed need the latter to run plain SQL, and
  * long-running processes need it to close cleanly on shutdown.
+ *
+ * Important when using the raw `sql` handle: Drizzle installs its own type
+ * parsers on the underlying client so it can map rows itself. A side effect is
+ * that raw queries get `timestamptz` back as a **string**, not a Date. Use
+ * `toDate()` below on any timestamp read through `sql` — calling
+ * `.toISOString()` on it otherwise throws, and only on the routes that happen
+ * to read a timestamp.
  */
 export function createDatabase(url: string = databaseUrl(), options: { max?: number } = {}) {
-  const sql = postgres(url, {
-    max: options.max ?? 10,
-    // Timestamps are stored with a timezone and rendered in the viewer's own
-    // zone; keeping the connection in UTC removes one place to get that wrong.
-    types: {},
-    onnotice: () => {},
-  })
+  const sql = postgres(url, { max: options.max ?? 10, onnotice: () => {} })
   const db = drizzle(sql, { schema, casing: 'snake_case' })
   return { db, sql }
 }
 
 export { schema }
+
+/**
+ * Normalises a timestamp coming out of a raw `sql` query.
+ *
+ * Drizzle's parsers make those arrive as strings; anything already a Date
+ * passes through untouched, so this is safe to apply on either path.
+ */
+export function toDate(value: Date | string): Date {
+  return value instanceof Date ? value : new Date(value)
+}
