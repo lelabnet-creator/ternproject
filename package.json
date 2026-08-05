@@ -1,0 +1,43 @@
+{
+  "name": "tern",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "TERN — multi-tenant IT service status pages, live or historized.",
+  "license": "AGPL-3.0-or-later",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/lelabnet-creator/ternproject.git"
+  },
+  "packageManager": "pnpm@10.34.5",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "turbo run dev --parallel",
+    "build": "turbo run build",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "typecheck": "turbo run typecheck",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "db:migrate": "pnpm -F @tern/db migrate",
+    "db:seed": "pnpm -F @tern/db seed",
+    "db:studio": "pnpm -F @tern/db studio",
+    "db:generate": "pnpm -F @tern/db generate"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.0",
+    "@types/node": "^22.15.3",
+    "eslint": "^9.39.0",
+    "eslint-config-prettier": "^10.1.5",
+    "prettier": "^3.6.2",
+    "tsx": "^4.20.3",
+    "turbo": "^2.5.8",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.46.0",
+    "vitest": "^3.2.4"
+  }
+}

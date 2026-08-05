@@ -1,0 +1,11 @@
+pnpm-lock.yaml
+LICENSE
+CLAUDE.md
+CONTEXT.md
+.claude/
+dist/
+build/
+.turbo/
+clients/agent/target/
+clients/examples/
+*.svg

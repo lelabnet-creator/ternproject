@@ -1,0 +1,33 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build output
+dist/
+build/
+.turbo/
+*.tsbuildinfo
+target/
+
+# Secrets — never commit
+.env
+.env.*
+!.env.example
+*.credentials
+*.pem
+*.key
+agent.toml
+!agent.example.toml
+
+# Local tooling state
+.dual-graph/
+CONTEXT.md.bak
+coverage/
+playwright-report/
+test-results/
+
+# Editors / OS
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
