@@ -128,7 +128,15 @@ export async function sendMaintenanceReminders(app: FastifyInstance): Promise<nu
  * is not the same claim as the service being broken. Reporting it as an outage
  * turns every agent restart into a public incident.
  */
-export async function sweepStaleControls(app: FastifyInstance): Promise<number> {
+export async function sweepStaleControls(
+  app: FastifyInstance,
+  /**
+   * Restricts the sweep to one tenant. Production runs it across all of them,
+   * but a test that sweeps globally writes rows into every other tenant's
+   * history — including the demo data someone is looking at.
+   */
+  tenantId?: string,
+): Promise<number> {
   const rows = await app.sql<{ id: string; tenant_id: string }[]>`
     SELECT c.id, c.tenant_id
       FROM controls c
@@ -139,6 +147,7 @@ export async function sweepStaleControls(app: FastifyInstance): Promise<number> 
          LIMIT 1
       ) last ON TRUE
      WHERE c.enabled
+       ${tenantId ? app.sql`AND c.tenant_id = ${tenantId}::uuid` : app.sql``}
        AND c.kind = 'push'
        AND c.expected_interval_s IS NOT NULL
        AND (last.ts IS NULL OR last.ts < now() - (c.expected_interval_s * 2 || ' seconds')::interval)

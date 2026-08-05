@@ -297,7 +297,7 @@ describe('stale control sweeper', () => {
       ts: new Date(Date.now() - 10 * 60_000),
     })
 
-    const swept = await sweepStaleControls(fx.app)
+    const swept = await sweepStaleControls(fx.app, fx.tenantId)
     expect(swept).toBeGreaterThanOrEqual(1)
 
     const [latest] = await fx.app.db
@@ -320,8 +320,8 @@ describe('stale control sweeper', () => {
   it('does not re-mark a control that is already unknown', async () => {
     // Otherwise every sweep appends another row for a control that has been
     // silent for months, and the table grows for no information gained.
-    const before = await sweepStaleControls(fx.app)
-    const after = await sweepStaleControls(fx.app)
+    const before = await sweepStaleControls(fx.app, fx.tenantId)
+    const after = await sweepStaleControls(fx.app, fx.tenantId)
     expect(after).toBeLessThanOrEqual(before)
   })
 })
