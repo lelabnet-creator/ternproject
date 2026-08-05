@@ -8,7 +8,11 @@ name: tern
 
 services:
   db:
-    image: timescale/timescaledb:2.17.2-pg16
+    # The -ha image rather than the slim one: it ships timescaledb_toolkit, and
+    # the latency bands need percentile aggregates that can be rolled up across
+    # buckets. Computing p95 from pre-aggregated min/avg/max is not possible, and
+    # scanning raw rows for a 1-year window defeats the point of aggregates.
+    image: timescale/timescaledb-ha:pg16
     restart: unless-stopped
     environment:
       POSTGRES_USER: tern
@@ -24,7 +28,10 @@ services:
       - -c
       - timescaledb.telemetry_level=off
     ports:
-      - '5432:5432'
+      # Host port 5433, not 5432: a developer machine very often already has a
+      # PostgreSQL on the default port, and a silent connection to the wrong
+      # server is a miserable thing to debug.
+      - '5433:5432'
     volumes:
       - db-data:/var/lib/postgresql/data
     healthcheck:
