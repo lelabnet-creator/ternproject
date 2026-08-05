@@ -49,6 +49,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(import('./routes/ingest.js'), { prefix: '/api/v1' })
   await app.register(import('./routes/agents.js'), { prefix: '/api/v1' })
   await app.register(import('./routes/status.js'), { prefix: '/api/v1' })
+  await app.register(import('./routes/incidents.js'), { prefix: '/api/v1' })
 
   return app
 }
