@@ -77,15 +77,25 @@
   --color-scrim: rgb(15 23 42 / 0.45);
 
   /*
-   * Status colours are chosen per theme so each keeps ≥4.5:1 against its own
-   * background, and so degraded and down stay distinguishable to a viewer with
-   * deuteranopia. Colour never carries the meaning alone — every status also
-   * renders an icon and a label.
+   * Status colours, chosen by running the palette validator rather than by eye.
+   *
+   * The first attempt put degraded at #b45309 and partial at #c2410c: ΔE 4.1 in
+   * *normal* vision — two states nobody could tell apart, colour vision or not.
+   * Nothing about that was visible by looking at swatches.
+   *
+   * The severity ladder (operational → degraded → partial → down) now clears
+   * both the CVD and the normal-vision separation floors. Amber #eab308 sits
+   * below 3:1 against a white surface, which is the deliberate trade: pulling it
+   * darker collapses the yellow/orange pair again. A green→yellow→orange→red arc
+   * on white cannot satisfy both floors at once, so separation wins and contrast
+   * is relieved the way the design already works — every status renders a Lucide
+   * icon and a text label, and ribbon cells carry a border so the cell is
+   * visible regardless of its fill.
    */
   --status-operational: #15803d;
-  --status-degraded: #b45309;
-  --status-partial: #c2410c;
-  --status-down: #b91c1c;
+  --status-degraded: #eab308;
+  --status-partial: #ea580c;
+  --status-down: #be123c;
   --status-maintenance: #0369a1;
   --status-unknown: #52525b;
 
@@ -93,7 +103,7 @@
   --status-operational-soft: #bbf7d0;
   --status-degraded-soft: #fde68a;
   --status-partial-soft: #fed7aa;
-  --status-down-soft: #fecaca;
+  --status-down-soft: #fecdd3;
   --status-maintenance-soft: #bae6fd;
   --status-unknown-soft: #e4e4e7;
 }
@@ -114,17 +124,19 @@
     --color-focus: #60a5fa;
     --color-scrim: rgb(2 6 23 / 0.7);
 
+    /* Re-stepped for the dark surface, not flipped from light: the validated
+       dark ladder clears CVD separation at ΔE 8.2 and normal vision at 17.7. */
     --status-operational: #4ade80;
-    --status-degraded: #fbbf24;
+    --status-degraded: #fde047;
     --status-partial: #fb923c;
-    --status-down: #f87171;
+    --status-down: #f43f5e;
     --status-maintenance: #38bdf8;
     --status-unknown: #94a3b8;
 
     --status-operational-soft: #14532d;
     --status-degraded-soft: #713f12;
     --status-partial-soft: #7c2d12;
-    --status-down-soft: #7f1d1d;
+    --status-down-soft: #881337;
     --status-maintenance-soft: #075985;
     --status-unknown-soft: #334155;
 
@@ -152,16 +164,16 @@
   --color-scrim: rgb(2 6 23 / 0.7);
 
   --status-operational: #4ade80;
-  --status-degraded: #fbbf24;
+  --status-degraded: #fde047;
   --status-partial: #fb923c;
-  --status-down: #f87171;
+  --status-down: #f43f5e;
   --status-maintenance: #38bdf8;
   --status-unknown: #94a3b8;
 
   --status-operational-soft: #14532d;
   --status-degraded-soft: #713f12;
   --status-partial-soft: #7c2d12;
-  --status-down-soft: #7f1d1d;
+  --status-down-soft: #881337;
   --status-maintenance-soft: #075985;
   --status-unknown-soft: #334155;
 
