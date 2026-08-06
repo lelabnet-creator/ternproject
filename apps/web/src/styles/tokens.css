@@ -596,3 +596,27 @@ a.tern-target {
 .card-grid > * {
   height: 100%;
 }
+
+/* ── Form actions ──────────────────────────────────────────────────────────
+ * Confirmation sits bottom-right, away from the control it confirms.
+ *
+ * Two reasons it is a class rather than a per-screen decision: a button flush
+ * against the field above it reads as part of that field, and a form whose
+ * action moves between screens makes people hunt for it. The separator makes
+ * the boundary explicit rather than relying on the gap alone.
+ */
+.form-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-3);
+  margin-top: var(--space-6);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--color-border);
+}
+
+/* Anything before the buttons — an "unsaved" note — sits at the far left, so
+   the action stays where the eye has learnt to find it. */
+.form-actions > :first-child:not(button) {
+  margin-right: auto;
+}

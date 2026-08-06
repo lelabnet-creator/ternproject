@@ -2,6 +2,10 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
 
+function apiTarget(): string {
+  return process.env.VITE_API_URL ?? 'http://localhost:3011'
+}
+
 export default defineConfig({
   plugins: [
     react(),
@@ -49,6 +53,18 @@ export default defineConfig({
         target: process.env.VITE_API_URL ?? 'http://localhost:3011',
         changeOrigin: true,
       },
+      /*
+       * Everything else the API serves outside `/api`, or the dev server hands
+       * back index.html and the caller gets a page where it expected a file.
+       *
+       * That is not cosmetic: `curl … /install.sh | sh` then pipes HTML into a
+       * shell, which fails with a syntax error that says nothing about the
+       * cause. Each of these is a real endpoint with a non-HTML body.
+       */
+      '/install.sh': { target: apiTarget(), changeOrigin: true },
+      '/install.ps1': { target: apiTarget(), changeOrigin: true },
+      '/badge': { target: apiTarget(), changeOrigin: true },
+      '/health': { target: apiTarget(), changeOrigin: true },
     },
   },
 })

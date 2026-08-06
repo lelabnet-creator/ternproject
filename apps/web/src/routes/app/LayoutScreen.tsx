@@ -255,7 +255,12 @@ export function LayoutScreen({ slug, canWrite }: { slug: string; canWrite: boole
       </Tabs>
 
       {canWrite && (
-        <div style={{ display: 'flex', gap: 'var(--space-3)', alignItems: 'center' }}>
+        <div className="form-actions">
+          {dirty && (
+            <span style={{ fontSize: 'var(--text-sm)', color: 'var(--color-fg-subtle)' }}>
+              Unsaved changes
+            </span>
+          )}
           <Button
             variant="primary"
             busy={save.isPending}
@@ -264,11 +269,6 @@ export function LayoutScreen({ slug, canWrite }: { slug: string; canWrite: boole
           >
             Save layout
           </Button>
-          {dirty && (
-            <span style={{ fontSize: 'var(--text-sm)', color: 'var(--color-fg-subtle)' }}>
-              Unsaved changes
-            </span>
-          )}
         </div>
       )}
     </section>

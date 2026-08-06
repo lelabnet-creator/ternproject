@@ -244,14 +244,12 @@ export function CapacityPanel({ slug, canWrite }: { slug: string; canWrite: bool
         )}
 
         {canWrite && (
-          <div
-            style={{
-              display: 'flex',
-              gap: 'var(--space-3)',
-              alignItems: 'center',
-              marginTop: 'var(--space-4)',
-            }}
-          >
+          <div className="form-actions">
+            {dirty && (
+              <span style={{ fontSize: 'var(--text-sm)', color: 'var(--color-fg-subtle)' }}>
+                Unsaved
+              </span>
+            )}
             <Button
               variant="primary"
               busy={save.isPending}
@@ -260,11 +258,6 @@ export function CapacityPanel({ slug, canWrite }: { slug: string; canWrite: bool
             >
               Save assumptions
             </Button>
-            {dirty && (
-              <span style={{ fontSize: 'var(--text-sm)', color: 'var(--color-fg-subtle)' }}>
-                Unsaved
-              </span>
-            )}
           </div>
         )}
 

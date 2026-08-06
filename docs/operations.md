@@ -67,6 +67,14 @@ left up by a dead API shows the last state it knew rather than going unknown.
 Behind a reverse proxy, forward the real client IP: rate limits, the audit log
 and IP allowlists all key on it.
 
+The API serves more than `/api`. Route these to it too, or the SPA's catch-all
+will answer them with HTML — and `curl … /install.sh | sh` then pipes a web page
+into a shell, which fails with a syntax error that says nothing about why:
+
+```
+/api/    /install.sh    /install.ps1    /badge/    /health
+```
+
 ## Backups
 
 One database. `pg_dump` is enough for everything except the hypertable's size at

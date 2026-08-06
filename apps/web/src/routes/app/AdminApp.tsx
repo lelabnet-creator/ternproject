@@ -204,6 +204,7 @@ function ControlsScreen({ slug, canWrite }: { slug: string; canWrite: boolean })
     queryFn: () => adminApi.controls(slug),
   })
   const [editing, setEditing] = useState<Control | 'new' | null>(null)
+  const [query, setQuery] = useState('')
 
   if (controls.isPending) return <Centered>Loading controls…</Centered>
   if (controls.isError) return <Banner tone="down">Could not load controls.</Banner>
@@ -221,6 +222,8 @@ function ControlsScreen({ slug, canWrite }: { slug: string; canWrite: boolean })
     )
   }
 
+  const matches = matching(controls.data, query)
+
   return (
     <section style={{ paddingTop: 'var(--space-6)' }}>
       <div
@@ -232,13 +235,46 @@ function ControlsScreen({ slug, canWrite }: { slug: string; canWrite: boolean })
           gap: 'var(--space-3)',
         }}
       >
-        <h1 style={{ margin: 0, fontSize: 'var(--text-xl)' }}>Controls</h1>
+        <div>
+          <h1 style={{ margin: 0, fontSize: 'var(--text-xl)' }}>Controls</h1>
+          {/* The count is only worth showing once it differs from the whole. */}
+          {query.trim() !== '' && (
+            <p
+              className="tabular"
+              style={{
+                margin: 'var(--space-1) 0 0',
+                fontSize: 'var(--text-sm)',
+                color: 'var(--color-fg-subtle)',
+              }}
+            >
+              {matches.length} of {controls.data.length}
+            </p>
+          )}
+        </div>
         {canWrite && (
           <Button variant="primary" onClick={() => setEditing('new')}>
             New control
           </Button>
         )}
       </div>
+
+      {/* Filtering happens in the browser: the whole list is already loaded, so
+          a round trip per keystroke would add latency to answer a question the
+          page can answer instantly. It stops being right somewhere past a few
+          hundred controls, which is where a server-side search earns its
+          complexity. */}
+      {controls.data.length > 0 && (
+        <div style={{ marginBottom: 'var(--space-4)', maxWidth: '30rem' }}>
+          <Field label="Find a control" hint="Matches the name, the key and the description.">
+            <Input
+              type="search"
+              value={query}
+              placeholder="api, cache, backup…"
+              onChange={(e) => setQuery(e.target.value)}
+            />
+          </Field>
+        </div>
+      )}
 
       {controls.data.length === 0 ? (
         <EmptyState
@@ -252,6 +288,14 @@ function ControlsScreen({ slug, canWrite }: { slug: string; canWrite: boolean })
             ) : undefined
           }
         />
+      ) : matches.length === 0 ? (
+        /* Distinct from "no controls yet": one is a state to fix, the other is
+           a search to change, and the same words for both would be wrong. */
+        <EmptyState
+          title={`Nothing matches “${query}”`}
+          hint="Names, keys and descriptions are searched."
+          action={<Button onClick={() => setQuery('')}>Clear the search</Button>}
+        />
       ) : (
         /*
          * A grid rather than a stack. Twenty controls in a single column on a
@@ -261,7 +305,7 @@ function ControlsScreen({ slug, canWrite }: { slug: string; canWrite: boolean })
          * column that has to be maintained.
          */
         <div className="card-grid">
-          {controls.data.map((control) => (
+          {matches.map((control) => (
             <ControlCard
               key={control.id}
               control={control}
@@ -273,6 +317,31 @@ function ControlsScreen({ slug, canWrite }: { slug: string; canWrite: boolean })
       )}
     </section>
   )
+}
+
+/**
+ * Substring match across the three things a control is known by.
+ *
+ * Case-insensitive and accent-insensitive, because a key is `db-eu-west` while
+ * its name might be "Base de données (Paris)" and someone typing "donnees"
+ * should find it. Every term must match somewhere, so "api paris" narrows
+ * rather than widens — the behaviour of every search box people already use.
+ */
+export function matching(controls: Control[], query: string): Control[] {
+  const terms = fold(query).split(/\s+/).filter(Boolean)
+  if (terms.length === 0) return controls
+
+  return controls.filter((control) => {
+    const haystack = fold(`${control.name} ${control.key} ${control.description ?? ''}`)
+    return terms.every((term) => haystack.includes(term))
+  })
+}
+
+function fold(value: string): string {
+  return value
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '')
 }
 
 function ControlCard({

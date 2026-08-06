@@ -201,7 +201,7 @@ function EmailPanel({ slug, canWrite }: { slug: string; canWrite: boolean }) {
             </label>
 
             {canWrite && (
-              <div>
+              <div className="form-actions">
                 <Button
                   variant="primary"
                   busy={save.isPending}
@@ -241,7 +241,7 @@ function EmailPanel({ slug, canWrite }: { slug: string; canWrite: boolean }) {
               placeholder="you@example.com"
             />
           </Field>
-          <div>
+          <div className="form-actions">
             <Button
               variant="primary"
               busy={test.isPending}
@@ -431,7 +431,7 @@ function OutboundPanel({ slug, canWrite }: { slug: string; canWrite: boolean }) 
                 placeholder="https://hooks.example.com/tern"
               />
             </Field>
-            <div>
+            <div className="form-actions">
               <Button
                 variant="primary"
                 busy={add.isPending}
@@ -641,7 +641,7 @@ function InboundPanel({ slug, canWrite }: { slug: string; canWrite: boolean }) {
                 </select>
               </Field>
             </div>
-            <div>
+            <div className="form-actions">
               <Button
                 variant="primary"
                 busy={create.isPending}
