@@ -34,3 +34,6 @@ test-results/
 
 # Rust
 clients/agent/target/
+
+# The prebuilt binaries are committed on purpose (see clients/agent/bin/README).
+!clients/agent/bin/

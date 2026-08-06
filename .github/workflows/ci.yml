@@ -212,6 +212,64 @@ jobs:
           path: clients/agent/dist/*
           if-no-files-found: error
 
+  collect:
+    name: Collect into clients/agent/bin
+    # Main only, and after every target has built: a half-populated bin/ is
+    # worse than none, because nothing says which half is current.
+    if: github.ref == 'refs/heads/main'
+    needs: binaries
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    # No two of these may run at once: both would commit to main and one would
+    # be rejected, or worse, land a mixed tree.
+    concurrency:
+      group: collect-binaries
+      cancel-in-progress: false
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # A token that can push back. The default GITHUB_TOKEN suffices
+          # because `contents: write` is requested above.
+          persist-credentials: true
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: /tmp/bins
+          pattern: tern-*
+          merge-multiple: true
+
+      - name: Place them
+        run: |
+          mkdir -p clients/agent/bin
+          # Replaced wholesale, not merged: a stale binary from a target that
+          # stopped building is the kind of thing nobody notices until they
+          # ship it.
+          rm -f clients/agent/bin/tern-* clients/agent/bin/SHA256SUMS
+          cp /tmp/bins/tern-* clients/agent/bin/
+          chmod +x clients/agent/bin/tern-* || true
+          cd clients/agent/bin && sha256sum tern-* > SHA256SUMS
+          ls -l
+
+      - name: Commit if anything changed
+        run: |
+          git config user.name  'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git add clients/agent/bin
+
+          if git diff --cached --quiet; then
+            echo 'Binaries are unchanged — nothing to commit.'
+            exit 0
+          fi
+
+          # [skip ci] or this commit triggers the workflow that produced it, for
+          # ever.
+          git commit -m "chore(agent): refresh prebuilt binaries [skip ci]
+
+          Built from ${GITHUB_SHA} by the Binaries job."
+          git push
+
   release:
     name: Release
     # Tags only. The binaries above are built on every push to main so a break
