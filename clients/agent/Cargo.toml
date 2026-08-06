@@ -9,6 +9,17 @@ license = "AGPL-3.0-or-later"
 description = "TERN status agent — runs declarative probes and pushes results."
 repository = "https://github.com/lelabnet-creator/ternproject"
 
+# Two binaries from one crate: the proxy reuses the agent's transport, queue and
+# job types rather than reimplementing them, which is what keeps the two ends of
+# the same protocol from drifting.
+[[bin]]
+name = "tern-agent"
+path = "src/main.rs"
+
+[[bin]]
+name = "tern-proxy"
+path = "src/bin/tern-proxy.rs"
+
 [dependencies]
 # rustls rather than native-tls: the point of this binary is that it drops onto
 # a host with no OpenSSL of the right vintage and simply runs.
@@ -31,6 +42,8 @@ socket2 = "0.6.5"
 tokio-rustls = "0.26.4"
 webpki-roots = "1.0.9"
 x509-parser = "0.18.1"
+axum = { version = "0.8.9", default-features = false, features = ["http1", "json", "tokio"] }
+sha2 = "0.10.9"
 
 [dev-dependencies]
 serde_json = "1"

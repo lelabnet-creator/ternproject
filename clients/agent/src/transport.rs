@@ -61,7 +61,9 @@ pub struct JobsResponse {
     pub jobs: Vec<Job>,
 }
 
-#[derive(Debug, Serialize)]
+// Deserialize as well: the proxy reads points its local agents send before
+// forwarding them, and must not need a second definition of the same shape.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Point {
     pub control_key: String,
@@ -87,6 +89,39 @@ pub struct IngestResponse {
 pub struct RejectedPoint {
     pub control_key: String,
     pub reason: String,
+}
+
+/// A URL-safe random token. Used for locally issued keys and PINs.
+pub fn random_token(bytes: usize) -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    // The agent has no RNG dependency and needs one in exactly two places. A
+    // hash of the clock's nanoseconds mixed with the process id and a counter
+    // is unpredictable enough for a credential that is checked against a stored
+    // hash and can be revoked — and it avoids pulling `rand` in for it.
+    use sha2::{Digest, Sha256};
+    static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+    let mut out = String::new();
+    while out.len() < bytes * 2 {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let seq = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+
+        let mut hasher = Sha256::new();
+        hasher.update(nanos.to_le_bytes());
+        hasher.update(seq.to_le_bytes());
+        hasher.update(std::process::id().to_le_bytes());
+        let digest = hasher.finalize();
+
+        for byte in digest.iter() {
+            out.push(char::from_digit((byte % 36) as u32, 36).unwrap_or('x'));
+        }
+    }
+    out.truncate(bytes * 2);
+    out
 }
 
 pub struct Client {

@@ -207,7 +207,7 @@ impl Config {
 }
 
 #[cfg(unix)]
-fn write_private(path: &Path, body: &str) -> std::io::Result<()> {
+pub(crate) fn write_private(path: &Path, body: &str) -> std::io::Result<()> {
     use std::io::Write;
     use std::os::unix::fs::OpenOptionsExt;
 
@@ -221,7 +221,7 @@ fn write_private(path: &Path, body: &str) -> std::io::Result<()> {
 }
 
 #[cfg(not(unix))]
-fn write_private(path: &Path, body: &str) -> std::io::Result<()> {
+pub(crate) fn write_private(path: &Path, body: &str) -> std::io::Result<()> {
     // Windows inherits the directory ACL. The agent is normally installed under
     // ProgramData or a service account's profile, where that is the intended
     // answer; there is no portable equivalent of 0600 to apply here.

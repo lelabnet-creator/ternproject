@@ -96,6 +96,27 @@ it does that the server cannot: real ICMP where the host permits it (falling bac
 and saying so, where it does not), and a bounded queue on disk so an unreachable server delays
 history rather than losing it.
 
+## Isolated networks
+
+`tern-proxy` relays for a zone with no route to the internet. It **speaks the same API as TERN**,
+so an agent pointed at a proxy is an ordinary agent — it pairs, asks for its jobs and pushes
+points, and nothing in its config says which end it is talking to.
+
+```sh
+# On the one host with egress:
+tern-proxy init --server https://status.example.com --pin 4K7Q-92XB --listen 0.0.0.0:8787
+tern-proxy run
+tern-proxy pin                    # mint a PIN for one agent in the zone
+
+# On an agent that can only reach the proxy:
+tern-agent pair --server http://proxy.internal:8787 --pin 72U1-3UK4
+```
+
+The upstream credential never enters the isolated zone: the proxy issues its own keys, so a
+compromised host in there cannot reach TERN directly, and revoking the proxy revokes the zone. It
+caches the assignment, so agents restarting during an upstream outage still get their jobs, and it
+buffers their points on disk and replays them when the link returns.
+
 ## Security
 
 Local login with Argon2id, TOTP MFA (mandatory for admins), opaque session cookies, per-tenant API

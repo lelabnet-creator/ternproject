@@ -8,5 +8,6 @@ pub mod config;
 pub mod doctor;
 pub mod probe;
 pub mod probe_transport;
+pub mod proxy;
 pub mod runner;
 pub mod transport;

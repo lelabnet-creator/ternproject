@@ -93,6 +93,34 @@ impl Queue {
         self.dropped
     }
 
+    /// The next `count` points, without removing them.
+    ///
+    /// Peek-then-drop rather than pop-then-send: a point removed before the
+    /// upstream accepted it is a point lost to a connection reset.
+    pub fn peek(&self, count: usize) -> Vec<Point> {
+        self.points.iter().take(count).map(Point::from).collect()
+    }
+
+    /// Removes what upstream has confirmed.
+    pub fn drop_front(&mut self, count: usize) {
+        self.points.drain(..count.min(self.points.len()));
+        self.persist();
+    }
+
+    /// Buffers points received from somewhere else — a proxy's local agents.
+    pub fn push_points(&mut self, points: &[Point]) {
+        for point in points {
+            self.push(QueuedPoint {
+                control_key: point.control_key.clone(),
+                status: point.status,
+                latency_ms: point.latency_ms,
+                value: point.value,
+                message: point.message.clone(),
+            });
+        }
+        self.persist();
+    }
+
     /// Throws away what is buffered, and says how much.
     ///
     /// Offered because the alternative an operator reaches for is deleting the
