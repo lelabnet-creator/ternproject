@@ -198,6 +198,7 @@ export async function applyRetention(app: FastifyInstance): Promise<number> {
       retentionMode: schema.tenants.retentionMode,
       retentionDays: schema.tenants.retentionDays,
       rawRetentionHours: schema.tenants.rawRetentionHours,
+      auditRetentionDays: schema.tenants.auditRetentionDays,
     })
     .from(schema.tenants)
 
@@ -215,6 +216,22 @@ export async function applyRetention(app: FastifyInstance): Promise<number> {
          AND ts < now() - (${hours} || ' hours')::interval
     `
     deleted += result.count ?? 0
+
+    /*
+     * The audit trail, on its own clock.
+     *
+     * Separate from measurement retention because they answer different
+     * questions and are kept for different reasons: a year of "who changed
+     * this" is small and legally useful, while a year of raw checks is large
+     * and superseded by the aggregates. Sharing one number would force one of
+     * them to be wrong.
+     */
+    const trail = await app.sql`
+      DELETE FROM audit_log
+       WHERE tenant_id = ${tenant.id}::uuid
+         AND ts < now() - (${tenant.auditRetentionDays} || ' days')::interval
+    `
+    deleted += trail.count ?? 0
   }
 
   return deleted

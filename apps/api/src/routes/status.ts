@@ -70,6 +70,8 @@ const routes: FastifyPluginAsyncZod = async (app) => {
               retentionDays: z.number(),
               defaultLocale: z.string(),
               defaultTimezone: z.string(),
+              /** Consent text for the subscribe form; null when unset. */
+              subscriberDisclaimer: z.string().nullable(),
               layout: z.enum(['list', 'grid', 'compact']),
               branding: z.record(z.string(), z.unknown()),
             }),
@@ -265,6 +267,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
           retentionDays: tenantRow.retentionDays,
           defaultLocale: tenantRow.defaultLocale,
           defaultTimezone: tenantRow.defaultTimezone,
+          subscriberDisclaimer: tenantRow.subscriberDisclaimer,
           layout: tenantRow.layout,
           branding: tenantRow.branding,
         },

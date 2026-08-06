@@ -64,6 +64,13 @@
       "when": 1786023587427,
       "tag": "0008_shallow_giant_man",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1786025043363,
+      "tag": "0009_flippant_maestro",
+      "breakpoints": true
     }
   ]
 }

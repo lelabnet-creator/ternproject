@@ -27,6 +27,7 @@ export function CapacityPanel({ slug, canWrite }: { slug: string; canWrite: bool
   })
 
   const [what, setWhat] = useState({ intervalS: 60, concurrentViewers: 20 })
+  const [audit, setAudit] = useState(365)
   const [dirty, setDirty] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -36,12 +37,14 @@ export function CapacityPanel({ slug, canWrite }: { slug: string; canWrite: bool
   useEffect(() => {
     if (settings.data) {
       setWhat(settings.data.sizingAssumptions)
+      setAudit(settings.data.auditRetentionDays)
       setDirty(false)
     }
   }, [settings.data])
 
   const save = useMutation({
-    mutationFn: () => adminApi.updateSettings(slug, { sizingAssumptions: what }),
+    mutationFn: () =>
+      adminApi.updateSettings(slug, { sizingAssumptions: what, auditRetentionDays: audit }),
     onSuccess: async () => {
       setError(null)
       setDirty(false)
@@ -141,6 +144,22 @@ export function CapacityPanel({ slug, canWrite }: { slug: string; canWrite: bool
               value={hypothetical.agents}
               onChange={(e) => setHypothetical({ ...hypothetical, agents: e.target.value })}
               placeholder={String(measured.agents)}
+            />
+          </Field>
+          <Field
+            label="Keep the audit trail for (days)"
+            hint="Older entries are deleted hourly. 30 minimum."
+          >
+            <Input
+              type="number"
+              min={30}
+              max={3650}
+              value={audit}
+              disabled={!canWrite}
+              onChange={(e) => {
+                setAudit(Number(e.target.value) || 365)
+                setDirty(true)
+              }}
             />
           </Field>
           <Field label="Probes per agent" hint={`Blank = measured (${measured.probes}).`}>
@@ -256,7 +275,7 @@ export function CapacityPanel({ slug, canWrite }: { slug: string; canWrite: bool
               disabled={!dirty}
               onClick={() => save.mutate()}
             >
-              Save assumptions
+              Save
             </Button>
           </div>
         )}

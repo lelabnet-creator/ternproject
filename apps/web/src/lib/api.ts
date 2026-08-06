@@ -41,6 +41,7 @@ export interface StatusSummary {
     retentionDays: number
     defaultLocale: string
     defaultTimezone: string
+    subscriberDisclaimer: string | null
     layout: 'list' | 'grid' | 'compact'
     branding: Record<string, unknown>
   }

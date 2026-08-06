@@ -76,6 +76,8 @@ export function StatusPage({ slug }: { slug: string }) {
     >
       <Header name={data.tenant.name} slug={slug} />
 
+      <Subscribe slug={slug} disclaimer={data.tenant.subscriberDisclaimer ?? null} />
+
       {!online && (
         <Banner tone="unknown">
           {t('page.offline', { when: formatTime(data.generatedAt, locale, timeZone) })}
@@ -102,7 +104,17 @@ export function StatusPage({ slug }: { slug: string }) {
       </section>
 
       {groupTree(data, preview.order).map(({ group, components }) => (
-        <section key={group?.id ?? 'ungrouped'} style={{ marginBottom: 'var(--space-8) ' }}>
+        <section
+          key={group?.id ?? 'ungrouped'}
+          style={{
+            marginBottom: 'var(--space-5)',
+            background: 'var(--color-surface)',
+            border: '1px solid var(--color-border)',
+            borderRadius: 'var(--radius-md)',
+            boxShadow: 'var(--shadow-card)',
+            padding: 'var(--space-4)',
+          }}
+        >
           {group && (
             <h2
               style={{
@@ -309,7 +321,7 @@ function Header({ name, slug }: { name: string; slug: string }) {
       }}
     >
       <h1 style={{ margin: 0, fontSize: 'var(--text-xl)', fontWeight: 600 }}>{name}</h1>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-4)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
         <AdminLink slug={slug} />
         <ThemeToggle />
       </div>
@@ -325,6 +337,195 @@ function Header({ name, slug }: { name: string; slug: string }) {
  * which is a request, a round trip and a fact about the reader, to save one
  * line of text.
  */
+/**
+ * Subscribing, in two channels and one form.
+ *
+ * A disclosure rather than a modal: a modal needs a focus trap, an escape route
+ * and a scrim to be correct, and this is one field. Closed by default because
+ * most visitors came to read a status, not to sign up for one.
+ */
+function Subscribe({ slug, disclaimer }: { slug: string; disclaimer: string | null }) {
+  const [open, setOpen] = useState(false)
+  const [channel, setChannel] = useState<'email' | 'webhook'>('email')
+  const [address, setAddress] = useState('')
+  const [state, setState] = useState<'idle' | 'sending' | 'done' | 'failed'>('idle')
+
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault()
+    setState('sending')
+    try {
+      const response = await fetch(`/api/v1/public/${slug}/subscribers`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ channel, address }),
+      })
+      setState(response.ok ? 'done' : 'failed')
+    } catch {
+      setState('failed')
+    }
+  }
+
+  return (
+    <section style={{ padding: 'var(--space-4) 0 0' }}>
+      {!open ? (
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          style={{
+            minHeight: 44,
+            padding: '0 var(--space-4)',
+            borderRadius: 'var(--radius-sm)',
+            border: '1px solid var(--color-border-strong)',
+            background: 'var(--color-surface)',
+            color: 'var(--color-fg)',
+            fontFamily: 'inherit',
+            fontSize: 'var(--text-sm)',
+            fontWeight: 600,
+            cursor: 'pointer',
+          }}
+        >
+          Subscribe to updates
+        </button>
+      ) : (
+        <div
+          style={{
+            background: 'var(--color-surface)',
+            border: '1px solid var(--color-border)',
+            borderRadius: 'var(--radius-md)',
+            padding: 'var(--space-4)',
+          }}
+        >
+          {state === 'done' ? (
+            <p style={{ margin: 0, fontSize: 'var(--text-sm)' }}>
+              {/* Both channels confirm before anything is sent, and the wording
+                  says where to look for that confirmation. */}
+              {channel === 'email'
+                ? 'Almost there — confirm from the message we just sent.'
+                : 'Almost there — your endpoint has received a confirmation link. Follow it to start receiving updates.'}
+            </p>
+          ) : (
+            <form onSubmit={submit} style={{ display: 'grid', gap: 'var(--space-3)' }}>
+              <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
+                {(
+                  [
+                    ['email', 'Email'],
+                    ['webhook', 'Webhook'],
+                  ] as const
+                ).map(([id, label]) => (
+                  <button
+                    key={id}
+                    type="button"
+                    role="radio"
+                    aria-checked={channel === id}
+                    onClick={() => setChannel(id)}
+                    style={{
+                      minHeight: 44,
+                      padding: '0 var(--space-4)',
+                      borderRadius: 'var(--radius-sm)',
+                      border: `1px solid ${channel === id ? 'var(--color-accent)' : 'var(--color-border)'}`,
+                      background: channel === id ? 'var(--color-accent-soft)' : 'transparent',
+                      color: channel === id ? 'var(--color-accent-ink)' : 'var(--color-fg-muted)',
+                      fontFamily: 'inherit',
+                      fontSize: 'var(--text-sm)',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+
+              <label style={{ display: 'grid', gap: 'var(--space-1)' }}>
+                <span style={{ fontSize: 'var(--text-sm)', fontWeight: 600 }}>
+                  {channel === 'email' ? 'Email address' : 'Endpoint URL'}
+                </span>
+                <input
+                  type={channel === 'email' ? 'email' : 'url'}
+                  required
+                  value={address}
+                  onChange={(e) => setAddress(e.target.value)}
+                  placeholder={
+                    channel === 'email' ? 'you@example.com' : 'https://hooks.example.com/status'
+                  }
+                  style={{
+                    background: 'var(--color-bg)',
+                    color: 'var(--color-fg)',
+                    border: '1px solid var(--color-border-strong)',
+                    borderRadius: 'var(--radius-sm)',
+                    padding: 'var(--space-2) var(--space-3)',
+                    fontSize: 'var(--text-base)',
+                    fontFamily: 'inherit',
+                    minHeight: 44,
+                  }}
+                />
+              </label>
+
+              {disclaimer && (
+                <p
+                  style={{
+                    margin: 0,
+                    fontSize: 'var(--text-xs)',
+                    color: 'var(--color-fg-subtle)',
+                  }}
+                >
+                  {disclaimer}
+                </p>
+              )}
+
+              {state === 'failed' && (
+                <p style={{ margin: 0, fontSize: 'var(--text-sm)', color: 'var(--status-down)' }}>
+                  That did not go through. Check the address and try again.
+                </p>
+              )}
+
+              <div style={{ display: 'flex', gap: 'var(--space-2)', justifyContent: 'flex-end' }}>
+                <button
+                  type="button"
+                  onClick={() => setOpen(false)}
+                  style={{
+                    minHeight: 44,
+                    padding: '0 var(--space-4)',
+                    borderRadius: 'var(--radius-sm)',
+                    border: '1px solid var(--color-border-strong)',
+                    background: 'transparent',
+                    color: 'var(--color-fg)',
+                    fontFamily: 'inherit',
+                    fontSize: 'var(--text-sm)',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={state === 'sending' || address.length < 3}
+                  style={{
+                    minHeight: 44,
+                    padding: '0 var(--space-5)',
+                    borderRadius: 'var(--radius-sm)',
+                    border: 0,
+                    background: 'var(--color-accent)',
+                    color: 'var(--color-accent-fg)',
+                    fontFamily: 'inherit',
+                    fontSize: 'var(--text-sm)',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    opacity: state === 'sending' || address.length < 3 ? 0.5 : 1,
+                  }}
+                >
+                  {state === 'sending' ? '…' : 'Subscribe'}
+                </button>
+              </div>
+            </form>
+          )}
+        </div>
+      )}
+    </section>
+  )
+}
+
 function AdminLink({ slug }: { slug: string }) {
   const { t } = useTranslation()
 

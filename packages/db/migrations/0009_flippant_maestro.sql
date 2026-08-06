@@ -1,0 +1,1 @@
+ALTER TABLE "tenants" ADD COLUMN "audit_retention_days" integer DEFAULT 365 NOT NULL;

@@ -41,6 +41,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
             retentionMode: z.enum(['live', 'historical']),
             retentionDays: z.number(),
             rawRetentionHours: z.number(),
+            auditRetentionDays: z.number(),
             defaultLocale: z.string(),
             defaultTimezone: z.string(),
             subscriberDisclaimer: z.string().nullable(),
@@ -98,6 +99,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
         retentionMode: tenant.retentionMode,
         retentionDays: tenant.retentionDays,
         rawRetentionHours: tenant.rawRetentionHours,
+        auditRetentionDays: tenant.auditRetentionDays,
         defaultLocale: tenant.defaultLocale,
         defaultTimezone: tenant.defaultTimezone,
         subscriberDisclaimer: tenant.subscriberDisclaimer,
@@ -139,6 +141,9 @@ const routes: FastifyPluginAsyncZod = async (app) => {
           retentionMode: z.enum(['live', 'historical']).optional(),
           retentionDays: z.number().int().min(7).max(730).optional(),
           rawRetentionHours: z.number().int().min(1).max(8760).optional(),
+          // 30 days is the floor: below that the trail stops covering the
+          // period an incident review actually looks back over.
+          auditRetentionDays: z.number().int().min(30).max(3650).optional(),
           defaultLocale: z.string().min(2).max(10).optional(),
           defaultTimezone: z.string().min(1).max(60).optional(),
           subscriberDisclaimer: z.string().max(2000).nullable().optional(),
@@ -182,6 +187,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
         'retentionMode',
         'retentionDays',
         'rawRetentionHours',
+        'auditRetentionDays',
         'defaultLocale',
         'defaultTimezone',
         'subscriberDisclaimer',

@@ -90,6 +90,15 @@ export const tenants = pgTable(
      * far end, because a log that only exists on a host you cannot reach during
      * an incident is not a log you have.
      */
+    /**
+     * How long the audit trail is kept, in days.
+     *
+     * A trail nobody prunes grows without bound and eventually becomes the
+     * largest table in the database for the least-read data in it. A year is
+     * the default because that is the usual horizon for "who changed this".
+     */
+    auditRetentionDays: integer().notNull().default(365),
+
     syslog: jsonb().$type<{
       host: string
       port: number

@@ -11,7 +11,7 @@ import {
 } from '@tern/shared'
 import { config } from '../config.js'
 import { audit } from '../services/audit.js'
-import { sendEmail } from '../services/transports.js'
+import { sendEmail, sendWebhook } from '../services/transports.js'
 
 /**
  * Subscriptions.
@@ -101,8 +101,36 @@ const routes: FastifyPluginAsyncZod = async (app) => {
         })
       }
 
+      const confirmUrl = `${config.PUBLIC_BASE_URL}/s/${tenant.slug}/confirm/${confirmToken}`
+
+      /*
+       * A webhook proves its own consent.
+       *
+       * Only the email branch used to deliver anything, so a webhook subscribed
+       * from the public page was created pending and stayed that way for ever —
+       * a subscription that silently never delivers. Whoever controls the
+       * endpoint receives the confirmation link and follows it, which is the
+       * same proof of ownership the email flow asks for.
+       */
+      if (req.body.channel === 'webhook') {
+        await sendWebhook(
+          address,
+          {
+            type: 'subscription.confirm',
+            tenant: tenant.slug,
+            confirmUrl,
+            message:
+              'Follow confirmUrl to start receiving status updates. Ignore this if you did not ask for it — nothing further will be sent.',
+          },
+          // Unsigned: there is no shared secret until the subscription exists,
+          // and this message carries nothing that is a secret to the recipient.
+          null,
+        ).catch((error: unknown) => {
+          app.log.warn({ err: error }, 'failed to deliver webhook confirmation')
+        })
+      }
+
       if (req.body.channel === 'email') {
-        const confirmUrl = `${config.PUBLIC_BASE_URL}/s/${tenant.slug}/confirm/${confirmToken}`
         await sendEmail(address, {
           subject: `Confirm your ${tenant.slug} status notifications`,
           text: `Confirm your subscription: ${confirmUrl}\n\nIf you did not request this, ignore this message — nothing further will be sent.`,

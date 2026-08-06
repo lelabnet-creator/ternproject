@@ -60,6 +60,7 @@ export interface TenantSettings {
   retentionMode: 'live' | 'historical'
   retentionDays: number
   rawRetentionHours: number
+  auditRetentionDays: number
   defaultLocale: string
   defaultTimezone: string
   subscriberDisclaimer: string | null
