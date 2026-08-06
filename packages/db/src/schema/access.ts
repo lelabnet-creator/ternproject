@@ -77,6 +77,14 @@ export const agents = pgTable(
     arch: text(),
     agentVersion: text(),
 
+    /**
+     * Where this agent is, in the operator's own words: a data centre, a
+     * customer site, a region. Free text rather than a foreign key to the
+     * control group tree — a fleet is organised by geography and ownership,
+     * which rarely matches how the status page is grouped.
+     */
+    site: text(),
+
     apiKeyId: uuid().references(() => apiKeys.id, { onDelete: 'set null' }),
     pairingCodeId: uuid().references(() => pairingCodes.id, { onDelete: 'set null' }),
 

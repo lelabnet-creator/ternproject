@@ -9,6 +9,7 @@ import { DEFAULT_WIDGET, resolveOptions, widgetById } from '../../charts/registr
 import type { CheckStatusValue } from '@tern/shared/status'
 import { api } from '../../lib/api'
 import { LayoutScreen } from './LayoutScreen'
+import { FleetScreen } from './FleetScreen'
 
 /**
  * The admin surface.
@@ -71,6 +72,8 @@ export function AdminApp({ slug }: { slug: string }) {
 
       {section === 'layout' ? (
         <LayoutScreen slug={slug} canWrite={membership.role === 'admin'} />
+      ) : section === 'agents' ? (
+        <FleetScreen slug={slug} canWrite={membership.role === 'admin'} />
       ) : (
         <ControlsScreen slug={slug} canWrite={membership.role === 'admin'} />
       )}
@@ -83,6 +86,7 @@ export function AdminApp({ slug }: { slug: string }) {
 const SECTIONS = [
   { id: 'controls', label: 'Controls' },
   { id: 'layout', label: 'Page layout' },
+  { id: 'agents', label: 'Agents' },
 ] as const
 
 type Section = (typeof SECTIONS)[number]['id']
@@ -95,17 +99,20 @@ type Section = (typeof SECTIONS)[number]['id']
  * browser's back button must work. That is `pushState` plus `popstate`, not a
  * piece of component state pretending to be a route.
  */
+function sectionFromPath(pathname: string, slug: string): Section {
+  const rest = pathname.replace(`/app/${slug}`, '').replace(/^\//, '')
+  return SECTIONS.find((s) => s.id === rest)?.id ?? 'controls'
+}
+
 function useSection(slug: string): [Section, (next: Section) => void] {
-  const read = (): Section =>
-    window.location.pathname.startsWith(`/app/${slug}/layout`) ? 'layout' : 'controls'
+  const read = (): Section => sectionFromPath(window.location.pathname, slug)
 
   const [section, setSection] = useState<Section>(read)
 
   useEffect(() => {
     // Re-read the path on popstate rather than closing over `read`, so the
     // listener has no stale slug and the effect needs no dependency on it.
-    const onPop = () =>
-      setSection(window.location.pathname.startsWith(`/app/${slug}/layout`) ? 'layout' : 'controls')
+    const onPop = () => setSection(sectionFromPath(window.location.pathname, slug))
     window.addEventListener('popstate', onPop)
     return () => window.removeEventListener('popstate', onPop)
   }, [slug])

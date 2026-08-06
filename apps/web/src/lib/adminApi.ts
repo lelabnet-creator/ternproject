@@ -53,6 +53,20 @@ export interface Control {
   position: number
 }
 
+export interface Agent {
+  id: string
+  name: string
+  hostname: string | null
+  os: string | null
+  arch: string | null
+  agentVersion: string | null
+  site: string | null
+  status: string
+  lastSeenAt: string | null
+  pairedAt: string
+  jobCount: number
+}
+
 export interface ScriptBundle {
   languages: { id: string; label: string; extension: string; syntax: string }[]
   scripts: Record<string, string>
@@ -129,10 +143,13 @@ export const adminApi = {
     body: { layout: 'list' | 'grid' | 'compact'; order: { controlId: string }[] },
   ) => request<{ ok: boolean; reordered: number }>('PATCH', `/api/v1/${slug}/layout`, body),
 
-  agents: (slug: string) =>
-    request<
-      { id: string; name: string; os: string | null; status: string; lastSeenAt: string | null }[]
-    >('GET', `/api/v1/${slug}/agents`),
+  agents: (slug: string) => request<Agent[]>('GET', `/api/v1/${slug}/agents`),
+
+  updateAgent: (slug: string, id: string, body: { name?: string; site?: string | null }) =>
+    request<{ ok: boolean }>('PATCH', `/api/v1/${slug}/agents/${id}`, body),
+
+  revokeAgent: (slug: string, id: string) =>
+    request<{ ok: boolean }>('DELETE', `/api/v1/${slug}/agents/${id}`),
 }
 
 export { ApiError }

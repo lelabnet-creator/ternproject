@@ -289,8 +289,12 @@ const routes: FastifyPluginAsyncZod = async (app) => {
               os: z.string().nullable(),
               arch: z.string().nullable(),
               agentVersion: z.string().nullable(),
+              site: z.string().nullable(),
               status: z.string(),
               lastSeenAt: z.string().nullable(),
+              pairedAt: z.string(),
+              /** How many probes this agent is assigned, from its key's scope. */
+              jobCount: z.number(),
             }),
           ),
         },
@@ -301,17 +305,99 @@ const routes: FastifyPluginAsyncZod = async (app) => {
         .select()
         .from(schema.agents)
         .where(eq(schema.agents.tenantId, req.tenant!.id))
+        // Ordered, because this screen refetches every half minute: rows that
+        // swap places under the pointer are how the wrong agent gets revoked.
+        .orderBy(schema.agents.createdAt)
 
-      return rows.map((row) => ({
-        id: row.id,
-        name: row.name,
-        hostname: row.hostname,
-        os: row.os,
-        arch: row.arch,
-        agentVersion: row.agentVersion,
-        status: row.status,
-        lastSeenAt: row.lastSeenAt?.toISOString() ?? null,
-      }))
+      // Probe controls once, then counted per agent from its key's scope —
+      // rather than a query per agent, which on a fleet screen is the shape
+      // that quietly turns into a hundred round trips.
+      const probeControls = await app.db
+        .select({ id: schema.controls.id })
+        .from(schema.controls)
+        .where(and(eq(schema.controls.tenantId, req.tenant!.id), eq(schema.controls.enabled, true)))
+      const probeIds = new Set(probeControls.map((c) => c.id))
+
+      const keys = await app.db
+        .select({ id: schema.apiKeys.id, scopeControlIds: schema.apiKeys.scopeControlIds })
+        .from(schema.apiKeys)
+        .where(eq(schema.apiKeys.tenantId, req.tenant!.id))
+      const scopeById = new Map(keys.map((k) => [k.id, k.scopeControlIds]))
+
+      return rows.map((row) => {
+        const scope = row.apiKeyId ? scopeById.get(row.apiKeyId) : undefined
+        const jobCount =
+          scope && scope.length > 0
+            ? scope.filter((id) => probeIds.has(id)).length
+            : probeControls.length
+
+        return {
+          id: row.id,
+          name: row.name,
+          hostname: row.hostname,
+          os: row.os,
+          arch: row.arch,
+          agentVersion: row.agentVersion,
+          site: row.site,
+          status: row.status,
+          lastSeenAt: row.lastSeenAt?.toISOString() ?? null,
+          pairedAt: row.createdAt.toISOString(),
+          jobCount: row.status === 'revoked' ? 0 : jobCount,
+        }
+      })
+    },
+  )
+
+  /**
+   * Naming and placing an agent.
+   *
+   * A fleet of thirty called `ip-10-0-4-17` is unreadable, and the hostname the
+   * machine reports is rarely the name the people running it use.
+   */
+  app.patch(
+    '/:slug/agents/:agentId',
+    {
+      onRequest: [app.requireTenant()],
+      preHandler: [app.requirePermission('agent:manage')],
+      schema: {
+        params: z.object({ slug: z.string(), agentId: z.string().uuid() }),
+        body: z.object({
+          name: z.string().min(1).max(120).optional(),
+          site: z.string().max(120).nullable().optional(),
+        }),
+        response: { 200: z.object({ ok: z.boolean() }) },
+      },
+    },
+    async (req) => {
+      const [agent] = await app.db
+        .select()
+        .from(schema.agents)
+        .where(
+          and(eq(schema.agents.id, req.params.agentId), eq(schema.agents.tenantId, req.tenant!.id)),
+        )
+        .limit(1)
+      if (!agent) throw app.httpErrors.notFound('Unknown agent')
+
+      await app.db
+        .update(schema.agents)
+        .set({
+          ...(req.body.name === undefined ? {} : { name: req.body.name }),
+          // An empty site clears it rather than storing a blank string, so the
+          // fleet view has one notion of "not placed".
+          ...(req.body.site === undefined ? {} : { site: req.body.site?.trim() || null }),
+        })
+        .where(eq(schema.agents.id, agent.id))
+
+      await audit(app, {
+        action: 'agent.updated',
+        tenantId: req.tenant!.id,
+        actorId: req.actor.userId,
+        target: agent.id,
+        meta: { name: req.body.name, site: req.body.site },
+        ip: req.ip,
+      })
+
+      return { ok: true }
     },
   )
 
