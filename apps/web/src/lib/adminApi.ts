@@ -99,6 +99,12 @@ export type TenantSettingsPatch = Partial<
     password?: string
     from: string
   } | null
+  /**
+   * Write-only, and only the first-run wizard sends it. It stamps a timestamp
+   * into branding rather than storing a boolean, so it has no counterpart in
+   * `TenantSettings` to be `Partial`'d out of.
+   */
+  setupCompleted?: boolean
 }
 
 export interface Agent {
@@ -154,6 +160,13 @@ export const adminApi = {
     }),
 
   logout: () => request<{ ok: boolean }>('POST', '/api/v1/auth/logout'),
+
+  /** Always resolves, for any address — the API refuses to say which exist. */
+  forgotPassword: (email: string) =>
+    request<{ sent: boolean }>('POST', '/api/v1/auth/password/forgot', { email }),
+
+  resetPassword: (token: string, newPassword: string) =>
+    request<{ ok: boolean }>('POST', '/api/v1/auth/password/reset', { token, newPassword }),
 
   controls: (slug: string) => request<Control[]>('GET', `/api/v1/${slug}/controls`),
 

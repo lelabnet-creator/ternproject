@@ -7,6 +7,7 @@ import { initI18n, resolveLocale } from './i18n'
 import { AdminApp } from './routes/app/AdminApp'
 import { LandingPage } from './routes/public/LandingPage'
 import { StatusPage } from './routes/public/StatusPage'
+import { ResetPasswordScreen } from './routes/app/ResetPasswordScreen'
 import './styles/tokens.css'
 
 /**
@@ -36,12 +37,19 @@ const queryClient = new QueryClient({
 const path = window.location.pathname
 const adminSlug = path.match(/^\/app\/([^/]+)/)?.[1]
 const publicSlug = path.match(/^\/s\/([^/]+)/)?.[1]
+// The reset link's token travels in the query string rather than the path: it
+// is a credential, and a path segment is what ends up in a referrer header and
+// in every proxy access log along the way.
+const resetToken =
+  path === '/reset-password' ? new URLSearchParams(window.location.search).get('token') : null
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <I18nextProvider i18n={i18n}>
       <QueryClientProvider client={queryClient}>
-        {adminSlug ? (
+        {resetToken ? (
+          <ResetPasswordScreen token={resetToken} />
+        ) : adminSlug ? (
           <AdminApp slug={adminSlug} />
         ) : publicSlug ? (
           <StatusPage slug={publicSlug} />

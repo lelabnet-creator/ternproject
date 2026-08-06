@@ -108,3 +108,43 @@ function escapeHtml(value: string): string {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
 }
+
+/**
+ * The password reset message.
+ *
+ * Written in the account's own language, and deliberately terse: the only two
+ * things it has to carry are the link and the fact that ignoring it is safe.
+ * No name, no tenant, no logo — this mail is sent to an address someone typed
+ * into a public form, and everything it says about the account is something an
+ * attacker learns for free.
+ */
+export function renderPasswordReset(locale: string, resetUrl: string, ttlMinutes: number) {
+  const fr = locale.startsWith('fr')
+
+  const subject = fr ? 'Réinitialiser votre mot de passe' : 'Reset your password'
+  const lead = fr
+    ? 'Quelqu’un a demandé la réinitialisation du mot de passe de ce compte TERN.'
+    : 'Someone asked to reset the password for this TERN account.'
+  const action = fr ? 'Choisir un nouveau mot de passe' : 'Choose a new password'
+  const expiry = fr
+    ? `Ce lien expire dans ${ttlMinutes} minutes et ne fonctionne qu’une fois.`
+    : `This link expires in ${ttlMinutes} minutes and works only once.`
+  const ignore = fr
+    ? 'Si vous n’êtes pas à l’origine de cette demande, ignorez ce message : votre mot de passe reste inchangé.'
+    : 'If you did not ask for this, ignore this message — your password is unchanged.'
+
+  const text = [lead, '', `${action}: ${resetUrl}`, '', expiry, '', ignore].join('\n')
+
+  // Same rules as the notification mail above: no images, no remote CSS, no
+  // tracking pixel. The URL is printed as well as linked, because a client that
+  // strips the anchor should still leave something the reader can copy.
+  const html = [
+    `<p>${escapeHtml(lead)}</p>`,
+    `<p><a href="${escapeHtml(resetUrl)}">${escapeHtml(action)}</a></p>`,
+    `<p style="font-size:12px;color:#666">${escapeHtml(resetUrl)}</p>`,
+    `<p>${escapeHtml(expiry)}</p>`,
+    `<p style="font-size:12px;color:#666">${escapeHtml(ignore)}</p>`,
+  ].join('\n')
+
+  return { subject, text, html }
+}

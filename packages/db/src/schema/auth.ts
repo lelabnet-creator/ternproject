@@ -88,6 +88,38 @@ export const sessions = pgTable(
   (t) => [index('sessions_user_idx').on(t.userId), index('sessions_expires_idx').on(t.expiresAt)],
 )
 
+/**
+ * Password reset tokens.
+ *
+ * A row per request rather than a column on the user, so an unused token from
+ * a previous attempt can be invalidated explicitly and the whole history stays
+ * auditable. Only the hash is stored: a database dump must not hand out the
+ * links needed to take over every account.
+ *
+ * `usedAt` rather than a delete on redemption — a reset that turns out to be
+ * an attack is a thing an administrator needs to be able to see afterwards.
+ */
+export const passwordResetTokens = pgTable(
+  'password_reset_tokens',
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    userId: uuid()
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    /** SHA-256 of the value in the emailed link. */
+    tokenHash: text().notNull().unique(),
+    expiresAt: timestamp({ withTimezone: true }).notNull(),
+    usedAt: timestamp({ withTimezone: true }),
+    /** Where the request came from, which is the only forensic value here. */
+    requestedIp: inet(),
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('password_reset_user_idx').on(t.userId),
+    index('password_reset_expires_idx').on(t.expiresAt),
+  ],
+)
+
 /** Append-only trail of who did what. Exportable as CSV by admins. */
 export const auditLog = pgTable(
   'audit_log',
