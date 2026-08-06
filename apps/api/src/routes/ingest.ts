@@ -15,16 +15,37 @@ import { authenticateApiKey, keyCoversControl, type ApiKeyContext } from '../ser
  * user and their first working check.
  */
 
-const pointSchema = z.object({
-  controlKey: z.string().min(1).max(200),
-  status: checkStatusSchema,
-  latencyMs: z.number().int().min(0).max(3_600_000).optional(),
-  value: z.number().finite().optional(),
-  message: z.string().max(2000).optional(),
-  /** Defaults to now. Accepted so a queued agent can report when it measured. */
-  ts: z.coerce.date().optional(),
-  meta: z.record(z.string(), z.unknown()).optional(),
-})
+const pointSchema = z
+  .object({
+    controlKey: z.string().min(1).max(200),
+    /**
+     * Optional when a `value` is sent.
+     *
+     * A control that reports a measurement — a queue depth, a session count —
+     * has no status to invent. Receiving the number is itself the evidence that
+     * the thing is reporting, so the point defaults to `operational` and the
+     * widget's own thresholds decide how it is drawn.
+     *
+     * Requiring a status here forced every measurement client to make one up,
+     * which is both busywork and an invitation to make it up wrongly.
+     */
+    status: checkStatusSchema.optional(),
+    latencyMs: z.number().int().min(0).max(3_600_000).optional(),
+    value: z.number().finite().optional(),
+    message: z.string().max(2000).optional(),
+    /** Defaults to now. Accepted so a queued agent can report when it measured. */
+    ts: z.coerce.date().optional(),
+    meta: z.record(z.string(), z.unknown()).optional(),
+  })
+  // One of the two must be present. A point carrying neither says nothing, and
+  // silently storing it as `operational` would invent a claim nobody made.
+  .refine((point) => point.status !== undefined || point.value !== undefined, {
+    message: 'Send a status, a value, or both',
+  })
+  .transform((point) => ({
+    ...point,
+    status: point.status ?? ('operational' as const),
+  }))
 
 const MAX_BATCH = 500
 

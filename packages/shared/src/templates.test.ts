@@ -30,6 +30,14 @@ describe('the set of templates', () => {
   })
 })
 
+const VALUE_CTX = {
+  ...CTX,
+  controlKey: 'queue-depth',
+  payloadShape: 'value' as const,
+  valueUnit: 'jobs',
+  valueLabel: 'Pending jobs',
+}
+
 describe('every rendered script', () => {
   const rendered = renderAllTemplates(CTX)
 
@@ -70,6 +78,33 @@ describe('every rendered script', () => {
       it('leaves a clearly marked place for the real check', () => {
         expect(script.toLowerCase()).toContain('replace with the real check')
       })
+    })
+  }
+})
+
+describe('the value payload shape', () => {
+  const rendered = renderAllTemplates(VALUE_CTX)
+
+  for (const template of SCRIPT_TEMPLATES) {
+    it(`${template.label} sends a measurement, not a status`, () => {
+      const script = rendered[template.id]!
+
+      // The whole point of the shape: choosing a numeric widget must produce a
+      // script that feeds it. A script that pushes only a status leaves the
+      // chart empty while reporting success.
+      expect(script, template.id).toMatch(/value/)
+      expect(script, template.id).toContain('queue-depth')
+
+      // The failure path still reports a status — a measurement that could not
+      // be taken is a control that is down, and saying nothing would leave the
+      // page showing the last good reading forever.
+      expect(script.toLowerCase(), template.id).toContain('down')
+    })
+
+    it(`${template.label} names the unit it is measuring`, () => {
+      // Otherwise the person editing `measure()` has to guess whether the
+      // number is jobs, seconds or bytes.
+      expect(rendered[template.id]!, template.id).toContain('Pending jobs')
     })
   }
 })
@@ -132,4 +167,24 @@ describe('syntactic validity', () => {
       }
     })
   }
+})
+
+describe('generated scripts declare only what they read', () => {
+  it('omits the latency thresholds from a value-shape script', () => {
+    // A degraded threshold sitting in a script that never classifies latency is
+    // an invitation to tune a number nothing consults.
+    const rendered = renderAllTemplates(VALUE_CTX)
+
+    for (const template of SCRIPT_TEMPLATES) {
+      expect(rendered[template.id]!.toLowerCase(), template.id).not.toMatch(/degraded[_ ]?ms/)
+    }
+  })
+
+  it('keeps them in a status-shape script, which classifies against them', () => {
+    const rendered = renderAllTemplates(CTX)
+
+    for (const template of SCRIPT_TEMPLATES) {
+      expect(rendered[template.id]!.toLowerCase(), template.id).toMatch(/degraded[_ ]?ms/)
+    }
+  })
 })

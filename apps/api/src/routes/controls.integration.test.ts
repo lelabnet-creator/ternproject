@@ -208,6 +208,36 @@ describe('script generation', () => {
     })
     expect(response.json().scripts.python).toContain('tern_YOUR_API_KEY')
   })
+
+  it('generates a measurement script when the control is drawn as a value', async () => {
+    // The widget chosen in the editor decides the payload. Without this, someone
+    // picks a bullet chart, copies the script it offers, gets 200s back, and
+    // watches an empty graph — the worst kind of failure, because everything
+    // reports success.
+    const created = await create({
+      key: `valued-${Date.now()}`,
+      widget: 'value-bullet',
+      valueUnit: 'jobs',
+      valueLabel: 'Pending jobs',
+    })
+
+    const response = await fx.app.inject({
+      method: 'GET',
+      url: `/api/v1/${fx.slug}/controls/${created.json().id}/scripts`,
+      headers: { cookie: adminCookie },
+    })
+    expect(response.statusCode).toBe(200)
+
+    const scripts = response.json().scripts as Record<string, string>
+    for (const [id, script] of Object.entries(scripts)) {
+      // Each language spells the field its own way (`payload.value`,
+      // `$payload.value`, `"value":`), so the assertion is on the field name.
+      // The value label is the discriminator: it appears only in this shape,
+      // so its presence proves the route passed the widget's shape through.
+      expect(script, id).toMatch(/\bvalue\b/)
+      expect(script, id).toContain('Pending jobs')
+    }
+  })
 })
 
 describe('probe dry run', () => {

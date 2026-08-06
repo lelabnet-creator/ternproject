@@ -109,3 +109,16 @@ describe('options', () => {
     expect(resolveOptions(widget, { warnAt: 50 })).toEqual({ warnAt: 50, limitAt: 400 })
   })
 })
+
+describe('payload shape agrees with the generator', () => {
+  it('matches what @tern/shared will produce for each widget', async () => {
+    // The API generates scripts from the shared map; the gallery previews from
+    // this registry. If they disagree, the editor shows one payload and the
+    // script sends another — and nobody finds out until the chart stays empty.
+    const { payloadShapeForWidget } = await import('@tern/shared/templates')
+
+    for (const widget of WIDGETS) {
+      expect(payloadShapeForWidget(widget.id), widget.id).toBe(widget.payloadShape)
+    }
+  })
+})

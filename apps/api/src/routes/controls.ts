@@ -2,7 +2,13 @@ import { and, eq } from 'drizzle-orm'
 import { z } from 'zod'
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod'
 import { schema } from '@tern/db'
-import { generateMockSeries, probeSchema, renderAllTemplates, SCRIPT_TEMPLATES } from '@tern/shared'
+import {
+  generateMockSeries,
+  payloadShapeForWidget,
+  probeSchema,
+  renderAllTemplates,
+  SCRIPT_TEMPLATES,
+} from '@tern/shared'
 import { config } from '../config.js'
 import { audit } from '../services/audit.js'
 import { runProbe } from '../services/probe-transport.js'
@@ -384,6 +390,12 @@ const routes: FastifyPluginAsyncZod = async (app) => {
         apiKey: req.query.apiKey ?? 'tern_YOUR_API_KEY',
         degradedMs: control.degradedThresholdMs ?? undefined,
         downMs: control.downThresholdMs ?? undefined,
+        // The widget decides what the script sends. Choosing a numeric chart
+        // and receiving a script that pushes only a status is how someone ends
+        // up with a working cron job and an empty graph.
+        payloadShape: payloadShapeForWidget(control.widget),
+        valueUnit: control.valueUnit ?? undefined,
+        valueLabel: control.valueLabel ?? undefined,
       })
 
       return {
