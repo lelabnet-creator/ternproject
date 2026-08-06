@@ -16,9 +16,19 @@ import { CapacityScreen } from './CapacityScreen'
 /**
  * The admin surface.
  *
- * One column, one primary action per screen, tables that become cards on a
- * phone. An outage is sometimes handled from a phone on a train, so nothing
- * here depends on a wide viewport.
+ * A rail on a wide screen, a row of tabs on a narrow one — one navigation, two
+ * shapes. Below 1024px the rail would eat a third of the width; above it, a
+ * horizontal tab strip wastes the height it sits in and pushes the work down
+ * the page.
+ *
+ * The content is no longer capped at 64rem. That cap made every screen a column
+ * down the middle of a 1440px display with two empty margins, and the screens
+ * that suffer most from it — the fleet, the layout editor, the capacity table —
+ * are exactly the ones with something to put there. Long prose still gets a
+ * measure, per screen, where a full-width paragraph would be unreadable.
+ *
+ * An outage is sometimes handled from a phone on a train, so nothing here
+ * depends on the wide case working.
  */
 export function AdminApp({ slug }: { slug: string }) {
   const me = useQuery({ queryKey: ['me'], queryFn: adminApi.me, retry: false })
@@ -36,53 +46,45 @@ export function AdminApp({ slug }: { slug: string }) {
     )
   }
 
+  const canWrite = membership.role === 'admin'
+
   return (
-    <div style={{ maxWidth: '64rem', margin: '0 auto', padding: 'var(--space-6) var(--space-4)' }}>
-      <header
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: 'var(--space-4)',
-          flexWrap: 'wrap',
-          paddingBottom: 'var(--space-4)',
-          borderBottom: '1px solid var(--color-border)',
-        }}
-      >
-        <div>
+    <div className="admin-shell">
+      <aside className="admin-rail">
+        <div className="admin-brand">
           <TernWordmark size={24} />
-          <p
-            style={{
-              margin: 'var(--space-1) 0 0',
-              fontSize: 'var(--text-sm)',
-              color: 'var(--color-fg-subtle)',
-            }}
-          >
-            {membership.name} · {membership.role}
+          <p className="admin-tenant">
+            {membership.name}
+            <span>{membership.role}</span>
           </p>
         </div>
-        <Button
-          onClick={() => {
-            void adminApi.logout().then(() => window.location.reload())
-          }}
-        >
-          Sign out
-        </Button>
-      </header>
 
-      <AdminNav slug={slug} section={section} onNavigate={setSection} />
+        <AdminNav slug={slug} section={section} onNavigate={setSection} />
 
-      {section === 'layout' ? (
-        <LayoutScreen slug={slug} canWrite={membership.role === 'admin'} />
-      ) : section === 'agents' ? (
-        <FleetScreen slug={slug} canWrite={membership.role === 'admin'} />
-      ) : section === 'notifications' ? (
-        <NotificationsScreen slug={slug} canWrite={membership.role === 'admin'} />
-      ) : section === 'capacity' ? (
-        <CapacityScreen slug={slug} />
-      ) : (
-        <ControlsScreen slug={slug} canWrite={membership.role === 'admin'} />
-      )}
+        <div className="admin-rail-foot">
+          <Button
+            onClick={() => {
+              void adminApi.logout().then(() => window.location.reload())
+            }}
+          >
+            Sign out
+          </Button>
+        </div>
+      </aside>
+
+      <main className="admin-main">
+        {section === 'layout' ? (
+          <LayoutScreen slug={slug} canWrite={canWrite} />
+        ) : section === 'agents' ? (
+          <FleetScreen slug={slug} canWrite={canWrite} />
+        ) : section === 'notifications' ? (
+          <NotificationsScreen slug={slug} canWrite={canWrite} />
+        ) : section === 'capacity' ? (
+          <CapacityScreen slug={slug} />
+        ) : (
+          <ControlsScreen slug={slug} canWrite={canWrite} />
+        )}
+      </main>
     </div>
   )
 }
@@ -143,15 +145,7 @@ function AdminNav({
   onNavigate: (next: Section) => void
 }) {
   return (
-    <nav
-      aria-label="Sections"
-      style={{
-        display: 'flex',
-        gap: 'var(--space-2)',
-        paddingTop: 'var(--space-4)',
-        flexWrap: 'wrap',
-      }}
-    >
+    <nav aria-label="Sections" className="admin-nav">
       {SECTIONS.map((entry) => {
         const current = entry.id === section
         return (
@@ -166,19 +160,7 @@ function AdminNav({
               onNavigate(entry.id)
             }}
             aria-current={current ? 'page' : undefined}
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              minHeight: 44,
-              padding: '0 var(--space-4)',
-              borderRadius: 'var(--radius-sm)',
-              border: `1px solid ${current ? 'var(--color-accent)' : 'var(--color-border)'}`,
-              background: current ? 'var(--color-surface-raised)' : 'transparent',
-              color: 'var(--color-fg)',
-              textDecoration: 'none',
-              fontSize: 'var(--text-sm)',
-              fontWeight: 600,
-            }}
+            className={current ? 'admin-nav-item is-current' : 'admin-nav-item'}
           >
             {entry.label}
           </a>

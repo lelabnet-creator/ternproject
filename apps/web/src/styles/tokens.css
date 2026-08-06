@@ -84,10 +84,30 @@
   --color-fg: #0f172a;
   --color-fg-muted: #475569; /* 7.4:1 on --color-surface */
   --color-fg-subtle: #64748b; /* 4.8:1 — the floor for secondary text */
-  --color-border: #e2e8f0;
-  --color-border-strong: #cbd5e1;
-  --color-accent: #15803d;
+  --color-border: #d8e0e8;
+  --color-border-strong: #b6c2ce;
+
+  /*
+   * ── The accent ──────────────────────────────────────────────────────────
+   * Violet, and the reason is measurable rather than aesthetic.
+   *
+   * It used to be #15803d — the *same hex* as `--status-operational`. Every
+   * primary button therefore rendered in the colour that means "this service is
+   * healthy", which is the exact collision the brand note above refuses for the
+   * coral. An accent must not be readable as a status.
+   *
+   * Chosen by measuring against every status colour rather than by eye. Worst
+   * pair in light mode is against `--status-maintenance`: ΔE 19.8 normal
+   * vision, 11.6 under deuteranopia — clear of the 15 floor and the 8 CVD
+   * floor. Green, teal and indigo were all tried and all failed at least one
+   * pair; the measurements are in the commit that introduced this.
+   *
+   * White on #7c3aed is 4.9:1, so it carries button text at any size.
+   */
+  --color-accent: #7c3aed;
   --color-accent-fg: #ffffff;
+  /** Tinted surface for a selected row or an active nav item. */
+  --color-accent-soft: #f1eafe;
   --color-focus: #2563eb;
   --color-scrim: rgb(15 23 42 / 0.45);
 
@@ -134,10 +154,13 @@
     --color-fg: #f8fafc;
     --color-fg-muted: #cbd5e1;
     --color-fg-subtle: #94a3b8;
-    --color-border: #334155;
-    --color-border-strong: #475569;
-    --color-accent: #22c55e;
-    --color-accent-fg: #052e16;
+    --color-border: #2e4c63;
+    --color-border-strong: #4a6b85;
+    /* Re-stepped for the dark surface, not lightened from the light value.
+       Worst pair here is 21.8 ΔE, against `--status-unknown`. */
+    --color-accent: #8b5cf6;
+    --color-accent-fg: #1a0b2e;
+    --color-accent-soft: #2a2050;
     --color-focus: #60a5fa;
     --color-scrim: rgb(2 6 23 / 0.7);
 
@@ -173,10 +196,11 @@
   --color-fg: #f8fafc;
   --color-fg-muted: #cbd5e1;
   --color-fg-subtle: #94a3b8;
-  --color-border: #334155;
-  --color-border-strong: #475569;
-  --color-accent: #22c55e;
-  --color-accent-fg: #052e16;
+  --color-border: #2e4c63;
+  --color-border-strong: #4a6b85;
+  --color-accent: #8b5cf6;
+  --color-accent-fg: #1a0b2e;
+  --color-accent-soft: #2a2050;
   --color-focus: #60a5fa;
   --color-scrim: rgb(2 6 23 / 0.7);
 
@@ -256,4 +280,189 @@ a.tern-target {
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
+}
+
+/* ── The admin shell ───────────────────────────────────────────────────────
+ *
+ * A rail beside the content on a wide screen, a strip of tabs above it on a
+ * narrow one. Written here rather than inline because it is the one piece of
+ * layout with a breakpoint in it, and a media query cannot live in a style
+ * attribute.
+ *
+ * The rail is sticky and scrolls independently: on the fleet screen the content
+ * is long, and navigation that scrolls away is navigation you have to scroll
+ * back for.
+ */
+.admin-shell {
+  display: grid;
+  /* minmax(0, …) rather than 1fr: a grid track sizes to its widest child by
+     default, so the scrollable tab strip pushed the whole page past the
+     viewport and gave a phone a horizontal scrollbar. */
+  grid-template-columns: minmax(0, 1fr);
+  min-height: 100dvh;
+}
+
+.admin-rail {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-4);
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface);
+}
+
+.admin-brand {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+.admin-tenant {
+  margin: 0;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--color-fg);
+  text-align: right;
+}
+
+.admin-tenant span {
+  display: block;
+  font-weight: 400;
+  font-size: var(--text-xs);
+  color: var(--color-fg-subtle);
+}
+
+.admin-rail-foot {
+  /* Visible in both shapes. Hiding sign-out below the breakpoint would leave a
+     phone with no way out of the session. */
+  display: block;
+  align-self: flex-start;
+}
+
+.admin-nav {
+  display: flex;
+  gap: var(--space-2);
+  overflow-x: auto;
+  /* The tab strip may scroll sideways on a phone; the page must not. */
+  scrollbar-width: none;
+}
+
+.admin-nav::-webkit-scrollbar {
+  display: none;
+}
+
+.admin-nav-item {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 var(--space-4);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  background: transparent;
+  color: var(--color-fg-muted);
+  text-decoration: none;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  white-space: nowrap;
+  transition:
+    background var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out);
+}
+
+.admin-nav-item:hover {
+  color: var(--color-fg);
+  border-color: var(--color-border-strong);
+}
+
+/* Current location by weight, colour *and* a solid edge — never colour alone. */
+.admin-nav-item.is-current {
+  color: var(--color-accent);
+  background: var(--color-accent-soft);
+  border-color: var(--color-accent);
+}
+
+.admin-main {
+  padding: var(--space-4) var(--space-4) var(--space-12);
+  min-width: 0;
+}
+
+@media (min-width: 64rem) {
+  .admin-shell {
+    grid-template-columns: 16rem minmax(0, 1fr);
+  }
+
+  .admin-rail {
+    position: sticky;
+    top: 0;
+    height: 100dvh;
+    border-bottom: 0;
+    border-right: 1px solid var(--color-border);
+    padding: var(--space-6) var(--space-4);
+    overflow-y: auto;
+  }
+
+  .admin-brand {
+    display: block;
+  }
+
+  .admin-tenant {
+    text-align: left;
+    margin-top: var(--space-2);
+  }
+
+  .admin-nav {
+    flex-direction: column;
+    overflow: visible;
+  }
+
+  .admin-nav-item {
+    /* A rail item earns a left edge rather than a full outline: a column of
+       boxes reads as a list of buttons, not as one navigation. */
+    border: 0;
+    border-left: 3px solid transparent;
+    border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+    padding-left: var(--space-3);
+  }
+
+  .admin-nav-item.is-current {
+    border-left-color: var(--color-accent);
+  }
+
+  .admin-rail-foot {
+    margin-top: auto;
+  }
+
+  .admin-main {
+    padding: var(--space-6) var(--space-6) var(--space-12);
+  }
+}
+
+/*
+ * Two columns where there is room for two: a picture that only makes sense
+ * beside its list should not push the list below the fold on a 1440px display.
+ * The picture sticks; the list scrolls past it.
+ */
+.split {
+  display: grid;
+  gap: var(--space-4);
+  align-items: start;
+}
+
+@media (min-width: 64rem) {
+  .split {
+    grid-template-columns: minmax(0, 22rem) minmax(0, 1fr);
+  }
+
+  .split-aside {
+    position: sticky;
+    top: var(--space-6);
+  }
+}
+
+/* Prose keeps a measure even when its container does not: a full-width
+   paragraph on a 1440px display is unreadable however much space there is. */
+.measure {
+  max-width: 68ch;
 }

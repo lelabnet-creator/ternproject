@@ -48,15 +48,18 @@ export function FleetScreen({ slug, canWrite }: { slug: string; canWrite: boolea
           hint="Open a control, go to its Script step and choose the Agent tab. Pairing hands the agent its probes — there is nothing to copy."
         />
       ) : (
-        <>
-          <Card>
-            <AgentGalaxy
-              agents={agents.data}
-              now={now}
-              selectedId={selected}
-              onSelect={setSelected}
-            />
-          </Card>
+        <div className="split">
+          <div className="split-aside">
+            <Card>
+              <AgentGalaxy
+                agents={agents.data}
+                now={now}
+                size={320}
+                selectedId={selected}
+                onSelect={setSelected}
+              />
+            </Card>
+          </div>
 
           <div style={{ display: 'grid', gap: 'var(--space-2)' }}>
             {agents.data.map((agent) => (
@@ -71,7 +74,7 @@ export function FleetScreen({ slug, canWrite }: { slug: string; canWrite: boolea
               />
             ))}
           </div>
-        </>
+        </div>
       )}
     </section>
   )
