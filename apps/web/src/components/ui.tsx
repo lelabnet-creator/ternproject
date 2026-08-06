@@ -1,0 +1,215 @@
+import type { CSSProperties, ReactNode } from 'react'
+
+/**
+ * The small set of primitives every admin screen is built from.
+ *
+ * Deliberately minimal and token-driven: a status page's admin is a handful of
+ * forms and tables, and pulling in a component library for that is more
+ * surface than the product has.
+ */
+
+export function Card({ children, style }: { children: ReactNode; style?: CSSProperties }) {
+  return (
+    <div
+      style={{
+        background: 'var(--color-surface)',
+        border: '1px solid var(--color-border)',
+        borderRadius: 'var(--radius-md)',
+        padding: 'var(--space-4)',
+        boxShadow: 'var(--shadow-card)',
+        ...style,
+      }}
+    >
+      {children}
+    </div>
+  )
+}
+
+export function Button({
+  children,
+  onClick,
+  variant = 'secondary',
+  type = 'button',
+  disabled,
+  busy,
+}: {
+  children: ReactNode
+  onClick?: () => void
+  variant?: 'primary' | 'secondary' | 'danger'
+  type?: 'button' | 'submit'
+  disabled?: boolean
+  busy?: boolean
+}) {
+  const palette = {
+    primary: { bg: 'var(--color-accent)', fg: 'var(--color-accent-fg)', border: 'transparent' },
+    secondary: { bg: 'transparent', fg: 'var(--color-fg)', border: 'var(--color-border-strong)' },
+    danger: { bg: 'transparent', fg: 'var(--status-down)', border: 'var(--status-down)' },
+  }[variant]
+
+  return (
+    <button
+      type={type}
+      onClick={onClick}
+      // Busy counts as disabled: a second click on a submitting form is the
+      // classic way to create two of something.
+      disabled={disabled || busy}
+      aria-busy={busy}
+      style={{
+        background: palette.bg,
+        color: palette.fg,
+        border: `1px solid ${palette.border}`,
+        borderRadius: 'var(--radius-sm)',
+        padding: '0 var(--space-4)',
+        fontSize: 'var(--text-sm)',
+        fontWeight: 600,
+        fontFamily: 'inherit',
+        opacity: disabled || busy ? 0.5 : 1,
+        cursor: disabled || busy ? 'not-allowed' : 'pointer',
+        transition: 'opacity var(--duration-fast) var(--ease-out)',
+      }}
+    >
+      {busy ? '…' : children}
+    </button>
+  )
+}
+
+export function Field({
+  label,
+  hint,
+  error,
+  children,
+}: {
+  label: string
+  hint?: string
+  error?: string
+  children: ReactNode
+}) {
+  return (
+    <label style={{ display: 'grid', gap: 'var(--space-1)' }}>
+      {/* A visible label, never a placeholder standing in for one: the
+          placeholder disappears the moment someone starts typing. */}
+      <span style={{ fontSize: 'var(--text-sm)', fontWeight: 600 }}>{label}</span>
+      {children}
+      {hint && !error && (
+        <span style={{ fontSize: 'var(--text-xs)', color: 'var(--color-fg-subtle)' }}>{hint}</span>
+      )}
+      {error && (
+        // Beside the field it belongs to, and announced — an error summary at
+        // the top of a long form is a scavenger hunt.
+        <span
+          role="alert"
+          style={{ fontSize: 'var(--text-xs)', color: 'var(--status-down)', fontWeight: 600 }}
+        >
+          {error}
+        </span>
+      )}
+    </label>
+  )
+}
+
+export function Input(props: React.InputHTMLAttributes<HTMLInputElement>) {
+  return (
+    <input
+      {...props}
+      style={{
+        background: 'var(--color-bg)',
+        color: 'var(--color-fg)',
+        border: '1px solid var(--color-border-strong)',
+        borderRadius: 'var(--radius-sm)',
+        padding: 'var(--space-2) var(--space-3)',
+        // 16px minimum, or iOS zooms the whole page on focus.
+        fontSize: 'var(--text-base)',
+        fontFamily: 'inherit',
+        minHeight: 44,
+        width: '100%',
+        ...props.style,
+      }}
+    />
+  )
+}
+
+export function Banner({
+  tone,
+  children,
+}: {
+  tone: 'operational' | 'degraded' | 'down' | 'maintenance'
+  children: ReactNode
+}) {
+  return (
+    <div
+      role={tone === 'down' ? 'alert' : 'status'}
+      style={{
+        padding: 'var(--space-3) var(--space-4)',
+        borderRadius: 'var(--radius-sm)',
+        background: `var(--status-${tone}-soft)`,
+        borderLeft: `3px solid var(--status-${tone})`,
+        color: 'var(--color-fg)',
+        fontSize: 'var(--text-sm)',
+      }}
+    >
+      {children}
+    </div>
+  )
+}
+
+/** Monospace block for generated scripts and PINs. */
+export function CodeBlock({ children, label }: { children: string; label?: string }) {
+  return (
+    <div style={{ position: 'relative' }}>
+      {label && (
+        <div
+          style={{
+            fontSize: 'var(--text-xs)',
+            color: 'var(--color-fg-subtle)',
+            marginBottom: 'var(--space-1)',
+          }}
+        >
+          {label}
+        </div>
+      )}
+      <pre
+        style={{
+          margin: 0,
+          padding: 'var(--space-3)',
+          background: 'var(--color-bg)',
+          border: '1px solid var(--color-border)',
+          borderRadius: 'var(--radius-sm)',
+          fontFamily: 'var(--font-mono)',
+          fontSize: 'var(--text-xs)',
+          lineHeight: 1.5,
+          // Wide content scrolls inside its own box; the page must never
+          // scroll sideways.
+          overflowX: 'auto',
+          maxHeight: '28rem',
+        }}
+      >
+        <code>{children}</code>
+      </pre>
+    </div>
+  )
+}
+
+export function EmptyState({
+  title,
+  hint,
+  action,
+}: {
+  title: string
+  hint?: string
+  action?: ReactNode
+}) {
+  return (
+    <div
+      style={{
+        textAlign: 'center',
+        padding: 'var(--space-12) var(--space-4)',
+        color: 'var(--color-fg-subtle)',
+      }}
+    >
+      <p style={{ margin: 0, fontWeight: 600, color: 'var(--color-fg-muted)' }}>{title}</p>
+      {/* An empty state says what to do next, not just that there is nothing. */}
+      {hint && <p style={{ margin: 'var(--space-2) 0 var(--space-4)' }}>{hint}</p>}
+      {action}
+    </div>
+  )
+}
