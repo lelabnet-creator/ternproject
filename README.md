@@ -109,6 +109,9 @@ schemas/      probe.schema.json + cross-language conformance fixtures
 
 ## The agent
 
+Binaries for Linux (x86_64 and arm64, musl), macOS (Apple silicon and Intel) and Windows are built
+on every push to `main` and attached to each `v*` tag, with a single `SHA256SUMS` beside them.
+
 One binary, three commands. It pairs with a PIN generated in the admin, writes its own config with
 owner-only permissions, and runs the probes in it on a schedule.
 

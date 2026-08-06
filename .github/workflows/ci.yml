@@ -130,41 +130,119 @@ jobs:
       - name: Test and conformance
         run: cargo test
 
-  cross-build:
-    name: Cross-compile
-    runs-on: ubuntu-latest
-    # Only on main: building five targets on every pull request costs minutes
-    # nobody is waiting for, and a broken cross-build never reaches a release
-    # without passing here first.
-    if: github.ref == 'refs/heads/main'
+  binaries:
+    name: Binaries
+    # Only on main: five targets on every pull request costs minutes nobody is
+    # waiting for, and a broken cross-build never reaches a release without
+    # passing here first.
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
     needs: rust
+
+    runs-on: ${{ matrix.os }}
 
     strategy:
       fail-fast: false
       matrix:
-        target:
-          - x86_64-unknown-linux-musl
-          - aarch64-unknown-linux-musl
+        include:
+          # Linux is built against musl so one binary runs on any distribution,
+          # including the minimal container images agents are often installed in
+          # — a glibc build fails on Alpine at exactly the wrong moment.
+          - target: x86_64-unknown-linux-musl
+            os: ubuntu-latest
+            cross: true
+          - target: aarch64-unknown-linux-musl
+            os: ubuntu-latest
+            cross: true
+
+          # macOS on its own runner rather than through cross: linking against
+          # the Apple SDK from Linux needs a toolchain nobody should have to
+          # reproduce, and the runner already has it.
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            cross: false
+          - target: x86_64-apple-darwin
+            os: macos-latest
+            cross: false
+
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            cross: false
+            suffix: .exe
 
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: clients/agent
+          key: ${{ matrix.target }}
 
       - name: Install cross
+        if: matrix.cross
         run: cargo install cross --locked --version 0.2.5
 
       - name: Build ${{ matrix.target }}
         working-directory: clients/agent
-        run: cross build --release --target ${{ matrix.target }}
+        shell: bash
+        run: |
+          if [ "${{ matrix.cross }}" = "true" ]; then
+            cross build --release --locked --target ${{ matrix.target }}
+          else
+            cargo build --release --locked --target ${{ matrix.target }}
+          fi
+
+      # Both binaries, not just the agent: a release that ships tern-agent and
+      # leaves tern-proxy behind is one an isolated network cannot install.
+      - name: Collect
+        working-directory: clients/agent
+        shell: bash
+        run: |
+          mkdir -p dist
+          for bin in tern-agent tern-proxy; do
+            cp "target/${{ matrix.target }}/release/$bin${{ matrix.suffix }}" \
+               "dist/$bin-${{ matrix.target }}${{ matrix.suffix }}"
+          done
+          ls -l dist
 
       - uses: actions/upload-artifact@v4
         with:
-          name: tern-agent-${{ matrix.target }}
-          path: clients/agent/target/${{ matrix.target }}/release/tern-agent
+          name: tern-${{ matrix.target }}
+          path: clients/agent/dist/*
           if-no-files-found: error
+
+  release:
+    name: Release
+    # Tags only. The binaries above are built on every push to main so a break
+    # is caught immediately; publishing them is a separate, deliberate act.
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: binaries
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          pattern: tern-*
+          merge-multiple: true
+
+      - name: Checksums
+        working-directory: artifacts
+        run: |
+          chmod +x tern-* 2>/dev/null || true
+          # One file, so a reader can verify every download with a single
+          # command rather than one per architecture.
+          sha256sum tern-* > SHA256SUMS
+          cat SHA256SUMS
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*
+          generate_release_notes: true
+          draft: false
 
   secrets:
     name: Secret scan
