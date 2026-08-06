@@ -42,6 +42,20 @@ export const checkStatus = pgEnum('check_status', [
 /** How a control receives data. */
 export const controlKind = pgEnum('control_kind', ['push', 'http', 'tcp', 'ping', 'dns', 'cert'])
 
+/**
+ * Who runs a probe when several agents could.
+ *
+ * `single` is the default and the one that matters: without it every agent whose
+ * key covers a control runs the same check, so eleven agents make eleven
+ * identical requests a minute at the thing being monitored. That is a load
+ * generator wearing a monitor's clothes.
+ *
+ * `all` is a real case, not a loophole: probing one endpoint from several sites
+ * is how you tell "the service is down" from "the service is unreachable from
+ * Paris". It has to be asked for.
+ */
+export const probePolicy = pgEnum('probe_policy', ['single', 'all'])
+
 /** How a group derives its status from its children. */
 export const statusRollup = pgEnum('status_rollup', ['worst', 'majority', 'manual'])
 

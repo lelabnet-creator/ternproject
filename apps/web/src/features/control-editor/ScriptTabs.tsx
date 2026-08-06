@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { adminApi, type ScriptBundle } from '../../lib/adminApi'
 import { Banner, Button, CodeBlock } from '../../components/ui'
 
@@ -150,39 +150,173 @@ function AgentPanel({
   agent: ScriptBundle['agent']
 }) {
   const pair = useMutation({ mutationFn: () => adminApi.createPairingCode(slug) })
+  const queryClient = useQueryClient()
 
-  // A tenant that already runs agents rarely needs another one. Asking for a PIN
-  // when a paired agent will pick this control up on its next start is busywork
-  // that ends in a fleet of near-duplicates.
-  const agents = useQuery({ queryKey: ['agents', slug], queryFn: () => adminApi.agents(slug) })
-  const covering = (agents.data ?? []).filter(
-    (a) =>
-      a.status !== 'revoked' &&
-      (a.scopeControlIds.length === 0 || a.scopeControlIds.includes(controlId)),
-  )
+  const assignment = useQuery({
+    queryKey: ['assignment', slug, controlId],
+    queryFn: () => adminApi.assignment(slug, controlId),
+  })
+
+  const save = useMutation({
+    mutationFn: (body: { policy: 'single' | 'all'; agentIds: string[] }) =>
+      adminApi.setAssignment(slug, controlId, body),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['assignment', slug, controlId] })
+      await queryClient.invalidateQueries({ queryKey: ['agents', slug] })
+    },
+  })
+
+  const candidates = assignment.data?.candidates ?? []
+  const runners = assignment.data?.runners ?? []
+  const policy = assignment.data?.policy ?? 'single'
+  const pinned = assignment.data?.pinned ?? []
 
   const [pairAnyway, setPairAnyway] = useState(false)
-  const showPairing = covering.length === 0 || pairAnyway
+  const showPairing = candidates.length === 0 || pairAnyway
+
+  const runnerNames = runners
+    .map((id) => candidates.find((c) => c.id === id)?.name ?? id)
+    .join(', ')
+
+  const toggle = (agentId: string) => {
+    const next = pinned.includes(agentId)
+      ? pinned.filter((id) => id !== agentId)
+      : [...pinned, agentId]
+    save.mutate({ policy, agentIds: next })
+  }
 
   return (
     <div style={{ display: 'grid', gap: 'var(--space-4)' }}>
-      {covering.length > 0 && (
-        <Banner tone="operational">
-          {covering.length === 1
-            ? `“${covering[0]!.name}” already covers this control`
-            : `${covering.length} agents already cover this control`}
-          {' — '}
-          {covering
-            .slice(0, 4)
-            .map((a) => a.name)
-            .join(', ')}
-          {covering.length > 4 && `, +${covering.length - 4}`}. It starts being probed on their next
-          run, so there is nothing to install.{' '}
-          <a href={`/app/${slug}/agents`} style={{ color: 'inherit' }}>
-            See the fleet
-          </a>
-          .
-        </Banner>
+      {candidates.length > 0 && (
+        <section>
+          <h3 style={{ margin: '0 0 var(--space-2)', fontSize: 'var(--text-sm)' }}>
+            Who runs this probe
+          </h3>
+
+          <Banner tone={runners.length > 0 ? 'operational' : 'degraded'}>
+            {/* The question the old wording could not answer. "11 agents cover
+                this control" was true and useless — they were all running it. */}
+            {runners.length === 0
+              ? 'Nobody is running this probe. Pair an agent, or choose one below.'
+              : runners.length === 1
+                ? `${runnerNames} runs this probe.`
+                : `${runners.length} agents run this probe: ${runnerNames}.`}
+            {pinned.length === 0 &&
+              runners.length > 0 &&
+              ' Chosen automatically — pick one below to fix it.'}
+          </Banner>
+
+          <fieldset style={{ border: 0, margin: 'var(--space-3) 0 0', padding: 0 }}>
+            <legend style={{ padding: 0, fontSize: 'var(--text-sm)', fontWeight: 600 }}>
+              Policy
+            </legend>
+            <div style={{ display: 'flex', gap: 'var(--space-2)', marginTop: 'var(--space-2)' }}>
+              {(
+                [
+                  [
+                    'single',
+                    'One agent',
+                    'The usual case. Several agents probing the same URL is load, not redundancy.',
+                  ],
+                  [
+                    'all',
+                    'Every agent',
+                    'Probe from each site, to tell “down” from “unreachable from here”.',
+                  ],
+                ] as const
+              ).map(([id, label, why]) => (
+                <button
+                  key={id}
+                  type="button"
+                  role="radio"
+                  aria-checked={policy === id}
+                  title={why}
+                  onClick={() => save.mutate({ policy: id, agentIds: pinned })}
+                  style={{
+                    minHeight: 44,
+                    padding: '0 var(--space-4)',
+                    borderRadius: 'var(--radius-sm)',
+                    border: `1px solid ${policy === id ? 'var(--color-accent)' : 'var(--color-border)'}`,
+                    background: policy === id ? 'var(--color-surface-raised)' : 'transparent',
+                    color: 'var(--color-fg)',
+                    fontFamily: 'inherit',
+                    fontSize: 'var(--text-sm)',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                  }}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </fieldset>
+
+          <div style={{ display: 'grid', gap: 'var(--space-2)', marginTop: 'var(--space-3)' }}>
+            {candidates.map((candidate) => {
+              const isRunner = runners.includes(candidate.id)
+              const isPinned = pinned.includes(candidate.id)
+
+              return (
+                <label
+                  key={candidate.id}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 'var(--space-3)',
+                    minHeight: 44,
+                    padding: 'var(--space-2) var(--space-3)',
+                    border: `1px solid ${isRunner ? 'var(--color-accent)' : 'var(--color-border)'}`,
+                    borderRadius: 'var(--radius-sm)',
+                    opacity: candidate.eligible ? 1 : 0.55,
+                    cursor: candidate.eligible ? 'pointer' : 'not-allowed',
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={isPinned}
+                    disabled={!candidate.eligible || save.isPending}
+                    onChange={() => toggle(candidate.id)}
+                    style={{ width: 20, height: 20 }}
+                  />
+                  <span style={{ flex: 1, minWidth: 0 }}>
+                    <strong style={{ fontSize: 'var(--text-sm)' }}>{candidate.name}</strong>
+                    <span
+                      style={{
+                        display: 'block',
+                        fontSize: 'var(--text-xs)',
+                        color: 'var(--color-fg-subtle)',
+                      }}
+                    >
+                      {candidate.site ?? 'no site'}
+                      {/* Shown, not hidden: "cannot run it, and here is why"
+                          beats a list that silently omits half the fleet. */}
+                      {!candidate.eligible && ' · its key does not cover this control'}
+                    </span>
+                  </span>
+                  {isRunner && (
+                    <span
+                      style={{
+                        fontSize: 'var(--text-xs)',
+                        fontWeight: 700,
+                        color: 'var(--color-accent)',
+                      }}
+                    >
+                      running
+                    </span>
+                  )}
+                </label>
+              )
+            })}
+          </div>
+
+          {pinned.length > 0 && (
+            <div style={{ marginTop: 'var(--space-2)' }}>
+              <Button onClick={() => save.mutate({ policy, agentIds: [] })}>
+                Choose automatically instead
+              </Button>
+            </div>
+          )}
+        </section>
       )}
 
       <section>

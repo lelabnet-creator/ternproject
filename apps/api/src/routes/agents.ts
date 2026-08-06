@@ -5,7 +5,7 @@ import { schema } from '@tern/db'
 import { generatePin, hashToken, normalisePin } from '@tern/shared'
 import { config } from '../config.js'
 import { authenticateApiKey, issueApiKey } from '../services/apikeys.js'
-import { jobsForAgent } from '../services/jobs.js'
+import { assignmentsFor, jobsForAgent } from '../services/jobs.js'
 import { audit } from '../services/audit.js'
 
 /**
@@ -172,7 +172,9 @@ const redeemRoute: FastifyPluginAsyncZod = async (app) => {
         agentId: agent.id,
         agentName,
         tenantSlug: tenant.slug,
-        jobs: await jobsForAgent(app, pairing.tenantId, pairing.scopeControlIds),
+        // Named, so the newly paired agent gets exactly what the assignment
+        // says it should run — not every probe the tenant has.
+        jobs: await jobsForAgent(app, pairing.tenantId, pairing.scopeControlIds, agent.id),
       }
     },
   )
@@ -207,11 +209,17 @@ const routes: FastifyPluginAsyncZod = async (app) => {
         .where(eq(schema.tenants.id, key.tenantId))
         .limit(1)
 
-      // The key's own scope, so a key issued for two controls never learns
-      // about the rest of the tenant.
+      // Resolve the agent behind this key: the assignment is per agent, and a
+      // key with no agent behind it (one minted by hand) falls back to scope.
+      const [agent] = await app.db
+        .select({ id: schema.agents.id })
+        .from(schema.agents)
+        .where(and(eq(schema.agents.apiKeyId, key.id), eq(schema.agents.tenantId, key.tenantId)))
+        .limit(1)
+
       return {
         tenantSlug: tenant?.slug ?? '',
-        jobs: await jobsForAgent(app, key.tenantId, key.scopeControlIds ?? null),
+        jobs: await jobsForAgent(app, key.tenantId, key.scopeControlIds ?? null, agent?.id),
       }
     },
   )
@@ -293,8 +301,10 @@ const routes: FastifyPluginAsyncZod = async (app) => {
               status: z.string(),
               lastSeenAt: z.string().nullable(),
               pairedAt: z.string(),
-              /** How many probes this agent is assigned, from its key's scope. */
+              /** Probes this agent actually runs, after the assignment. */
               jobCount: z.number(),
+              /** Which ones, so the fleet screen can show them without a second call. */
+              controls: z.array(z.object({ id: z.string(), key: z.string(), name: z.string() })),
               /**
                * The controls its key is limited to. Empty means every control —
                * which is what makes "is this control already covered" answerable
@@ -315,14 +325,10 @@ const routes: FastifyPluginAsyncZod = async (app) => {
         // swap places under the pointer are how the wrong agent gets revoked.
         .orderBy(schema.agents.createdAt)
 
-      // Probe controls once, then counted per agent from its key's scope —
-      // rather than a query per agent, which on a fleet screen is the shape
-      // that quietly turns into a hundred round trips.
-      const probeControls = await app.db
-        .select({ id: schema.controls.id })
-        .from(schema.controls)
-        .where(and(eq(schema.controls.tenantId, req.tenant!.id), eq(schema.controls.enabled, true)))
-      const probeIds = new Set(probeControls.map((c) => c.id))
+      // The assignment is computed once for the whole tenant — rather than a
+      // query per agent, which on a fleet screen is the shape that quietly
+      // turns into a hundred round trips.
+      const assignments = await assignmentsFor(app, req.tenant!.id)
 
       const keys = await app.db
         .select({ id: schema.apiKeys.id, scopeControlIds: schema.apiKeys.scopeControlIds })
@@ -332,10 +338,9 @@ const routes: FastifyPluginAsyncZod = async (app) => {
 
       return rows.map((row) => {
         const scope = row.apiKeyId ? scopeById.get(row.apiKeyId) : undefined
-        const jobCount =
-          scope && scope.length > 0
-            ? scope.filter((id) => probeIds.has(id)).length
-            : probeControls.length
+        const mine = [...assignments.values()]
+          .filter(({ runners }) => runners.includes(row.id))
+          .map(({ control }) => ({ id: control.id, key: control.key, name: control.name }))
 
         return {
           id: row.id,
@@ -348,7 +353,8 @@ const routes: FastifyPluginAsyncZod = async (app) => {
           status: row.status,
           lastSeenAt: row.lastSeenAt?.toISOString() ?? null,
           pairedAt: row.createdAt.toISOString(),
-          jobCount: row.status === 'revoked' ? 0 : jobCount,
+          jobCount: row.status === 'revoked' ? 0 : mine.length,
+          controls: row.status === 'revoked' ? [] : mine,
           scopeControlIds: scope ?? [],
         }
       })

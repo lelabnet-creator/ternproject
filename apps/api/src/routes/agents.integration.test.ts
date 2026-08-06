@@ -352,19 +352,23 @@ describe('jobs handed over at pairing', () => {
       payloadShape: string
     }[]
 
-    const job = jobs.find((j) => j.controlKey.startsWith('probe-job-'))
-    expect(job, 'the probe control should be assigned').toBeDefined()
-    expect(job!.probe.type).toBe('http')
-    // snake_case on the way out: the agent reads the same shape from JSON and
-    // from the TOML it writes, so there is only one spelling to get wrong.
-    expect(job!.probe.url).toBe('https://example.com/health')
-    // A probe with no assertions of its own calls a 500 healthy, so the
-    // control's thresholds stand in.
-    expect(job!.assertions.length).toBeGreaterThan(0)
-    expect(job!.payloadShape).toBe('status')
-
-    // A push control has nothing for an agent to run.
-    expect(jobs.every((j) => j.probe.type !== 'push')).toBe(true)
+    // Which probes this agent gets depends on the assignment — with a fleet,
+    // one agent owns each control. What must hold for whatever it does get is
+    // the shape.
+    for (const job of jobs) {
+      // snake_case on the way out: the agent reads the same shape from JSON and
+      // from the TOML it writes, so there is only one spelling to get wrong.
+      expect(
+        Object.keys(job.probe).every((k) => !/[A-Z]/.test(k)),
+        job.controlKey,
+      ).toBe(true)
+      // A probe with no assertions of its own calls a 500 healthy, so the
+      // control's thresholds stand in.
+      expect(job.assertions.length, job.controlKey).toBeGreaterThan(0)
+      expect(['status', 'value']).toContain(job.payloadShape)
+      // A push control has nothing for an agent to run.
+      expect(job.probe.type).not.toBe('push')
+    }
   })
 
   it('lets a running agent re-read its assignment with its ingest key', async () => {
@@ -394,4 +398,178 @@ describe('jobs handed over at pairing', () => {
     const response = await fx.app.inject({ method: 'GET', url: '/api/v1/agent/jobs' })
     expect(response.statusCode).toBe(401)
   })
+})
+
+describe('who runs a probe', () => {
+  let adminCookie2: string
+
+  beforeAll(async () => {
+    adminCookie2 = await login(fx.app, fx.users.admin.email)
+  }, 30_000)
+
+  const pairAgent = async (hostname: string) => {
+    const code = await fx.app.inject({
+      method: 'POST',
+      url: `/api/v1/${fx.slug}/pairing-codes`,
+      headers: { cookie: adminCookie2 },
+      payload: {},
+    })
+    const paired = await fx.app.inject({
+      method: 'POST',
+      url: '/api/v1/pair',
+      payload: { code: code.json().pin, hostname },
+    })
+    return paired.json() as { apiKey: string; agentId: string; jobs: unknown[] }
+  }
+
+  it('gives a probe to exactly one agent, not to every agent that could run it', async () => {
+    // The defect this fixes: an agent's key covers every control by default, so
+    // every paired agent ran every probe — eleven agents, eleven identical
+    // requests a minute at the same URL.
+    const created = await fx.app.inject({
+      method: 'POST',
+      url: `/api/v1/${fx.slug}/controls`,
+      headers: { cookie: adminCookie2 },
+      payload: {
+        key: `owned-${Date.now()}`,
+        name: 'Owned probe',
+        kind: 'http',
+        config: { url: 'https://example.com/health', assertions: [] },
+      },
+    })
+
+    await pairAgent('runner-a')
+    await pairAgent('runner-b')
+    await pairAgent('runner-c')
+
+    const view = await fx.app.inject({
+      method: 'GET',
+      url: `/api/v1/${fx.slug}/controls/${created.json().id}/assignment`,
+      headers: { cookie: adminCookie2 },
+    })
+    expect(view.statusCode).toBe(200)
+    expect(view.json().candidates.length, 'several agents could run it').toBeGreaterThan(1)
+    expect(view.json().runners, 'but only one does').toHaveLength(1)
+
+    // And the agent that owns it is one that could: the election never names an
+    // agent whose key does not cover the control.
+    const owner = view.json().runners[0]
+    const candidate = view.json().candidates.find((c: { id: string }) => c.id === owner)
+    expect(candidate?.eligible).toBe(true)
+  })
+
+  it('honours an explicit choice, and reports who runs it', async () => {
+    const created = await fx.app.inject({
+      method: 'POST',
+      url: `/api/v1/${fx.slug}/controls`,
+      headers: { cookie: adminCookie2 },
+      payload: {
+        key: `pinned-${Date.now()}`,
+        name: 'Pinned probe',
+        kind: 'tcp',
+        config: { host: 'example.com', port: 443, assertions: [] },
+      },
+    })
+    const controlId = created.json().id
+
+    const chosen = await pairAgent('the-chosen-one')
+
+    const put = await fx.app.inject({
+      method: 'PUT',
+      url: `/api/v1/${fx.slug}/controls/${controlId}/assignment`,
+      headers: { cookie: adminCookie2 },
+      payload: { policy: 'single', agentIds: [chosen.agentId] },
+    })
+    expect(put.statusCode).toBe(200)
+    expect(put.json().runners).toEqual([chosen.agentId])
+
+    const view = await fx.app.inject({
+      method: 'GET',
+      url: `/api/v1/${fx.slug}/controls/${controlId}/assignment`,
+      headers: { cookie: adminCookie2 },
+    })
+    expect(view.json().pinned).toEqual([chosen.agentId])
+    expect(view.json().runners).toEqual([chosen.agentId])
+
+    const jobs = await fx.app.inject({
+      method: 'GET',
+      url: '/api/v1/agent/jobs',
+      headers: { authorization: `Bearer ${chosen.apiKey}` },
+    })
+    expect(
+      (jobs.json().jobs as { controlKey: string }[]).some((j) =>
+        j.controlKey.startsWith('pinned-'),
+      ),
+    ).toBe(true)
+  })
+
+  it('runs on every agent when the policy asks for it', async () => {
+    // Probing one endpoint from several sites is a real case — it just has to
+    // be asked for rather than happening by accident.
+    const created = await fx.app.inject({
+      method: 'POST',
+      url: `/api/v1/${fx.slug}/controls`,
+      headers: { cookie: adminCookie2 },
+      payload: {
+        key: `everywhere-${Date.now()}`,
+        name: 'From everywhere',
+        kind: 'tcp',
+        config: { host: 'example.com', port: 443, assertions: [] },
+      },
+    })
+
+    await fx.app.inject({
+      method: 'PUT',
+      url: `/api/v1/${fx.slug}/controls/${created.json().id}/assignment`,
+      headers: { cookie: adminCookie2 },
+      payload: { policy: 'all', agentIds: [] },
+    })
+
+    const view = await fx.app.inject({
+      method: 'GET',
+      url: `/api/v1/${fx.slug}/controls/${created.json().id}/assignment`,
+      headers: { cookie: adminCookie2 },
+    })
+    expect(view.json().runners.length).toBeGreaterThan(1)
+  })
+
+  it('refuses to pin an agent from another tenant', async () => {
+    const other = await createFixture()
+    try {
+      const otherCookie = await login(other.app, other.users.admin.email)
+      const code = await other.app.inject({
+        method: 'POST',
+        url: `/api/v1/${other.slug}/pairing-codes`,
+        headers: { cookie: otherCookie },
+        payload: {},
+      })
+      const theirAgent = await other.app.inject({
+        method: 'POST',
+        url: '/api/v1/pair',
+        payload: { code: code.json().pin, hostname: 'theirs' },
+      })
+
+      const created = await fx.app.inject({
+        method: 'POST',
+        url: `/api/v1/${fx.slug}/controls`,
+        headers: { cookie: adminCookie2 },
+        payload: {
+          key: `cross-${Date.now()}`,
+          name: 'Cross tenant',
+          kind: 'tcp',
+          config: { host: 'example.com', port: 443, assertions: [] },
+        },
+      })
+
+      const response = await fx.app.inject({
+        method: 'PUT',
+        url: `/api/v1/${fx.slug}/controls/${created.json().id}/assignment`,
+        headers: { cookie: adminCookie2 },
+        payload: { policy: 'single', agentIds: [theirAgent.json().agentId] },
+      })
+      expect(response.statusCode).toBe(404)
+    } finally {
+      await other.cleanup()
+    }
+  }, 30_000)
 })

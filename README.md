@@ -42,17 +42,51 @@ reasoning.
 
 ## Quick start
 
+Linux and macOS:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/tern-status/tern/main/scripts/quickstart.sh | sh
+```
+
+Windows, in PowerShell 7 or later:
+
+```powershell
+irm https://raw.githubusercontent.com/tern-status/tern/main/scripts/quickstart.ps1 | iex
+```
+
+Clone, secret, database, migrations, demo tenant, dev server. It checks git,
+Docker and Node 22+ before doing anything and reports everything missing at
+once, waits for PostgreSQL to actually accept connections rather than for the
+container to start, and is safe to re-run — an existing `.env` and its secret
+are left alone.
+
+Piping a script into a shell is a trust decision, and not one you owe anybody.
+Read it first if you would rather:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/tern-status/tern/main/scripts/quickstart.sh -o quickstart.sh
+less quickstart.sh
+sh quickstart.sh
+```
+
+Or do it by hand — the script does nothing these six lines do not:
+
 ```bash
 corepack enable
 pnpm install
 cp .env.example .env          # then set APP_SECRET: openssl rand -hex 32
-docker compose up -d          # PostgreSQL + TimescaleDB, MailHog
+docker compose up -d --wait   # PostgreSQL + TimescaleDB, MailHog
 pnpm db:migrate && pnpm db:seed
-pnpm dev                      # API on :3001, web on :5173
+pnpm dev                      # API on :3011, web on :5173
 ```
 
-The seed creates a demo tenant with 90 days of synthetic data at
-<http://localhost:5173/s/acme>.
+The seed creates a demo tenant with 90 days of synthetic data.
+
+| What        | Where                            |
+| ----------- | -------------------------------- |
+| Public page | <http://localhost:5173/s/acme>   |
+| Admin       | <http://localhost:5173/app/acme> |
+| Caught mail | <http://localhost:8025>          |
 
 ## Architecture
 

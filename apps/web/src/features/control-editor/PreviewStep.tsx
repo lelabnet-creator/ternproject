@@ -11,7 +11,7 @@ import {
   type WidgetDefinition,
 } from '../../charts/registry'
 import { adminApi, ApiError, type Control } from '../../lib/adminApi'
-import { Banner, Button, Card, CodeBlock, Field } from '../../components/ui'
+import { Banner, Card, CodeBlock, Field } from '../../components/ui'
 
 /**
  * Step 2 of the editor: choose how this control is drawn, and see what a script
@@ -47,12 +47,20 @@ export function PreviewStep({
   const widget = widgetById(selectedId)
   const seed = seedFor(control.key)
 
+  /**
+   * Saved on choice, not on a button.
+   *
+   * A step whose whole content is one decision does not need a second gesture to
+   * confirm it — and a "Save" that can be walked away from is a step people leave
+   * without meaning to. The trade is that a failure has to be visible, so the
+   * error banner stays and the last saved choice is echoed back.
+   */
   const save = useMutation({
-    mutationFn: () =>
-      adminApi.updateControl(slug, control.id, { widget: selectedId, widgetOptions: options }),
-    onSuccess: () => {
+    mutationFn: (next: { widget: string; widgetOptions: Record<string, unknown> }) =>
+      adminApi.updateControl(slug, control.id, next),
+    onSuccess: (_result, next) => {
       setError(null)
-      onSaved(selectedId, options)
+      onSaved(next.widget, next.widgetOptions)
     },
     onError: (err) => setError(err instanceof ApiError ? err.message : String(err)),
   })
@@ -62,12 +70,30 @@ export function PreviewStep({
     // Options belong to the widget, not to the control: carrying a ribbon's
     // window count over to a bullet chart would silently apply a setting the
     // new widget does not have.
-    setOptions(resolveOptions(definition, {}))
+    const fresh = resolveOptions(definition, {})
+    setOptions(fresh)
+    save.mutate({ widget: definition.id, widgetOptions: fresh })
+  }
+
+  const changeOption = (key: string, value: unknown) => {
+    const next = { ...options, [key]: value }
+    setOptions(next)
+    save.mutate({ widget: selectedId, widgetOptions: next })
   }
 
   return (
     <div style={{ display: 'grid', gap: 'var(--space-4)' }}>
       {error && <Banner tone="down">{error}</Banner>}
+      {save.isPending && (
+        <p style={{ margin: 0, fontSize: 'var(--text-sm)', color: 'var(--color-fg-subtle)' }}>
+          Saving…
+        </p>
+      )}
+      {!save.isPending && save.isSuccess && !error && (
+        <p style={{ margin: 0, fontSize: 'var(--text-sm)', color: 'var(--status-operational)' }}>
+          Saved. The public page uses this widget.
+        </p>
+      )}
 
       {dataKind === 'status' && (
         <Banner tone="maintenance">
@@ -172,7 +198,7 @@ export function PreviewStep({
                 {option.type === 'select' ? (
                   <select
                     value={String(options[option.key] ?? option.default)}
-                    onChange={(e) => setOptions({ ...options, [option.key]: e.target.value })}
+                    onChange={(e) => changeOption(option.key, e.target.value)}
                     style={selectStyle}
                   >
                     {option.choices?.map((choice) => (
@@ -185,7 +211,7 @@ export function PreviewStep({
                   <input
                     type="text"
                     value={String(options[option.key] ?? option.default)}
-                    onChange={(e) => setOptions({ ...options, [option.key]: e.target.value })}
+                    onChange={(e) => changeOption(option.key, e.target.value)}
                     style={selectStyle}
                   />
                 ) : (
@@ -194,9 +220,7 @@ export function PreviewStep({
                     value={Number(options[option.key] ?? option.default)}
                     min={option.min}
                     max={option.max}
-                    onChange={(e) =>
-                      setOptions({ ...options, [option.key]: Number(e.target.value) })
-                    }
+                    onChange={(e) => changeOption(option.key, Number(e.target.value))}
                     style={selectStyle}
                   />
                 )}
@@ -245,12 +269,6 @@ export function PreviewStep({
 
         <FieldContract widget={widget} unit={control.valueUnit} />
       </Card>
-
-      <div>
-        <Button variant="primary" busy={save.isPending} onClick={() => save.mutate()}>
-          Save visualisation
-        </Button>
-      </div>
     </div>
   )
 }

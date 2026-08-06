@@ -1,4 +1,4 @@
-import { and, eq, gte } from 'drizzle-orm'
+import { and, eq, gte, inArray } from 'drizzle-orm'
 import { z } from 'zod'
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod'
 import { schema } from '@tern/db'
@@ -16,6 +16,7 @@ import { config } from '../config.js'
 import { audit } from '../services/audit.js'
 import { runProbe } from '../services/probe-transport.js'
 import { purgeSyntheticChecks } from '../services/scheduler.js'
+import { assignmentsFor } from '../services/jobs.js'
 import { downsample } from '../services/series.js'
 
 /**
@@ -373,6 +374,151 @@ const routes: FastifyPluginAsyncZod = async (app) => {
       })
 
       return { inserted: series.length }
+    },
+  )
+
+  /**
+   * Who runs this control's probe, and who could.
+   *
+   * The question the editor could not answer: it said "11 agents cover this
+   * control", which was true and useless — they were all running it. This says
+   * which one is responsible, why, and offers the others.
+   */
+  app.get(
+    '/:slug/controls/:id/assignment',
+    {
+      onRequest: [app.requireTenant()],
+      preHandler: [app.requirePermission('control:write')],
+      schema: {
+        params: z.object({ slug: z.string(), id: z.string().uuid() }),
+        response: {
+          200: z.object({
+            policy: z.enum(['single', 'all']),
+            /** Explicitly chosen. Empty means the server elects one. */
+            pinned: z.array(z.string()),
+            /** Who runs it right now, after policy and election. */
+            runners: z.array(z.string()),
+            candidates: z.array(
+              z.object({
+                id: z.string(),
+                name: z.string(),
+                site: z.string().nullable(),
+                status: z.string(),
+                lastSeenAt: z.string().nullable(),
+                /** Whether its key allows this control at all. */
+                eligible: z.boolean(),
+              }),
+            ),
+          }),
+        },
+      },
+    },
+    async (req) => {
+      const control = await loadControl(app, req.tenant!.id, req.params.id)
+
+      const [assignments, pins, agentRows, keyRows] = await Promise.all([
+        assignmentsFor(app, req.tenant!.id),
+        app.db
+          .select({ agentId: schema.controlAgents.agentId })
+          .from(schema.controlAgents)
+          .where(eq(schema.controlAgents.controlId, control.id)),
+        app.db
+          .select()
+          .from(schema.agents)
+          .where(eq(schema.agents.tenantId, req.tenant!.id))
+          .orderBy(schema.agents.createdAt),
+        app.db
+          .select({ id: schema.apiKeys.id, scopeControlIds: schema.apiKeys.scopeControlIds })
+          .from(schema.apiKeys)
+          .where(eq(schema.apiKeys.tenantId, req.tenant!.id)),
+      ])
+
+      const scopeById = new Map(keyRows.map((k) => [k.id, k.scopeControlIds]))
+
+      return {
+        policy: control.probePolicy,
+        pinned: pins.map((p) => p.agentId),
+        runners: assignments.get(control.id)?.runners ?? [],
+        candidates: agentRows
+          .filter((agent) => agent.status !== 'revoked')
+          .map((agent) => {
+            const scope = (agent.apiKeyId ? scopeById.get(agent.apiKeyId) : undefined) ?? []
+            return {
+              id: agent.id,
+              name: agent.name,
+              site: agent.site,
+              status: agent.status,
+              lastSeenAt: agent.lastSeenAt?.toISOString() ?? null,
+              // Shown rather than hidden: "this agent cannot run it, and here is
+              // why" beats a list that silently omits half the fleet.
+              eligible: scope.length === 0 || scope.includes(control.id),
+            }
+          }),
+      }
+    },
+  )
+
+  app.put(
+    '/:slug/controls/:id/assignment',
+    {
+      onRequest: [app.requireTenant()],
+      preHandler: [app.requirePermission('control:write')],
+      schema: {
+        params: z.object({ slug: z.string(), id: z.string().uuid() }),
+        body: z.object({
+          policy: z.enum(['single', 'all']),
+          /** Empty hands the choice back to the election. */
+          agentIds: z.array(z.string().uuid()).max(100).default([]),
+        }),
+        response: { 200: z.object({ ok: z.boolean(), runners: z.array(z.string()) }) },
+      },
+    },
+    async (req) => {
+      const control = await loadControl(app, req.tenant!.id, req.params.id)
+
+      // Every id checked against this tenant before anything is written: a
+      // foreign agent id must not end up pinned to a control it cannot see.
+      if (req.body.agentIds.length > 0) {
+        const owned = await app.db
+          .select({ id: schema.agents.id })
+          .from(schema.agents)
+          .where(
+            and(
+              eq(schema.agents.tenantId, req.tenant!.id),
+              inArray(schema.agents.id, req.body.agentIds),
+            ),
+          )
+        if (owned.length !== req.body.agentIds.length) {
+          throw app.httpErrors.notFound('Unknown agent in the requested assignment')
+        }
+      }
+
+      await app.db.transaction(async (tx) => {
+        await tx
+          .update(schema.controls)
+          .set({ probePolicy: req.body.policy, updatedAt: new Date() })
+          .where(eq(schema.controls.id, control.id))
+
+        await tx.delete(schema.controlAgents).where(eq(schema.controlAgents.controlId, control.id))
+
+        if (req.body.agentIds.length > 0) {
+          await tx
+            .insert(schema.controlAgents)
+            .values(req.body.agentIds.map((agentId) => ({ controlId: control.id, agentId })))
+        }
+      })
+
+      await audit(app, {
+        action: 'control.assignment_updated',
+        tenantId: req.tenant!.id,
+        actorId: req.actor.userId,
+        target: control.id,
+        meta: { policy: req.body.policy, agents: req.body.agentIds.length },
+        ip: req.ip,
+      })
+
+      const assignments = await assignmentsFor(app, req.tenant!.id)
+      return { ok: true, runners: assignments.get(control.id)?.runners ?? [] }
     },
   )
 

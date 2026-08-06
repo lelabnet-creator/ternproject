@@ -116,6 +116,7 @@ function AgentRow({
   })
 
   const [confirming, setConfirming] = useState(false)
+  const [open, setOpen] = useState(false)
   const freshness = freshnessOf(agent, now)
   const revoked = agent.status === 'revoked'
 
@@ -163,19 +164,65 @@ function AgentRow({
           >
             {agent.site ?? 'no site'} · {agent.os ?? 'unknown OS'}
             {agent.arch ? `/${agent.arch}` : ''} · {agent.agentVersion ?? 'version unknown'} ·{' '}
-            {agent.jobCount} probe{agent.jobCount === 1 ? '' : 's'} · {lastSeen(agent, now)}
+            {lastSeen(agent, now)}
           </div>
         </div>
 
-        {canWrite && !revoked && (
-          <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
-            <Button onClick={() => setEditing((v) => !v)}>{editing ? 'Cancel' : 'Rename'}</Button>
-            <Button variant="danger" onClick={() => setConfirming(true)}>
-              Revoke
-            </Button>
-          </div>
-        )}
+        <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
+          {/* The question a fleet screen is actually asked: what is this one
+              doing? Answered here rather than by opening every control. */}
+          <Button
+            ariaLabel={`${open ? 'Hide' : 'Show'} the controls ${agent.name} runs`}
+            onClick={() => setOpen((v) => !v)}
+            disabled={agent.jobCount === 0}
+          >
+            {agent.jobCount === 0
+              ? 'No probes'
+              : `${open ? '▾' : '▸'} ${agent.jobCount} probe${agent.jobCount === 1 ? '' : 's'}`}
+          </Button>
+          {canWrite && !revoked && (
+            <>
+              <Button onClick={() => setEditing((v) => !v)}>{editing ? 'Cancel' : 'Rename'}</Button>
+              <Button variant="danger" onClick={() => setConfirming(true)}>
+                Revoke
+              </Button>
+            </>
+          )}
+        </div>
       </div>
+
+      {open && agent.controls.length > 0 && (
+        <ul
+          style={{
+            listStyle: 'none',
+            margin: 'var(--space-3) 0 0',
+            padding: 'var(--space-3) 0 0',
+            borderTop: '1px solid var(--color-border)',
+            display: 'grid',
+            gap: 'var(--space-1)',
+          }}
+        >
+          {agent.controls.map((control) => (
+            <li
+              key={control.id}
+              style={{
+                display: 'flex',
+                gap: 'var(--space-3)',
+                alignItems: 'baseline',
+                fontSize: 'var(--text-sm)',
+              }}
+            >
+              <span style={{ fontWeight: 600 }}>{control.name}</span>
+              <code
+                className="tabular"
+                style={{ fontSize: 'var(--text-xs)', color: 'var(--color-fg-subtle)' }}
+              >
+                {control.key}
+              </code>
+            </li>
+          ))}
+        </ul>
+      )}
 
       {error && (
         <div style={{ marginTop: 'var(--space-2)' }}>

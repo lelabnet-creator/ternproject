@@ -65,6 +65,7 @@ export interface Agent {
   lastSeenAt: string | null
   pairedAt: string
   jobCount: number
+  controls: { id: string; key: string; name: string }[]
   scopeControlIds: string[]
 }
 
@@ -151,6 +152,32 @@ export const adminApi = {
   ) => request<{ ok: boolean; reordered: number }>('PATCH', `/api/v1/${slug}/layout`, body),
 
   agents: (slug: string) => request<Agent[]>('GET', `/api/v1/${slug}/agents`),
+
+  assignment: (slug: string, controlId: string) =>
+    request<{
+      policy: 'single' | 'all'
+      pinned: string[]
+      runners: string[]
+      candidates: {
+        id: string
+        name: string
+        site: string | null
+        status: string
+        lastSeenAt: string | null
+        eligible: boolean
+      }[]
+    }>('GET', `/api/v1/${slug}/controls/${controlId}/assignment`),
+
+  setAssignment: (
+    slug: string,
+    controlId: string,
+    body: { policy: 'single' | 'all'; agentIds: string[] },
+  ) =>
+    request<{ ok: boolean; runners: string[] }>(
+      'PUT',
+      `/api/v1/${slug}/controls/${controlId}/assignment`,
+      body,
+    ),
 
   capacity: (
     slug: string,
