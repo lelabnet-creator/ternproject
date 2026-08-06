@@ -357,6 +357,7 @@ mod tests {
             },
             assertions: Vec::new(),
             interval_s: None,
+            managed: true,
         };
 
         let point = run_once(&entry).await;
@@ -382,6 +383,7 @@ mod tests {
             },
             assertions: Vec::new(),
             interval_s: None,
+            managed: true,
         };
 
         let point = run_once(&entry).await;

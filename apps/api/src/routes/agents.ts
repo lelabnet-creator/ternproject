@@ -4,7 +4,8 @@ import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod'
 import { schema } from '@tern/db'
 import { generatePin, hashToken, normalisePin } from '@tern/shared'
 import { config } from '../config.js'
-import { issueApiKey } from '../services/apikeys.js'
+import { authenticateApiKey, issueApiKey } from '../services/apikeys.js'
+import { jobsForAgent } from '../services/jobs.js'
 import { audit } from '../services/audit.js'
 
 /**
@@ -16,6 +17,14 @@ import { audit } from '../services/audit.js'
  * long-lived key it is exchanged for matters, and that never passes through a
  * human.
  */
+
+const jobSchema = z.object({
+  controlKey: z.string(),
+  intervalS: z.number().nullable(),
+  probe: z.record(z.string(), z.unknown()),
+  assertions: z.array(z.record(z.string(), z.unknown())),
+  payloadShape: z.enum(['status', 'value']),
+})
 
 /** Wrong guesses before the code is dead. 40 bits of entropy, but only briefly. */
 const MAX_FAILED_ATTEMPTS = 5
@@ -50,6 +59,13 @@ const redeemRoute: FastifyPluginAsyncZod = async (app) => {
             agentId: z.string(),
             agentName: z.string(),
             tenantSlug: z.string(),
+            /**
+             * What this agent is to run, resolved from the pairing code's
+             * scope. Handed over here so a paired agent is already configured:
+             * the alternative leaves the list of probes on the monitored host,
+             * where it drifts from the server's idea of what is monitored.
+             */
+            jobs: z.array(jobSchema),
           }),
         },
       },
@@ -156,6 +172,7 @@ const redeemRoute: FastifyPluginAsyncZod = async (app) => {
         agentId: agent.id,
         agentName,
         tenantSlug: tenant.slug,
+        jobs: await jobsForAgent(app, pairing.tenantId, pairing.scopeControlIds),
       }
     },
   )
@@ -163,6 +180,41 @@ const redeemRoute: FastifyPluginAsyncZod = async (app) => {
 
 const routes: FastifyPluginAsyncZod = async (app) => {
   await app.register(redeemRoute)
+
+  /**
+   * The same jobs, re-read with the ingest key.
+   *
+   * Pairing happens once; what is monitored changes. Without this an agent
+   * paired last month runs last month's probes, and adding a control means
+   * touching every host — which is the thing having a server is meant to avoid.
+   */
+  app.get(
+    '/agent/jobs',
+    {
+      schema: {
+        response: {
+          200: z.object({ tenantSlug: z.string(), jobs: z.array(jobSchema) }),
+        },
+      },
+    },
+    async (req) => {
+      const key = await authenticateApiKey(app, req, 'ingest')
+      if (!key) throw app.httpErrors.unauthorized('Invalid or missing API key')
+
+      const [tenant] = await app.db
+        .select({ slug: schema.tenants.slug })
+        .from(schema.tenants)
+        .where(eq(schema.tenants.id, key.tenantId))
+        .limit(1)
+
+      // The key's own scope, so a key issued for two controls never learns
+      // about the rest of the tenant.
+      return {
+        tenantSlug: tenant?.slug ?? '',
+        jobs: await jobsForAgent(app, key.tenantId, key.scopeControlIds ?? null),
+      }
+    },
+  )
 
   // ── Management: per tenant, admin only ────────────────────────────────────
   app.post(

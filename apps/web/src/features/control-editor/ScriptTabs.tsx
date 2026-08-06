@@ -181,7 +181,7 @@ function AgentPanel({ slug, agent }: { slug: string; agent: ScriptBundle['agent'
 
       <section>
         <h3 style={{ margin: '0 0 var(--space-2)', fontSize: 'var(--text-sm)' }}>
-          2 · The config for this control
+          2 · What pairing will write
         </h3>
         <p
           style={{
@@ -190,9 +190,8 @@ function AgentPanel({ slug, agent }: { slug: string; agent: ScriptBundle['agent'
             color: 'var(--color-fg-subtle)',
           }}
         >
-          Pairing writes this file with your key already in it. Add the probe below to what it wrote
-          — the <code>api_key</code> line here is a placeholder, and the real one is never shown
-          twice.
+          Nothing to copy: the agent asks the server what it is for and writes this itself, with the
+          real key in place of the placeholder. It is shown here so you can see what it will run.
         </p>
         <CodeBlock label="agent.toml">{agent.config}</CodeBlock>
       </section>

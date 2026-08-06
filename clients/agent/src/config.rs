@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::probe::Assertion;
 use crate::probe_transport::Probe;
+use crate::transport::Job;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Config {
@@ -45,6 +46,19 @@ pub struct ProbeEntry {
     /// Overrides the file-level interval for one probe.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub interval_s: Option<u64>,
+
+    /// True when the server assigned this probe.
+    ///
+    /// The distinction is what lets the agent adopt a changed assignment without
+    /// deleting a probe someone added by hand on the host. Absent in a
+    /// hand-written file, which is exactly right: what an operator wrote is
+    /// theirs, and the agent does not take it over.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub managed: bool,
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 fn default_interval() -> u64 {
@@ -116,6 +130,79 @@ impl Config {
 
     pub fn interval_for(&self, entry: &ProbeEntry) -> u64 {
         entry.interval_s.unwrap_or(self.interval_s).max(5)
+    }
+
+    /// Turns the server's assignment into probes this file can hold.
+    ///
+    /// A job the agent cannot represent — a probe type from a newer server — is
+    /// skipped by name rather than aborting the whole set. Pairing that fails
+    /// entirely because one of nine probes is unfamiliar would be a poor trade.
+    pub fn apply_jobs(&mut self, jobs: &[Job]) -> Vec<String> {
+        let mut skipped = Vec::new();
+
+        // Only the server's own probes are replaced. A probe an operator added
+        // to the file stays: the server never assigned it, so it is not the
+        // server's to remove.
+        self.probes.retain(|entry| !entry.managed);
+
+        for job in jobs {
+            let probe: Probe = match serde_json::from_value(job.probe.clone()) {
+                Ok(probe) => probe,
+                Err(error) => {
+                    skipped.push(format!("{} ({error})", job.control_key));
+                    continue;
+                }
+            };
+
+            let assertions: Vec<Assertion> = job
+                .assertions
+                .iter()
+                .filter_map(|value| serde_json::from_value(value.clone()).ok())
+                .collect();
+
+            self.probes.push(ProbeEntry {
+                control_key: job.control_key.clone(),
+                probe,
+                assertions,
+                interval_s: job.interval_s,
+                managed: true,
+            });
+        }
+
+        skipped
+    }
+
+    /// What the server assigns that this file does not already run.
+    ///
+    /// Compared by control key rather than by deep equality: the question at
+    /// startup is "is there something new for me", and re-reporting a probe
+    /// whose timeout changed by a millisecond as "new" would make the message
+    /// noise an operator learns to ignore.
+    pub fn new_control_keys(&self, jobs: &[Job]) -> Vec<String> {
+        jobs.iter()
+            .filter(|job| !self.probes.iter().any(|p| p.control_key == job.control_key))
+            .map(|job| job.control_key.clone())
+            .collect()
+    }
+
+    /// Controls the server draws as a measurement but whose probe captures none.
+    ///
+    /// This is the failure where everything reports success: the script runs,
+    /// the push is accepted, and the chart stays empty because no assertion ever
+    /// produced a value. Worth a warning at pairing, when it is cheap to fix.
+    pub fn measurement_gaps(jobs: &[Job]) -> Vec<String> {
+        jobs.iter()
+            .filter(|job| job.payload_shape.as_deref() == Some("value"))
+            .filter(|job| {
+                !job.assertions.iter().any(|assertion| {
+                    assertion
+                        .get("capture")
+                        .and_then(|c| c.as_bool())
+                        .unwrap_or(false)
+                })
+            })
+            .map(|job| job.control_key.clone())
+            .collect()
     }
 }
 
@@ -298,5 +385,178 @@ interval_s = 120
         assert_eq!(reloaded.api_key, "tern_secret");
 
         std::fs::remove_dir_all(&dir).ok();
+    }
+}
+
+#[cfg(test)]
+mod job_tests {
+    use super::*;
+    use crate::transport::Job;
+
+    fn job(control_key: &str, probe: serde_json::Value) -> Job {
+        Job {
+            control_key: control_key.to_string(),
+            interval_s: Some(45),
+            probe,
+            assertions: vec![serde_json::json!({ "type": "status_code", "eq": 200 })],
+            payload_shape: Some("status".into()),
+        }
+    }
+
+    #[test]
+    fn turns_the_servers_assignment_into_probes() {
+        let mut config = Config {
+            server: "https://x.example".into(),
+            api_key: "k".into(),
+            interval_s: 60,
+            probes: Vec::new(),
+        };
+
+        let skipped = config.apply_jobs(&[job(
+            "api",
+            serde_json::json!({ "type": "http", "url": "https://example.com/health" }),
+        )]);
+
+        assert!(skipped.is_empty());
+        assert_eq!(config.probes.len(), 1);
+        assert_eq!(config.probes[0].control_key, "api");
+        assert_eq!(config.probes[0].assertions.len(), 1);
+        // The per-job interval survives, or every agent would run everything at
+        // the file's pace regardless of what the control asked for.
+        assert_eq!(config.interval_for(&config.probes[0]), 45);
+    }
+
+    #[test]
+    fn keeps_a_hand_written_probe_when_the_assignment_changes() {
+        // The server owns what it assigned. A probe an operator added on the
+        // host is not the server's to delete, and silently losing it would make
+        // the refresh something people disable.
+        let mut config = Config {
+            server: "https://x.example".into(),
+            api_key: "k".into(),
+            interval_s: 60,
+            probes: vec![ProbeEntry {
+                control_key: "local-thing".into(),
+                probe: Probe::Tcp {
+                    host: "127.0.0.1".into(),
+                    port: 9000,
+                    timeout_ms: 1000,
+                },
+                assertions: Vec::new(),
+                interval_s: None,
+                managed: false,
+            }],
+        };
+
+        config.apply_jobs(&[job(
+            "api",
+            serde_json::json!({ "type": "http", "url": "https://example.com/health" }),
+        )]);
+
+        let keys: Vec<&str> = config
+            .probes
+            .iter()
+            .map(|p| p.control_key.as_str())
+            .collect();
+        assert!(keys.contains(&"local-thing"), "{keys:?}");
+        assert!(keys.contains(&"api"), "{keys:?}");
+    }
+
+    #[test]
+    fn replaces_its_own_previous_assignment_rather_than_accumulating_it() {
+        let mut config = Config {
+            server: "https://x.example".into(),
+            api_key: "k".into(),
+            interval_s: 60,
+            probes: Vec::new(),
+        };
+
+        let first = job(
+            "api",
+            serde_json::json!({ "type": "tcp", "host": "h", "port": 1 }),
+        );
+        config.apply_jobs(&[first]);
+        config.apply_jobs(&[job(
+            "api",
+            serde_json::json!({ "type": "tcp", "host": "h", "port": 2 }),
+        )]);
+
+        // Otherwise a restart a day doubles the probe list.
+        assert_eq!(config.probes.len(), 1);
+    }
+
+    #[test]
+    fn reports_only_what_is_actually_new() {
+        let mut config = Config {
+            server: "https://x.example".into(),
+            api_key: "k".into(),
+            interval_s: 60,
+            probes: Vec::new(),
+        };
+        let existing = job(
+            "api",
+            serde_json::json!({ "type": "tcp", "host": "h", "port": 1 }),
+        );
+        config.apply_jobs(std::slice::from_ref(&existing));
+
+        let added = config.new_control_keys(&[
+            existing,
+            job(
+                "new-one",
+                serde_json::json!({ "type": "tcp", "host": "h", "port": 2 }),
+            ),
+        ]);
+
+        // A probe whose timeout moved by a millisecond is not news; a control
+        // that was not there before is.
+        assert_eq!(added, vec!["new-one".to_string()]);
+    }
+
+    #[test]
+    fn skips_a_probe_it_cannot_represent_rather_than_refusing_them_all() {
+        // A newer server may assign a probe type this binary predates. Failing
+        // the whole pairing over one of nine would be a poor trade.
+        let mut config = Config {
+            server: "https://x.example".into(),
+            api_key: "k".into(),
+            interval_s: 60,
+            probes: Vec::new(),
+        };
+
+        let skipped = config.apply_jobs(&[
+            job(
+                "known",
+                serde_json::json!({ "type": "tcp", "host": "h", "port": 443 }),
+            ),
+            job(
+                "future",
+                serde_json::json!({ "type": "quantum", "spooky": true }),
+            ),
+        ]);
+
+        assert_eq!(config.probes.len(), 1);
+        assert_eq!(config.probes[0].control_key, "known");
+        assert_eq!(skipped.len(), 1);
+        assert!(skipped[0].starts_with("future"), "{skipped:?}");
+    }
+
+    #[test]
+    fn names_a_control_drawn_as_a_measurement_whose_probe_captures_nothing() {
+        // The failure where every part reports success and the chart stays
+        // empty. Saying it at pairing is the cheapest moment to fix it.
+        let mut silent = job(
+            "queue-depth",
+            serde_json::json!({ "type": "http", "url": "https://e.example" }),
+        );
+        silent.payload_shape = Some("value".into());
+
+        let mut capturing = silent.clone();
+        capturing.control_key = "sessions".into();
+        capturing.assertions = vec![serde_json::json!({
+            "type": "json_path", "path": "$.sessions", "capture": true
+        })];
+
+        let gaps = Config::measurement_gaps(&[silent, capturing]);
+        assert_eq!(gaps, vec!["queue-depth".to_string()]);
     }
 }

@@ -42,6 +42,9 @@ enum Command {
         /// config before installing it as a service.
         #[arg(long)]
         once: bool,
+        /// Do not ask the server for the assignment; run the file as written.
+        #[arg(long)]
+        no_refresh: bool,
     },
     /// Evaluate a probe file against a recorded observation, printing the verdict.
     Test {
@@ -101,19 +104,39 @@ async fn main() -> Result<()> {
                 return Ok(());
             }
 
-            Config {
+            let mut config = Config {
                 server: server.trim_end_matches('/').to_string(),
                 api_key: response.api_key,
                 interval_s: 60,
                 probes: Vec::new(),
-            }
-            .save(&path)?;
+            };
+
+            // The server already knows what this agent is for. Handing the
+            // probes over here is the difference between a paired agent and a
+            // configured one.
+            let skipped = config.apply_jobs(&response.jobs);
+            config.save(&path)?;
 
             println!("Wrote {} (readable only by you).", path.display());
-            println!(
-                "Add a [[probes]] section, then: tern-agent run --config {}",
-                path.display()
-            );
+            if config.probes.is_empty() {
+                println!("The server assigned no probes — add a [[probes]] section yourself.");
+            } else {
+                println!("{} probe(s) assigned by the server:", config.probes.len());
+                for entry in &config.probes {
+                    println!("  {}  ({})", entry.control_key, entry.probe.kind());
+                }
+            }
+            for skip in &skipped {
+                println!("  ! skipped {skip}");
+            }
+            for gap in Config::measurement_gaps(&response.jobs) {
+                // Naming it now beats discovering it as an empty chart later.
+                println!(
+                    "  ! {gap} is drawn as a measurement but its probe captures no value — add a json_path assertion with capture = true"
+                );
+            }
+
+            println!("Then: tern-agent run --config {}", path.display());
             Ok(())
         }
 
@@ -121,9 +144,42 @@ async fn main() -> Result<()> {
             config,
             queue,
             once,
+            no_refresh,
         } => {
             let path = config.unwrap_or_else(default_path);
-            let config = Config::load(&path)?;
+            let mut config = Config::load(&path)?;
+
+            // An agent paired last month otherwise runs last month's probes.
+            // Asking at startup is the cheapest moment: it costs one request,
+            // and a control added in the admin starts being measured on the
+            // next restart rather than after someone edits a file on the host.
+            if !no_refresh {
+                match Client::new(&config.server)?.jobs(&config.api_key).await {
+                    Ok(response) => {
+                        let added = config.new_control_keys(&response.jobs);
+                        let skipped = config.apply_jobs(&response.jobs);
+
+                        if !added.is_empty() {
+                            println!("New from the server: {}", added.join(", "));
+                        }
+                        for skip in &skipped {
+                            println!("! skipped {skip}");
+                        }
+                        // Written back so the file keeps showing what runs; the
+                        // operator's own probes were preserved by apply_jobs.
+                        config.save(&path)?;
+                    }
+                    Err(error) => {
+                        // Not fatal. An agent that refuses to start because the
+                        // server is unreachable is exactly backwards: that is
+                        // when its measurements matter most.
+                        eprintln!(
+                            "Could not refresh the assignment ({error}) — using {} as it stands",
+                            path.display()
+                        );
+                    }
+                }
+            }
 
             if once {
                 let client = Client::new(&config.server)?;

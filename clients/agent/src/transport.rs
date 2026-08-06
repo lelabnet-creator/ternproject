@@ -25,6 +25,40 @@ pub struct PairResponse {
     pub agent_id: String,
     pub agent_name: String,
     pub tenant_slug: String,
+    /// What the server says this agent is to run.
+    ///
+    /// Defaulted rather than required so a newer agent still pairs with an older
+    /// server: it simply receives nothing to do, which is the pre-existing
+    /// behaviour, instead of failing to pair at all.
+    #[serde(default)]
+    pub jobs: Vec<Job>,
+}
+
+/// One probe the server has assigned.
+///
+/// The probe and its assertions arrive in exactly the shape `agent.toml` holds,
+/// so what is written to disk is what was received — no translation layer to
+/// disagree with the server about what `timeout_ms` means.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Job {
+    pub control_key: String,
+    #[serde(default)]
+    pub interval_s: Option<u64>,
+    pub probe: serde_json::Value,
+    #[serde(default)]
+    pub assertions: Vec<serde_json::Value>,
+    /// `status` or `value` — what the control's widget will draw.
+    #[serde(default)]
+    pub payload_shape: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JobsResponse {
+    pub tenant_slug: String,
+    #[serde(default)]
+    pub jobs: Vec<Job>,
 }
 
 #[derive(Debug, Serialize)]
@@ -102,6 +136,28 @@ impl Client {
         }
 
         response.json().await.context("unexpected pairing response")
+    }
+
+    /// Re-reads the assignment with the ingest key.
+    ///
+    /// Pairing happens once; what is monitored changes. An agent that never
+    /// asks again runs the probes it was given the day it was installed.
+    pub async fn jobs(&self, api_key: &str) -> Result<JobsResponse> {
+        let response = self
+            .http
+            .get(format!("{}/api/v1/agent/jobs", self.base_url))
+            .bearer_auth(api_key)
+            .send()
+            .await
+            .context("could not reach the server")?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            bail!("could not read jobs ({status}): {body}");
+        }
+
+        response.json().await.context("unexpected jobs response")
     }
 
     pub async fn ingest(&self, api_key: &str, points: &[Point]) -> Result<IngestResponse> {

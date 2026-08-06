@@ -306,3 +306,92 @@ describe('revocation', () => {
     }
   }, 30_000)
 })
+
+describe('jobs handed over at pairing', () => {
+  let adminCookie: string
+
+  beforeAll(async () => {
+    adminCookie = await login(fx.app, fx.users.admin.email)
+  }, 30_000)
+
+  it('gives a paired agent the probes it is meant to run', async () => {
+    // The point of the feature: a paired agent is a configured agent. Without
+    // this the probe list lives on the monitored host and drifts from the
+    // server's idea of what is monitored.
+    await fx.app.inject({
+      method: 'POST',
+      url: `/api/v1/${fx.slug}/controls`,
+      headers: { cookie: adminCookie },
+      payload: {
+        key: `probe-job-${Date.now()}`,
+        name: 'Probed thing',
+        kind: 'http',
+        config: { url: 'https://example.com/health', assertions: [] },
+        downThresholdMs: 4000,
+      },
+    })
+
+    const code = await fx.app.inject({
+      method: 'POST',
+      url: `/api/v1/${fx.slug}/pairing-codes`,
+      headers: { cookie: adminCookie },
+      payload: {},
+    })
+
+    const paired = await fx.app.inject({
+      method: 'POST',
+      url: '/api/v1/pair',
+      payload: { code: code.json().pin, hostname: 'jobs-test' },
+    })
+    expect(paired.statusCode).toBe(200)
+
+    const jobs = paired.json().jobs as {
+      controlKey: string
+      probe: Record<string, unknown>
+      assertions: unknown[]
+      payloadShape: string
+    }[]
+
+    const job = jobs.find((j) => j.controlKey.startsWith('probe-job-'))
+    expect(job, 'the probe control should be assigned').toBeDefined()
+    expect(job!.probe.type).toBe('http')
+    // snake_case on the way out: the agent reads the same shape from JSON and
+    // from the TOML it writes, so there is only one spelling to get wrong.
+    expect(job!.probe.url).toBe('https://example.com/health')
+    // A probe with no assertions of its own calls a 500 healthy, so the
+    // control's thresholds stand in.
+    expect(job!.assertions.length).toBeGreaterThan(0)
+    expect(job!.payloadShape).toBe('status')
+
+    // A push control has nothing for an agent to run.
+    expect(jobs.every((j) => j.probe.type !== 'push')).toBe(true)
+  })
+
+  it('lets a running agent re-read its assignment with its ingest key', async () => {
+    const code = await fx.app.inject({
+      method: 'POST',
+      url: `/api/v1/${fx.slug}/pairing-codes`,
+      headers: { cookie: adminCookie },
+      payload: {},
+    })
+    const paired = await fx.app.inject({
+      method: 'POST',
+      url: '/api/v1/pair',
+      payload: { code: code.json().pin, hostname: 'refresh-test' },
+    })
+
+    const refreshed = await fx.app.inject({
+      method: 'GET',
+      url: '/api/v1/agent/jobs',
+      headers: { authorization: `Bearer ${paired.json().apiKey}` },
+    })
+    expect(refreshed.statusCode).toBe(200)
+    expect(refreshed.json().tenantSlug).toBe(fx.slug)
+    expect(refreshed.json().jobs).toEqual(paired.json().jobs)
+  })
+
+  it('refuses to hand out an assignment without a key', async () => {
+    const response = await fx.app.inject({ method: 'GET', url: '/api/v1/agent/jobs' })
+    expect(response.statusCode).toBe(401)
+  })
+})

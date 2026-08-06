@@ -1080,12 +1080,8 @@ export function renderAgentConfig(ctx: AgentContext): string {
 
   lines.push('[[probes]]', `control_key = "${ctx.controlKey}"`)
 
-  for (const [key, value] of Object.entries(ctx.probe)) {
-    // `assertions` is emitted below as its own table array, and nested objects
-    // (headers) would need quoting rules this generator does not need to know.
-    if (key === 'assertions' || value === undefined || value === null) continue
-    if (!isEmittable(value)) continue
-    lines.push(`${snake(key)} = ${literal(value)}`)
+  for (const [key, value] of Object.entries(toAgentProbe(ctx.probe))) {
+    lines.push(`${key} = ${literal(value)}`)
   }
 
   const assertions = Array.isArray(ctx.probe.assertions) ? ctx.probe.assertions : []
@@ -1105,13 +1101,34 @@ export function renderAgentConfig(ctx: AgentContext): string {
 }
 
 /**
+ * A probe as the agent reads it.
+ *
+ * The API speaks camelCase and the agent's `config.rs` reads snake_case, so the
+ * conversion happens here — once, for both the `agent.toml` the editor shows and
+ * the jobs handed over at pairing. Two conversions would eventually disagree,
+ * and the symptom would be an agent silently ignoring `timeout_ms`.
+ *
+ * Nested tables (HTTP headers) are dropped deliberately: they need quoting rules
+ * this layer has no reason to know, and an operator adds them by hand.
+ */
+export function toAgentProbe(probe: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(probe)) {
+    if (key === 'assertions' || value === undefined || value === null) continue
+    if (!isEmittable(value)) continue
+    out[snake(key)] = value
+  }
+  return out
+}
+
+/**
  * What to assert when the control has no assertions of its own.
  *
  * A probe with an empty assertion list reports "up" for anything that answers,
  * including a 500. The thresholds already configured on the control are the
  * closest thing to the operator's own intent, so they are used.
  */
-function defaultAssertions(ctx: AgentContext): Record<string, unknown>[] {
+export function defaultAssertions(ctx: AgentContext): Record<string, unknown>[] {
   const assertions: Record<string, unknown>[] = []
 
   if (ctx.probe?.type === 'http') {

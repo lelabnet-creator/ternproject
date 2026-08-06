@@ -46,7 +46,9 @@ pub enum Probe {
         url: String,
         #[serde(default = "default_method")]
         method: String,
-        #[serde(default)]
+        // Skipped when empty so a written config does not carry a bare
+        // `[probes.headers]` table that says nothing.
+        #[serde(default, skip_serializing_if = "HashMap::is_empty")]
         headers: HashMap<String, String>,
         #[serde(default)]
         body: Option<String>,
