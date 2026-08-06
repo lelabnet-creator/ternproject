@@ -32,6 +32,28 @@ const pointSchema = z
     status: checkStatusSchema.optional(),
     latencyMs: z.number().int().min(0).max(3_600_000).optional(),
     value: z.number().finite().optional(),
+    /**
+     * Anything else worth charting, by name.
+     *
+     * `latencyMs` and `value` are two names that happened to get columns; a
+     * caller measuring a queue depth *and* a latency, or three temperatures,
+     * should not have to choose one and drop the rest.
+     *
+     * Bounded on purpose: names are constrained because they become chart
+     * labels and option values, and an unbounded map on the hot ingest path is
+     * a way to fill a disk one point at a time.
+     */
+    metrics: z
+      .record(
+        z
+          .string()
+          .min(1)
+          .max(60)
+          .regex(/^[a-zA-Z][a-zA-Z0-9_.-]*$/, 'Metric names start with a letter'),
+        z.number().finite(),
+      )
+      .refine((m) => Object.keys(m).length <= 25, 'At most 25 metrics per point')
+      .optional(),
     message: z.string().max(2000).optional(),
     /** Defaults to now. Accepted so a queued agent can report when it measured. */
     ts: z.coerce.date().optional(),
@@ -39,9 +61,13 @@ const pointSchema = z
   })
   // One of the two must be present. A point carrying neither says nothing, and
   // silently storing it as `operational` would invent a claim nobody made.
-  .refine((point) => point.status !== undefined || point.value !== undefined, {
-    message: 'Send a status, a value, or both',
-  })
+  .refine(
+    (point) =>
+      point.status !== undefined ||
+      point.value !== undefined ||
+      (point.metrics !== undefined && Object.keys(point.metrics).length > 0),
+    { message: 'Send a status, a value, or at least one metric' },
+  )
   .transform((point) => ({
     ...point,
     status: point.status ?? ('operational' as const),
@@ -104,6 +130,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
           status: point.status,
           latencyMs: point.latencyMs ?? null,
           value: point.value ?? null,
+          metrics: point.metrics ?? {},
           message: point.message ?? null,
           meta: point.meta ?? {},
           synthetic: false,

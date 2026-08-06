@@ -39,6 +39,20 @@ export const checks = pgTable(
     /** Captured numeric value for controls that report a measurement. */
     value: doublePrecision(),
 
+    /**
+     * Named measurements beyond the two that have their own columns.
+     *
+     * `latencyMs` and `value` stay as columns because the continuous aggregates
+     * roll them up and a JSONB path cannot be indexed usefully at this volume.
+     * Everything else a caller wants to report — queue depth alongside latency,
+     * a temperature, an error rate, several at once — lands here, so a control
+     * is not limited to the two numbers the schema happened to name first.
+     *
+     * Values are numbers only. A free-form blob would be a second `meta`, and
+     * nothing could chart it.
+     */
+    metrics: jsonb().$type<Record<string, number>>().notNull().default({}),
+
     /** Why the status is what it is — cites the failing assertion, not "check failed". */
     message: text(),
 

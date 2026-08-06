@@ -405,6 +405,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
                 status: z.string(),
                 latencyMs: z.number().nullable(),
                 value: z.number().nullable(),
+                metrics: z.record(z.string(), z.number()).optional(),
               }),
             ),
           }),
@@ -421,6 +422,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
           status: schema.checks.status,
           latencyMs: schema.checks.latencyMs,
           value: schema.checks.value,
+          metrics: schema.checks.metrics,
           synthetic: schema.checks.synthetic,
         })
         .from(schema.checks)
@@ -433,6 +435,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
           status: row.status,
           latencyMs: row.latencyMs,
           value: row.value === null ? null : Number(row.value),
+          metrics: row.metrics ?? undefined,
         })),
         req.query.points,
       )
@@ -446,6 +449,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
           status: point.status,
           latencyMs: point.latencyMs,
           value: point.value,
+          metrics: point.metrics,
         })),
       }
     },

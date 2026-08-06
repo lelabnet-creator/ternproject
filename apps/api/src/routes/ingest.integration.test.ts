@@ -292,3 +292,52 @@ describe('session callers', () => {
     expect(response.statusCode).toBe(401)
   })
 })
+
+describe('named metrics', () => {
+  it('accepts a point carrying only metrics, and stores them', async () => {
+    // A caller measuring three things should not have to pick the one field the
+    // schema named first, nor invent a status it has no opinion about.
+    const response = await fx.app.inject({
+      method: 'POST',
+      url: '/api/v1/ingest',
+      headers: { authorization: `Bearer ${ingestKey}` },
+      payload: {
+        controlKey: 'public-api',
+        metrics: { queueDepth: 42, tempC: 61.5 },
+      },
+    })
+    expect(response.statusCode).toBe(200)
+    expect(response.json().accepted).toBe(1)
+
+    const [row] = await fx.app.db
+      .select()
+      .from(schema.checks)
+      .where(eq(schema.checks.controlId, fx.controls.publicId))
+      .orderBy(desc(schema.checks.ts))
+      .limit(1)
+
+    expect(row!.metrics).toEqual({ queueDepth: 42, tempC: 61.5 })
+    // No status was sent and none was invented beyond the default.
+    expect(row!.status).toBe('operational')
+  })
+
+  it('refuses a metric name that would not survive being a chart label', async () => {
+    const response = await fx.app.inject({
+      method: 'POST',
+      url: '/api/v1/ingest',
+      headers: { authorization: `Bearer ${ingestKey}` },
+      payload: { controlKey: 'public-api', metrics: { '9lives': 1 } },
+    })
+    expect(response.statusCode).toBe(400)
+  })
+
+  it('still refuses a point that carries nothing at all', async () => {
+    const response = await fx.app.inject({
+      method: 'POST',
+      url: '/api/v1/ingest',
+      headers: { authorization: `Bearer ${ingestKey}` },
+      payload: { controlKey: 'public-api', metrics: {} },
+    })
+    expect(response.statusCode).toBe(400)
+  })
+})

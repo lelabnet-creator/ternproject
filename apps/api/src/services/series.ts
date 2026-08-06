@@ -17,6 +17,34 @@ export interface SeriesPoint {
   status: CheckStatusValue
   latencyMs: number | null
   value: number | null
+  metrics?: Record<string, number>
+}
+
+/**
+ * Named metrics averaged across a bucket, by the same reasoning as `value`.
+ *
+ * A metric missing from some points in the bucket is averaged over the points
+ * that have it, not over the bucket size — dividing by points that never
+ * reported it would drag every series towards zero.
+ */
+function averageMetrics(bucket: SeriesPoint[]): Record<string, number> | undefined {
+  const sums = new Map<string, { total: number; count: number }>()
+
+  for (const point of bucket) {
+    for (const [name, value] of Object.entries(point.metrics ?? {})) {
+      if (!Number.isFinite(value)) continue
+      const entry = sums.get(name)
+      if (entry) {
+        entry.total += value
+        entry.count += 1
+      } else {
+        sums.set(name, { total: value, count: 1 })
+      }
+    }
+  }
+
+  if (sums.size === 0) return undefined
+  return Object.fromEntries([...sums].map(([name, s]) => [name, s.total / s.count]))
 }
 
 /** Worst first. `unknown` sits below `operational`: it is an absence, not health. */
@@ -65,6 +93,7 @@ export function downsample(points: SeriesPoint[], maxPoints: number): SeriesPoin
         // Measurements are averaged: a queue depth is a level, and taking its
         // maximum would draw a series of spikes that never happened together.
         value: values.length > 0 ? values.reduce((a, b) => a + b, 0) / values.length : null,
+        metrics: averageMetrics(bucket),
       }
     })
 }

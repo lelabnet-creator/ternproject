@@ -32,7 +32,7 @@ export type PayloadShape = 'status' | 'value'
 export interface WidgetOption {
   key: string
   label: string
-  type: 'number' | 'select' | 'boolean'
+  type: 'number' | 'select' | 'boolean' | 'text'
   default: string | number | boolean
   choices?: { value: string; label: string }[]
   min?: number
@@ -52,6 +52,77 @@ export interface WidgetProps {
   limitAt?: number | null
 }
 
+/**
+ * One field a widget reads, described well enough to act on.
+ *
+ * The payload panel used to show the same three-line example for every widget,
+ * which answered "what does a point look like" and not the question anyone
+ * actually has: *which* fields does this chart consume, what units, what values
+ * are allowed, and what happens if I leave one out. A widget that draws a state
+ * and one that draws a queue depth were indistinguishable.
+ */
+export interface FieldSpec {
+  /** As it appears in the JSON body. */
+  field: string
+  kind: 'status' | 'number' | 'integer' | 'text' | 'timestamp'
+  /** Whether the widget can draw anything without it. */
+  required: boolean
+  /** What the number is measured in, when it is fixed. */
+  unit?: string
+  /** The complete set of accepted values, when there is one. */
+  values?: readonly string[]
+  /** One line: what this widget does with it. */
+  use: string
+}
+
+/** Every status a point may carry. Repeated in the contract, not just typed. */
+export const CHECK_STATUSES = [
+  'operational',
+  'degraded',
+  'partial',
+  'down',
+  'maintenance',
+  'unknown',
+] as const
+
+/** The three fields nearly every widget shares, described once. */
+const CONTROL_KEY: FieldSpec = {
+  field: 'controlKey',
+  kind: 'text',
+  required: true,
+  use: 'Which control this point belongs to. Must match the key on the server.',
+}
+
+const TIMESTAMP: FieldSpec = {
+  field: 'ts',
+  kind: 'timestamp',
+  required: false,
+  use: 'When it was measured, ISO 8601. Defaults to arrival; send it if the point was queued.',
+}
+
+const STATUS_FIELD = (use: string): FieldSpec => ({
+  field: 'status',
+  kind: 'status',
+  required: true,
+  values: CHECK_STATUSES,
+  use,
+})
+
+const LATENCY_FIELD = (use: string, required = false): FieldSpec => ({
+  field: 'latencyMs',
+  kind: 'integer',
+  required,
+  unit: 'ms',
+  use,
+})
+
+const METRIC_FIELD = (use: string): FieldSpec => ({
+  field: 'metrics.<name>',
+  kind: 'number',
+  required: false,
+  use,
+})
+
 export interface WidgetDefinition {
   id: string
   label: string
@@ -61,6 +132,8 @@ export interface WidgetDefinition {
   /** Some widgets are meaningless without history, others only make sense live. */
   requires: 'history' | 'live' | 'any'
   payloadShape: PayloadShape
+  /** Exactly which fields this widget consumes. Shown as its contract. */
+  reads: FieldSpec[]
   options: WidgetOption[]
   /** Deterministic sample data, so a preview never touches the database. */
   mockSeries(seed: number, options: Record<string, unknown>): MockPoint[]
@@ -136,11 +209,13 @@ const BulletAdapter: ComponentType<WidgetProps> = ({
   unit,
   warnAt,
   limitAt,
+  options,
 }) => {
+  const read = numberReader(options)
   const latest = series[series.length - 1]
-  const peak = Math.max(...series.map((p) => p.value ?? 0))
+  const peak = Math.max(...series.map((p) => read(p) ?? 0))
   return ValueBullet({
-    value: latest?.value ?? null,
+    value: latest ? read(latest) : null,
     unit,
     label: valueLabel,
     warnAt,
@@ -150,15 +225,36 @@ const BulletAdapter: ComponentType<WidgetProps> = ({
 }
 
 const SparklineAdapter: ComponentType<WidgetProps> = ({ series, label, options }) => {
+  const read = numberReader(options)
   const points = series.slice(-Number(options.samples ?? 60))
   return LiveSparkline({
     points: points.map((p) => ({
       ts: p.ts.toISOString(),
-      value: p.value ?? p.latencyMs ?? 0,
+      value: read(p) ?? p.latencyMs ?? 0,
       status: p.status,
     })),
     label,
   })
+}
+
+/**
+ * Which number a widget draws.
+ *
+ * `value` is the default because it is what every existing control sends. A
+ * widget configured with a metric name reads `metrics.<name>` instead — that is
+ * what lets one control report a queue depth *and* a latency and have each
+ * charted, rather than forcing a choice between the two fields the schema
+ * happened to name first.
+ *
+ * A named metric that is absent from a point falls back to `value` rather than
+ * to zero: an empty chart says "no data", a chart of zeroes says "the queue is
+ * empty", and only one of those is true.
+ */
+function numberReader(options: Record<string, unknown>): (point: MockPoint) => number | null {
+  const name = String(options.metric ?? '').trim()
+  if (!name) return (point) => point.value
+
+  return (point) => point.metrics?.[name] ?? point.value
 }
 
 const TileAdapter: ComponentType<WidgetProps> = ({ series, options, unit, valueLabel }) => {
@@ -197,6 +293,12 @@ export const WIDGETS: readonly WidgetDefinition[] = [
     accepts: ['status'],
     requires: 'history',
     payloadShape: 'status',
+    reads: [
+      CONTROL_KEY,
+      STATUS_FIELD('One bar per day, coloured by the worst status seen that day.'),
+      LATENCY_FIELD('Not drawn, but stored — switch to the latency band to see it.'),
+      TIMESTAMP,
+    ],
     options: [
       {
         key: 'windowDays',
@@ -221,6 +323,11 @@ export const WIDGETS: readonly WidgetDefinition[] = [
     accepts: ['status'],
     requires: 'history',
     payloadShape: 'status',
+    reads: [
+      CONTROL_KEY,
+      STATUS_FIELD('Consecutive points of the same status merge into one band.'),
+      TIMESTAMP,
+    ],
     options: [
       {
         key: 'windowDays',
@@ -245,6 +352,11 @@ export const WIDGETS: readonly WidgetDefinition[] = [
     accepts: ['status'],
     requires: 'history',
     payloadShape: 'status',
+    reads: [
+      CONTROL_KEY,
+      STATUS_FIELD('One cell per day; the worst status of the day wins.'),
+      TIMESTAMP,
+    ],
     options: [],
     mockSeries: (seed) => statusSeries(seed, 180, 3600),
     mockPayload: (controlKey) => ({ controlKey, status: 'operational', latencyMs: 96 }),
@@ -257,6 +369,12 @@ export const WIDGETS: readonly WidgetDefinition[] = [
     accepts: ['status', 'numeric'],
     requires: 'history',
     payloadShape: 'status',
+    reads: [
+      CONTROL_KEY,
+      LATENCY_FIELD('The series itself: p50, p95 and p99 are computed from it.', true),
+      STATUS_FIELD('Points that are down are excluded, so an outage does not inflate p99.'),
+      TIMESTAMP,
+    ],
     options: [
       {
         key: 'windowDays',
@@ -281,7 +399,19 @@ export const WIDGETS: readonly WidgetDefinition[] = [
     accepts: ['numeric'],
     requires: 'any',
     payloadShape: 'value',
+    reads: [
+      CONTROL_KEY,
+      {
+        field: 'value',
+        kind: 'number',
+        required: true,
+        use: 'The measurement, drawn against the warn and limit thresholds below.',
+      },
+      METRIC_FIELD('An alternative source: set “Metric” below to read metrics.<name> instead.'),
+      TIMESTAMP,
+    ],
     options: [
+      { key: 'metric', label: 'Metric (blank = value)', type: 'text', default: '' },
       { key: 'warnAt', label: 'Warn above', type: 'number', default: 200 },
       { key: 'limitAt', label: 'Critical above', type: 'number', default: 400 },
     ],
@@ -296,7 +426,19 @@ export const WIDGETS: readonly WidgetDefinition[] = [
     accepts: ['status', 'numeric'],
     requires: 'live',
     payloadShape: 'value',
+    reads: [
+      CONTROL_KEY,
+      {
+        field: 'value',
+        kind: 'number',
+        required: true,
+        use: 'Plotted as it arrives, over the recent window.',
+      },
+      METRIC_FIELD('An alternative source: set “Metric” below to read metrics.<name> instead.'),
+      TIMESTAMP,
+    ],
     options: [
+      { key: 'metric', label: 'Metric (blank = value)', type: 'text', default: '' },
       { key: 'samples', label: 'Samples shown', type: 'number', default: 60, min: 10, max: 300 },
     ],
     mockSeries: (seed) => valueSeries(seed, 1, 300),
@@ -310,6 +452,17 @@ export const WIDGETS: readonly WidgetDefinition[] = [
     accepts: ['status', 'numeric'],
     requires: 'any',
     payloadShape: 'status',
+    reads: [
+      CONTROL_KEY,
+      STATUS_FIELD('The headline word and its colour.'),
+      LATENCY_FIELD('Shown beneath the status when present.'),
+      {
+        field: 'value',
+        kind: 'number',
+        required: false,
+        use: 'Shown instead of the latency when the control has a value label.',
+      },
+    ],
     options: [
       {
         key: 'metric',

@@ -105,8 +105,10 @@ describe('preview data', () => {
 describe('options', () => {
   it('fills defaults for anything unset', () => {
     const widget = widgetById('value-bullet')
-    expect(resolveOptions(widget, {})).toEqual({ warnAt: 200, limitAt: 400 })
-    expect(resolveOptions(widget, { warnAt: 50 })).toEqual({ warnAt: 50, limitAt: 400 })
+    // `metric` defaults to empty, which means "read `value`" — the behaviour
+    // every control had before named metrics existed.
+    expect(resolveOptions(widget, {})).toEqual({ metric: '', warnAt: 200, limitAt: 400 })
+    expect(resolveOptions(widget, { warnAt: 50 })).toEqual({ metric: '', warnAt: 50, limitAt: 400 })
   })
 })
 
@@ -120,5 +122,44 @@ describe('payload shape agrees with the generator', () => {
     for (const widget of WIDGETS) {
       expect(payloadShapeForWidget(widget.id), widget.id).toBe(widget.payloadShape)
     }
+  })
+})
+
+describe('which number a numeric widget draws', () => {
+  it('declares a contract that differs between a status widget and a numeric one', () => {
+    // The complaint this answers: every widget showed the same payload panel.
+    const ribbon = widgetById('uptime-ribbon').reads.map((f) => f.field)
+    const bullet = widgetById('value-bullet').reads.map((f) => f.field)
+
+    expect(ribbon).toContain('status')
+    expect(bullet).toContain('value')
+    expect(bullet).not.toContain('status')
+  })
+
+  it('states required-ness rather than leaving it implied', () => {
+    // A chart that silently draws nothing because an optional-looking field was
+    // omitted is the failure the contract exists to prevent.
+    for (const widget of WIDGETS) {
+      expect(widget.reads.length, widget.id).toBeGreaterThan(0)
+      expect(
+        widget.reads.some((f) => f.required),
+        widget.id,
+      ).toBe(true)
+      for (const field of widget.reads) {
+        expect(field.use.length, `${widget.id}.${field.field}`).toBeGreaterThan(10)
+      }
+    }
+  })
+
+  it('spells out every status a status field accepts', () => {
+    const status = widgetById('uptime-ribbon').reads.find((f) => f.field === 'status')
+    expect(status?.values).toEqual([
+      'operational',
+      'degraded',
+      'partial',
+      'down',
+      'maintenance',
+      'unknown',
+    ])
   })
 })

@@ -27,6 +27,13 @@ export interface MockPoint {
   latencyMs: number | null
   value: number | null
   message: string | null
+  /**
+   * Named measurements beyond the two above.
+   *
+   * Optional so every existing producer of this type stays valid; a widget that
+   * reads a named metric falls back to `value` when it is absent.
+   */
+  metrics?: Record<string, number>
 }
 
 export interface MockSeriesOptions {

@@ -181,6 +181,13 @@ export function PreviewStep({
                       </option>
                     ))}
                   </select>
+                ) : option.type === 'text' ? (
+                  <input
+                    type="text"
+                    value={String(options[option.key] ?? option.default)}
+                    onChange={(e) => setOptions({ ...options, [option.key]: e.target.value })}
+                    style={selectStyle}
+                  />
                 ) : (
                   <input
                     type="number"
@@ -236,17 +243,7 @@ export function PreviewStep({
           {JSON.stringify(widget.mockPayload(control.key), null, 2)}
         </CodeBlock>
 
-        <p
-          style={{
-            margin: 'var(--space-2) 0 0',
-            fontSize: 'var(--text-xs)',
-            color: 'var(--color-fg-subtle)',
-          }}
-        >
-          {widget.payloadShape === 'value'
-            ? 'This widget reads `value`. The generated scripts measure a number and send it.'
-            : 'This widget reads `status` and `latencyMs`. The generated scripts time a check and classify it against your thresholds.'}
-        </p>
+        <FieldContract widget={widget} unit={control.valueUnit} />
       </Card>
 
       <div>
@@ -256,6 +253,119 @@ export function PreviewStep({
       </div>
     </div>
   )
+}
+
+/**
+ * What this widget actually consumes, field by field.
+ *
+ * The example above shows one valid point; this says which parts of it matter,
+ * what the units are, which values are accepted, and what is optional. Those are
+ * the questions someone writing the push has, and an example answers none of
+ * them — every widget's example looked alike, so the panel appeared identical
+ * whichever chart was chosen.
+ */
+function FieldContract({ widget, unit }: { widget: WidgetDefinition; unit: string | null }) {
+  return (
+    <div style={{ marginTop: 'var(--space-4)' }}>
+      <h3 style={{ margin: '0 0 var(--space-2)', fontSize: 'var(--text-sm)' }}>Fields it reads</h3>
+
+      <div style={{ overflowX: 'auto' }}>
+        <table
+          style={{
+            width: '100%',
+            borderCollapse: 'collapse',
+            fontSize: 'var(--text-sm)',
+            minWidth: '34rem',
+          }}
+        >
+          <thead>
+            <tr style={{ textAlign: 'left', color: 'var(--color-fg-subtle)' }}>
+              <th style={cell}>Field</th>
+              <th style={cell}>Type</th>
+              <th style={cell}>Accepts</th>
+              <th style={cell}>What it does with it</th>
+            </tr>
+          </thead>
+          <tbody>
+            {widget.reads.map((spec) => (
+              <tr key={spec.field} style={{ borderTop: '1px solid var(--color-border)' }}>
+                <td style={cell}>
+                  <code>{spec.field}</code>
+                  {/* Required is stated, not implied by omission: a chart that
+                      silently draws nothing is the failure this prevents. */}
+                  {spec.required ? (
+                    <span
+                      style={{
+                        marginLeft: 6,
+                        fontSize: 'var(--text-xs)',
+                        fontWeight: 700,
+                        color: 'var(--status-down)',
+                      }}
+                    >
+                      required
+                    </span>
+                  ) : (
+                    <span
+                      style={{
+                        marginLeft: 6,
+                        fontSize: 'var(--text-xs)',
+                        color: 'var(--color-fg-subtle)',
+                      }}
+                    >
+                      optional
+                    </span>
+                  )}
+                </td>
+                <td style={cell}>{spec.kind}</td>
+                <td style={cell}>
+                  {spec.values ? (
+                    <span style={{ display: 'inline-flex', gap: 4, flexWrap: 'wrap' }}>
+                      {spec.values.map((value) => (
+                        <code key={value} style={{ fontSize: 'var(--text-xs)' }}>
+                          {value}
+                        </code>
+                      ))}
+                    </span>
+                  ) : spec.unit ? (
+                    `any number, in ${spec.unit}`
+                  ) : spec.kind === 'number' || spec.kind === 'integer' ? (
+                    unit ? (
+                      `any number, in ${unit}`
+                    ) : (
+                      'any number'
+                    )
+                  ) : spec.kind === 'timestamp' ? (
+                    'ISO 8601'
+                  ) : (
+                    'text'
+                  )}
+                </td>
+                <td style={{ ...cell, color: 'var(--color-fg-muted)' }}>{spec.use}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <p
+        style={{
+          margin: 'var(--space-3) 0 0',
+          fontSize: 'var(--text-xs)',
+          color: 'var(--color-fg-subtle)',
+        }}
+      >
+        Any point may also carry <code>metrics</code>, a map of named numbers — send a queue depth
+        beside a latency rather than choosing one. Names must start with a letter; at most 25 per
+        point.
+      </p>
+    </div>
+  )
+}
+
+const cell: React.CSSProperties = {
+  padding: 'var(--space-2) var(--space-3) var(--space-2) 0',
+  verticalAlign: 'top',
+  fontWeight: 'inherit',
 }
 
 const selectStyle: React.CSSProperties = {

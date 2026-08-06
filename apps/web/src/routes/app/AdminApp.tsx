@@ -625,7 +625,13 @@ function SimulatedWidget({
   points,
 }: {
   control: Control
-  points: { ts: string; status: string; latencyMs: number | null; value: number | null }[]
+  points: {
+    ts: string
+    status: string
+    latencyMs: number | null
+    value: number | null
+    metrics?: Record<string, number>
+  }[]
 }) {
   const widget = widgetById(control.widget)
   const options = resolveOptions(widget, control.widgetOptions)
@@ -635,6 +641,7 @@ function SimulatedWidget({
     status: point.status as CheckStatusValue,
     latencyMs: point.latencyMs,
     value: point.value,
+    metrics: point.metrics,
     message: null,
   }))
 

@@ -114,7 +114,13 @@ export const adminApi = {
   series: (slug: string, id: string, days = 30) =>
     request<{
       synthetic: boolean
-      points: { ts: string; status: string; latencyMs: number | null; value: number | null }[]
+      points: {
+        ts: string
+        status: string
+        latencyMs: number | null
+        value: number | null
+        metrics?: Record<string, number>
+      }[]
     }>('GET', `/api/v1/${slug}/controls/${id}/series?days=${days}`),
 
   simulate: (slug: string, id: string, body: Record<string, unknown>) =>

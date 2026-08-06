@@ -23,6 +23,12 @@ milestone plan stays finishable.
   keyboard equivalent for free placement — dragging in two dimensions has no obvious arrow-key
   analogue, and the reordering screen deliberately never offers a move the keyboard cannot make.
 
+- **Named metrics on the public page.** `metrics` is accepted at ingest, stored, reduced and drawn
+  in the editor, but the public page still charts `value` — it reads the daily rollups, and the
+  continuous aggregates do not roll up a JSONB map. Doing it properly means either promoting a
+  tenant's chosen metrics to columns or adding a public series endpoint with its own caching, and
+  neither is a change to make casually on the path every visitor hits.
+
 ## Not planned
 
 - **Custom CSS / JavaScript injection.** status.io offers it; on a multi-tenant instance it is an

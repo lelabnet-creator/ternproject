@@ -45,3 +45,33 @@ describe('downsampling a series for a chart', () => {
     expect([...timestamps].sort((a, b) => a - b)).toEqual(timestamps)
   })
 })
+
+describe('named metrics through the reduction', () => {
+  it('averages a metric over the points that reported it, not the bucket size', () => {
+    // Dividing by points that never carried the metric would drag every series
+    // towards zero and make a sparse metric look like a decline.
+    const points: SeriesPoint[] = [
+      at(0, { metrics: { queue: 10 } }),
+      at(1),
+      at(2, { metrics: { queue: 20 } }),
+    ]
+    const [bucket] = downsample(points, 1)
+    expect(bucket!.metrics?.queue).toBe(15)
+  })
+
+  it('leaves metrics undefined when no point carried any', () => {
+    const [bucket] = downsample([at(0), at(1), at(2)], 1)
+    expect(bucket!.metrics).toBeUndefined()
+  })
+
+  it('keeps several metrics side by side', () => {
+    // The whole point: a control reporting a depth and a latency should not
+    // have to choose which one gets charted.
+    const points: SeriesPoint[] = [
+      at(0, { metrics: { queue: 4, temperature: 60 } }),
+      at(1, { metrics: { queue: 6, temperature: 70 } }),
+    ]
+    const [bucket] = downsample(points, 1)
+    expect(bucket!.metrics).toEqual({ queue: 5, temperature: 65 })
+  })
+})
