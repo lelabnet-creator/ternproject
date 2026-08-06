@@ -51,6 +51,25 @@ export function countsAsDown(status: CheckStatusValue): boolean {
   return status === 'down' || status === 'partial'
 }
 
+/**
+ * The headline status for a whole page.
+ *
+ * Differs from `worstStatus` in one respect: a component with no data does not
+ * drag the entire page to "status unavailable". One silent probe out of ten is
+ * a gap in reporting, not an outage of the service — and a page announcing
+ * "status unavailable" while nine components read Operational is telling its
+ * readers something false.
+ *
+ * When every component is unknown there is genuinely nothing to report, and the
+ * page says so.
+ */
+export function overallStatus(statuses: readonly CheckStatusValue[]): CheckStatusValue {
+  if (statuses.length === 0) return 'unknown'
+
+  const known = statuses.filter((s) => s !== 'unknown')
+  return known.length === 0 ? 'unknown' : worstStatus(known)
+}
+
 export const incidentImpactSchema = z.enum(['degraded', 'partial', 'major'])
 export type IncidentImpactValue = z.infer<typeof incidentImpactSchema>
 

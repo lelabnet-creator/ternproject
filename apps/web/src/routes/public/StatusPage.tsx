@@ -266,7 +266,7 @@ function Footer() {
       }}
     >
       {/* Tenant branding owns the header; TERN steps back to a quiet credit. */}
-      <TernWordmark size={16} />
+      <TernWordmark size={24} />
     </footer>
   )
 }

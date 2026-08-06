@@ -11,6 +11,21 @@
  */
 
 :root {
+  /*
+   * ── Brand ───────────────────────────────────────────────────────────────
+   * From the logo system sheet. Fixed values, not theme-dependent: these are
+   * the marque's own colours and they mean the same thing in either mode.
+   *
+   * `--brand-accent` is the coral of the beak. It is deliberately NOT wired to
+   * `--color-accent`: it sits within a few ΔE of the `partial` status orange,
+   * and a brand colour that reads as a service state is the one collision a
+   * status page cannot afford. It is available for brand surfaces — never for
+   * anything that could be mistaken for a status.
+   */
+  --brand-ink: #0d2a3f;
+  --brand-paper: #edf2f5;
+  --brand-accent: #f2653c;
+
   /* ── Spacing: 4px rhythm, no ad-hoc values ─────────────────────────────── */
   --space-1: 0.25rem;
   --space-2: 0.5rem;
@@ -111,9 +126,11 @@
 /* ── Dark theme ──────────────────────────────────────────────────────────── */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme='light']) {
-    --color-bg: #0f172a;
-    --color-surface: #1e293b;
-    --color-surface-raised: #263449;
+    /* The dark surfaces are the brand ink and two steps up from it, rather
+       than a generic slate that merely resembled it. */
+    --color-bg: #0d2a3f;
+    --color-surface: #163a52;
+    --color-surface-raised: #1d475f;
     --color-fg: #f8fafc;
     --color-fg-muted: #cbd5e1;
     --color-fg-subtle: #94a3b8;
@@ -150,9 +167,9 @@
 
 /* The toggle must win over the media query in both directions. */
 [data-theme='dark'] {
-  --color-bg: #0f172a;
-  --color-surface: #1e293b;
-  --color-surface-raised: #263449;
+  --color-bg: #0d2a3f;
+  --color-surface: #163a52;
+  --color-surface-raised: #1d475f;
   --color-fg: #f8fafc;
   --color-fg-muted: #cbd5e1;
   --color-fg-subtle: #94a3b8;

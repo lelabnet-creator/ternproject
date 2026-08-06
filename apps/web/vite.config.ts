@@ -7,13 +7,13 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['brand/favicon.svg', 'brand/tern-mark.svg'],
+      includeAssets: ['brand/favicon.svg', 'brand/tern-mark.svg', 'brand/tern-badge.svg'],
       manifest: {
         name: 'TERN Status',
         short_name: 'TERN',
         description: 'Service status, live or historized.',
-        theme_color: '#0f172a',
-        background_color: '#0f172a',
+        theme_color: '#0D2A3F',
+        background_color: '#0D2A3F',
         display: 'standalone',
         icons: [
           { src: 'brand/icon-192.png', sizes: '192x192', type: 'image/png' },

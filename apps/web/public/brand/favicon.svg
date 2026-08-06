@@ -1,24 +1,28 @@
 <!--
   Favicon.
 
-  Theme handling is inside the SVG: a browser tab has no way to hand the icon a
-  CSS variable, so the media query travels with the file. Without it the mark
-  disappears against one of the two tab-bar colours.
+  The 24px reduction rules from the logo system apply here more than anywhere: a
+  tab icon renders at 16px, so the stroke is thickened and the eye dropped. At
+  that size the eye is a smudge, and the sheet says to remove it rather than
+  shrink it.
+
+  Theme handling travels inside the file because a browser tab cannot hand an
+  icon a CSS variable. The badge form is used in both themes — the container
+  carries its own contrast, so the mark never disappears against a tab bar of
+  either colour.
 -->
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" role="img" aria-label="TERN">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160" role="img" aria-label="TERN">
   <style>
-    .bg { fill: #0f172a; }
-    .fg { stroke: #22c55e; }
+    .bg { fill: #0D2A3F; }
+    .fg { stroke: #FFFFFF; }
     @media (prefers-color-scheme: light) {
-      .bg { fill: #ffffff; }
-      .fg { stroke: #15803d; }
+      .bg { fill: #EDF2F5; }
+      .fg { stroke: #0D2A3F; }
     }
   </style>
-  <rect class="bg" width="24" height="24" rx="5" />
-  <g class="fg" fill="none" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M3.5 8.8c3-.4 5.6-.1 7.9 1" />
-    <path d="M11.4 9.8c1.8 1 3 2.2 3.8 3.7l1.8-.9-.7 1.8 2.2-.3-1.5 1.6" />
-    <path d="M20.5 8c-2.5 1.4-4.6 2.8-6.3 4.3" />
-    <path d="M15.2 13.5 9 18.6m6.2-5.1-1 5.9" />
-  </g>
+  <rect class="bg" width="160" height="160" rx="40" />
+  <path class="fg"
+        d="M30 112 C19 86 30 50 62 44 C84 40 96 50 98 60 L130 66 L98 72"
+        fill="none" stroke-width="12"
+        stroke-linecap="round" stroke-linejoin="round" />
 </svg>

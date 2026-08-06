@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { impactToStatus, rollupStatus, worstStatus } from './status.js'
+import { impactToStatus, overallStatus, rollupStatus, worstStatus } from './status.js'
 
 describe('worstStatus', () => {
   it('reports the most severe status present', () => {
@@ -58,5 +58,24 @@ describe('impactToStatus', () => {
     expect(impactToStatus('degraded')).toBe('degraded')
     expect(impactToStatus('partial')).toBe('partial')
     expect(impactToStatus('major')).toBe('down')
+  })
+})
+
+describe('overallStatus', () => {
+  it('does not let one silent component blank the whole page', () => {
+    // Found by looking at a running page: nine components read Operational and
+    // the headline said "status unavailable". One gap in reporting is not an
+    // outage of the service, and saying so is false.
+    expect(overallStatus(['operational', 'operational', 'unknown'])).toBe('operational')
+  })
+
+  it('still reports a real problem over a gap', () => {
+    expect(overallStatus(['operational', 'unknown', 'down'])).toBe('down')
+    expect(overallStatus(['unknown', 'degraded'])).toBe('degraded')
+  })
+
+  it('reports unknown only when there is genuinely nothing to report', () => {
+    expect(overallStatus(['unknown', 'unknown'])).toBe('unknown')
+    expect(overallStatus([])).toBe('unknown')
   })
 })

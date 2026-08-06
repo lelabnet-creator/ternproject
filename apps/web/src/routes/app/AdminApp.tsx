@@ -43,7 +43,7 @@ export function AdminApp({ slug }: { slug: string }) {
         }}
       >
         <div>
-          <TernWordmark size={20} />
+          <TernWordmark size={24} />
           <p
             style={{
               margin: 'var(--space-1) 0 0',
@@ -489,7 +489,7 @@ function LoginScreen({ onSignedIn }: { onSignedIn: () => void }) {
           }}
           style={{ display: 'grid', gap: 'var(--space-4)' }}
         >
-          <TernWordmark size={22} />
+          <TernWordmark size={28} />
 
           {error && <Banner tone="down">{error}</Banner>}
 

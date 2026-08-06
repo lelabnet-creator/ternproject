@@ -5,6 +5,7 @@ import { schema, toDate } from '@tern/db'
 import {
   checkStatusSchema,
   impactToStatus,
+  overallStatus,
   rollupStatus,
   worstStatus,
   type CheckStatusValue,
@@ -262,7 +263,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
           branding: tenantRow.branding,
         },
         overall: {
-          status: worstStatus(components.map((c) => c.status)),
+          status: overallStatus(components.map((c) => c.status)),
           affectedCount: affected.length,
         },
         groups,

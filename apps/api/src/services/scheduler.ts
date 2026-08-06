@@ -150,8 +150,14 @@ export async function sweepStaleControls(
        ${tenantId ? app.sql`AND c.tenant_id = ${tenantId}::uuid` : app.sql``}
        AND c.kind = 'push'
        AND c.expected_interval_s IS NOT NULL
-       AND (last.ts IS NULL OR last.ts < now() - (c.expected_interval_s * 2 || ' seconds')::interval)
-       AND (last.status IS NULL OR last.status <> 'unknown')
+       -- Only controls that reported and then went silent. A control that has
+       -- never reported already reads as unknown from having no rows at all,
+       -- so writing a marker adds nothing, and it races with any bulk load:
+       -- the marker lands at now() while the history being written is older,
+       -- so the marker wins permanently and the control looks dead forever.
+       AND last.ts IS NOT NULL
+       AND last.ts < now() - (c.expected_interval_s * 2 || ' seconds')::interval
+       AND last.status <> 'unknown'
        -- A control inside a maintenance window that suppresses alerts is
        -- expected to go quiet. Reporting that as lost contact is noise the
        -- operator explicitly asked not to receive.

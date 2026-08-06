@@ -295,22 +295,33 @@ async function main() {
           : undefined,
       })
 
-      // Batched inserts: one statement per point would take minutes, one
-      // statement for 26k points exceeds the parameter limit.
-      const BATCH = 2000
-      for (let i = 0; i < series.length; i += BATCH) {
-        const batch = series.slice(i, i + BATCH).map((point) => ({
-          ts: point.ts,
-          tenantId: tenant.id,
-          controlId,
-          status: point.status,
-          latencyMs: point.latencyMs,
-          value: point.value,
-          message: point.message,
-          synthetic: false,
-        }))
-        await db.insert(s.checks).values(batch)
-      }
+      // Batched inserts inside one transaction. Batching because a statement
+      // per point would take minutes and a single statement for 26k points
+      // exceeds the parameter limit; the transaction because a backfill writes
+      // oldest-first, so while it is in flight the newest visible row is still
+      // days old — and the stale-control sweeper, running every 30 seconds,
+      // reads that as a control that has gone silent and marks it unknown at
+      // now(). That marker then outranks the history being written and the
+      // control looks dead permanently.
+      //
+      // Committing the whole series at once means the newest row jumps straight
+      // to the present and there is no window to observe.
+      await db.transaction(async (tx) => {
+        const BATCH = 2000
+        for (let i = 0; i < series.length; i += BATCH) {
+          const batch = series.slice(i, i + BATCH).map((point) => ({
+            ts: point.ts,
+            tenantId: tenant.id,
+            controlId,
+            status: point.status,
+            latencyMs: point.latencyMs,
+            value: point.value,
+            message: point.message,
+            synthetic: false,
+          }))
+          await tx.insert(s.checks).values(batch)
+        }
+      })
       totalPoints += series.length
       console.warn(`  · ${spec.key}: ${series.length} points`)
     }
