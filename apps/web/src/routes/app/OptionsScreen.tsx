@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { adminApi, ApiError, type TenantSettingsPatch } from '../../lib/adminApi'
 import { Tabs } from '../../components/Tabs'
-import { ACCENTS, accentById, applyAccent } from '../../lib/accents'
+import { ACCENTS, SEPARATION_FLOOR, accentById, applyAccent } from '../../lib/accents'
 import { Banner, Button, Card, Field, Input } from '../../components/ui'
 import { NotificationsPanels } from '../../features/settings/NotificationsPanels'
 import { CapacityPanel } from '../../features/settings/CapacityPanel'
@@ -147,8 +147,10 @@ function GeneralPanel({ slug, canWrite }: { slug: string; canWrite: boolean }) {
           A short list, and the reason is arithmetic rather than taste: the status palette already
           occupies green, amber, orange, crimson, blue and grey, so an accent near any of them would
           start being read as a state. Teal, steel blue, indigo, amber and pink were all measured
-          and all failed. These are what is left — the number is each one&rsquo;s distance from the
-          nearest status colour.
+          and all failed. The number is each one&rsquo;s distance from the nearest status colour;
+          anything under {SEPARATION_FLOOR} is marked, and names which status it could be mistaken
+          for. Below that, a primary button can read as a service state — which on a status page is
+          the one confusion worth avoiding.
         </p>
 
         <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
@@ -196,9 +198,21 @@ function GeneralPanel({ slug, canWrite }: { slug: string; canWrite: boolean }) {
                 {accent.label}
                 <span
                   className="tabular"
-                  style={{ fontSize: 'var(--text-xs)', color: 'var(--color-fg-subtle)' }}
+                  style={{
+                    fontSize: 'var(--text-xs)',
+                    color:
+                      accent.separation < SEPARATION_FLOOR
+                        ? 'var(--status-degraded)'
+                        : 'var(--color-fg-subtle)',
+                  }}
+                  title={
+                    accent.separation < SEPARATION_FLOOR
+                      ? `Close to the ${accent.nearest} status colour — it may be misread as a state`
+                      : 'Clear of every status colour'
+                  }
                 >
                   ΔE {accent.separation}
+                  {accent.nearest && ` · near ${accent.nearest}`}
                 </span>
               </button>
             )

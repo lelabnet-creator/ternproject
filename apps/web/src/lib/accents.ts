@@ -32,7 +32,12 @@ export interface Accent {
   lightFg: string
   /** Worst normal-vision ΔE against any status colour. */
   separation: number
+  /** Which status it is nearest, named when the separation is below the floor. */
+  nearest?: string
 }
+
+/** Below this, two colours are hard to tell apart even with full colour vision. */
+export const SEPARATION_FLOOR = 15
 
 export const ACCENTS: Accent[] = [
   {
@@ -90,6 +95,66 @@ export const ACCENTS: Accent[] = [
     darkSoft: '#123c31',
     darkFg: '#06251b',
     separation: 19.3,
+  },
+
+  /*
+   * The rest of the chosen palette, shipped because it was asked for twice, and
+   * shipped with the number visible because the number is the point.
+   *
+   * These sit below the floor: an accent this close to a status colour can be
+   * misread as one, and the misreading that matters is a primary button that
+   * looks like a "down" badge on a status page. The picker names the status
+   * each one is nearest, so the trade is made in front of the person making it
+   * rather than discovered afterwards.
+   *
+   * Darkening does not rescue them — it makes them worse. A rose dark enough to
+   * carry white text at 4.5:1 measures ΔE 2.9 from `down`; the value below is
+   * the lightest that still holds contrast, at 7.4.
+   */
+  {
+    id: 'rose',
+    label: 'Rose',
+    light: '#d23a60',
+    lightInk: '#c2274f',
+    lightSoft: '#fde7ec',
+    lightFg: '#ffffff',
+    dark: '#e4486b',
+    darkInk: '#f7a8bd',
+    darkSoft: '#45182a',
+    darkFg: '#2b0711',
+    separation: 7.4,
+    nearest: 'down',
+  },
+  {
+    id: 'amber',
+    label: 'Amber',
+    light: '#f9d276',
+    // The fill is light enough to need a dark foreground, which is why the ink
+    // is a different colour rather than the same one: #f9d276 as text on white
+    // is 1.6:1 and unreadable.
+    lightInk: '#8a6d1f',
+    lightSoft: '#fdf3dc',
+    lightFg: '#17384b',
+    dark: '#f9d276',
+    darkInk: '#fbdf9e',
+    darkSoft: '#42381c',
+    darkFg: '#17384b',
+    separation: 9.3,
+    nearest: 'degraded',
+  },
+  {
+    id: 'ocean',
+    label: 'Ocean',
+    light: '#2a7ba0',
+    lightInk: '#1f6a8c',
+    lightSoft: '#e2f0f7',
+    lightFg: '#ffffff',
+    dark: '#3288b0',
+    darkInk: '#8ec9e4',
+    darkSoft: '#14313f',
+    darkFg: '#05161f',
+    separation: 6.0,
+    nearest: 'maintenance',
   },
   {
     id: 'magenta',

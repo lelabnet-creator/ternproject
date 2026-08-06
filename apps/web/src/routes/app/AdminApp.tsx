@@ -68,7 +68,7 @@ export function AdminApp({ slug }: { slug: string }) {
     <div className="admin-shell">
       <aside className="admin-rail">
         <div className="admin-brand">
-          <TernWordmark size={24} />
+          <TernWordmark size={34} />
           <p className="admin-tenant">
             {membership.name}
             <span>{membership.role}</span>
@@ -293,10 +293,6 @@ function ControlCard({
           display: 'grid',
           gap: 'var(--space-2)',
           height: '100%',
-          // The footer bleeds to the card's edge, so the card owns its padding
-          // rather than the content inside it.
-          overflow: 'hidden',
-          borderRadius: 'var(--radius-md)',
         }}
       >
         <div style={{ display: 'flex', gap: 'var(--space-2)', alignItems: 'center' }}>
@@ -345,11 +341,13 @@ function ControlCard({
             fontSize: 'var(--text-xs)',
             color: 'var(--color-fg-muted)',
             marginTop: 'auto',
-            marginInline: 'calc(-1 * var(--space-4))',
-            marginBottom: 'calc(-1 * var(--space-4))',
-            padding: 'var(--space-3) var(--space-4)',
+            // Inset with its own rounding rather than bled to the card's edge:
+            // the bleed relied on a negative margin inside a clipping container,
+            // which cut the strip's bottom off.
+            padding: 'var(--space-2) var(--space-3)',
+            borderRadius: 'var(--radius-sm)',
             background: 'var(--color-surface-raised)',
-            borderTop: '1px solid var(--color-border)',
+            border: '1px solid var(--color-border)',
           }}
         >
           <Spec
