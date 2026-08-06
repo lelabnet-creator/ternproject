@@ -10,6 +10,7 @@ import type { CheckStatusValue } from '@tern/shared/status'
 import { api } from '../../lib/api'
 import { LayoutScreen } from './LayoutScreen'
 import { FleetScreen } from './FleetScreen'
+import { NotificationsScreen } from './NotificationsScreen'
 
 /**
  * The admin surface.
@@ -74,6 +75,8 @@ export function AdminApp({ slug }: { slug: string }) {
         <LayoutScreen slug={slug} canWrite={membership.role === 'admin'} />
       ) : section === 'agents' ? (
         <FleetScreen slug={slug} canWrite={membership.role === 'admin'} />
+      ) : section === 'notifications' ? (
+        <NotificationsScreen slug={slug} canWrite={membership.role === 'admin'} />
       ) : (
         <ControlsScreen slug={slug} canWrite={membership.role === 'admin'} />
       )}
@@ -87,6 +90,7 @@ const SECTIONS = [
   { id: 'controls', label: 'Controls' },
   { id: 'layout', label: 'Page layout' },
   { id: 'agents', label: 'Agents' },
+  { id: 'notifications', label: 'Notifications' },
 ] as const
 
 type Section = (typeof SECTIONS)[number]['id']

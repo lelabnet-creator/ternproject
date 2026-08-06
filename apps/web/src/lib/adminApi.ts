@@ -152,6 +152,41 @@ export const adminApi = {
 
   agents: (slug: string) => request<Agent[]>('GET', `/api/v1/${slug}/agents`),
 
+  mailSettings: (slug: string) =>
+    request<{
+      host: string
+      port: number
+      secure: boolean
+      from: string
+      authenticated: boolean
+      source: string
+    }>('GET', `/api/v1/${slug}/notifications/mail`),
+
+  testMail: (slug: string, to: string) =>
+    request<{ sent: boolean; detail: string }>('POST', `/api/v1/${slug}/notifications/mail/test`, {
+      to,
+    }),
+
+  webhooks: (slug: string) =>
+    request<{ id: string; url: string; confirmed: boolean; hasSecret: boolean }[]>(
+      'GET',
+      `/api/v1/${slug}/notifications/webhooks`,
+    ),
+
+  addWebhook: (slug: string, url: string) =>
+    request<{ id: string; secret: string }>('POST', `/api/v1/${slug}/notifications/webhooks`, {
+      url,
+    }),
+
+  testWebhook: (slug: string, id: string) =>
+    request<{ sent: boolean; detail: string }>(
+      'POST',
+      `/api/v1/${slug}/notifications/webhooks/${id}/test`,
+    ),
+
+  removeWebhook: (slug: string, id: string) =>
+    request<{ ok: boolean }>('DELETE', `/api/v1/${slug}/notifications/webhooks/${id}`),
+
   updateAgent: (slug: string, id: string, body: { name?: string; site?: string | null }) =>
     request<{ ok: boolean }>('PATCH', `/api/v1/${slug}/agents/${id}`, body),
 

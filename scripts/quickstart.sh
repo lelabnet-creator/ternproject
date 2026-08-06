@@ -79,18 +79,21 @@ else
 fi
 
 # --- database ----------------------------------------------------------------
-say "Démarrage de PostgreSQL, TimescaleDB et MailHog"
-docker compose up -d
-
 # Compose returns as soon as the container starts, which is before Postgres
-# accepts connections. Migrating too early fails on a healthy setup.
-say "Attente de la base"
-i=0
-until docker compose exec -T db pg_isready -q 2>/dev/null; do
-  i=$((i + 1))
-  [ "$i" -lt 60 ] || die "La base n'a pas répondu en 60 s. Voir : docker compose logs db"
-  sleep 1
-done
+# accepts connections — migrating there fails on an otherwise healthy setup.
+# `--wait` honours the healthcheck the compose file already declares; the poll
+# is the fallback for older Compose builds that lack the flag.
+say "Démarrage de PostgreSQL, TimescaleDB et MailHog"
+if ! docker compose up -d --wait 2>/dev/null; then
+  docker compose up -d
+  say "Attente de la base"
+  i=0
+  until docker compose exec -T db pg_isready -U tern -d tern -q 2>/dev/null; do
+    i=$((i + 1))
+    [ "$i" -lt 60 ] || die "La base n'a pas répondu en 60 s. Voir : docker compose logs db"
+    sleep 1
+  done
+fi
 
 # --- application -------------------------------------------------------------
 say "Installation des dépendances"
