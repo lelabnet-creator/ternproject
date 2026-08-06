@@ -46,7 +46,9 @@ export function AdminApp({ slug }: { slug: string }) {
     queryFn: () => api.summary(slug),
     retry: false,
   })
-  const accentId = (summary.data?.tenant.branding as Record<string, unknown> | undefined)?.accent
+  const branding = summary.data?.tenant.branding as Record<string, unknown> | undefined
+  const logoUrl = typeof branding?.logoUrl === 'string' ? branding.logoUrl : null
+  const accentId = branding?.accent
   useEffect(() => {
     applyAccent(accentById(typeof accentId === 'string' ? accentId : undefined))
   }, [accentId])
@@ -69,7 +71,19 @@ export function AdminApp({ slug }: { slug: string }) {
     <div className="admin-shell">
       <aside className="admin-rail">
         <div className="admin-brand">
-          <TernWordmark size={34} />
+          {logoUrl ? (
+            // The tenant's mark where the product's used to be: an operator
+            // switching between customers should see whose page they are in.
+            // Constrained rather than trusted: a logo of any shape has to fit
+            // this rail without pushing the navigation down.
+            <img
+              src={logoUrl}
+              alt={membership.name}
+              style={{ maxWidth: '100%', maxHeight: 40, objectFit: 'contain' }}
+            />
+          ) : (
+            <TernWordmark size={34} />
+          )}
           <p className="admin-tenant">
             {membership.name}
             <span>{membership.role}</span>
@@ -117,12 +131,14 @@ export function AdminApp({ slug }: { slug: string }) {
 // ── Navigation ──────────────────────────────────────────────────────────────
 
 const SECTIONS = [
-  { id: 'controls', label: 'Controls' },
-  { id: 'layout', label: 'Page layout' },
-  { id: 'agents', label: 'Agents' },
-  { id: 'logs', label: 'Logs' },
-  { id: 'options', label: 'Options' },
-  { id: 'platform', label: 'Platform' },
+  // Icon *and* label, never the icon alone: an icon-only rail is a memory test,
+  // and the words are what a screen reader reads out.
+  { id: 'controls', label: 'Controls', icon: 'Activity' },
+  { id: 'layout', label: 'Page layout', icon: 'LayoutGrid' },
+  { id: 'agents', label: 'Agents', icon: 'Radar' },
+  { id: 'logs', label: 'Logs', icon: 'ScrollText' },
+  { id: 'options', label: 'Options', icon: 'Settings' },
+  { id: 'platform', label: 'Platform', icon: 'Server' },
 ] as const
 
 type Section = (typeof SECTIONS)[number]['id']
@@ -161,6 +177,15 @@ function useSection(slug: string): [Section, (next: Section) => void] {
   return [section, navigate]
 }
 
+function NavIcon({ name }: { name: string }) {
+  const Icon = (Icons as unknown as Record<string, React.ComponentType<{ size?: number }>>)[name]
+  return Icon ? (
+    <span aria-hidden="true" style={{ display: 'inline-flex', flexShrink: 0 }}>
+      <Icon size={17} />
+    </span>
+  ) : null
+}
+
 function AdminNav({
   slug,
   section,
@@ -191,6 +216,7 @@ function AdminNav({
             aria-current={current ? 'page' : undefined}
             className={current ? 'admin-nav-item is-current' : 'admin-nav-item'}
           >
+            <NavIcon name={entry.icon} />
             {entry.label}
           </a>
         )

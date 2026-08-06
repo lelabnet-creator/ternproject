@@ -6,6 +6,7 @@ import { ACCENTS, SEPARATION_FLOOR, accentById, applyAccent } from '../../lib/ac
 import { Banner, Button, Card, Field, Input } from '../../components/ui'
 import { NotificationsPanels } from '../../features/settings/NotificationsPanels'
 import { CapacityPanel } from '../../features/settings/CapacityPanel'
+import { DangerPanel } from '../../features/settings/DangerPanel'
 
 /**
  * Everything about a tenant that is a setting rather than a decision.
@@ -37,11 +38,13 @@ export function OptionsScreen({ slug, canWrite }: { slug: string; canWrite: bool
           { id: 'general', label: 'General' },
           { id: 'notifications', label: 'Notifications' },
           { id: 'advanced', label: 'Advanced' },
+          { id: 'danger', label: 'Danger' },
         ]}
       >
         {tab === 'general' && <GeneralPanel slug={slug} canWrite={canWrite} />}
         {tab === 'notifications' && <NotificationsPanels slug={slug} canWrite={canWrite} />}
         {tab === 'advanced' && <CapacityPanel slug={slug} canWrite={canWrite} />}
+        {tab === 'danger' && <DangerPanel slug={slug} canWrite={canWrite} />}
       </Tabs>
     </section>
   )
@@ -101,6 +104,18 @@ function GeneralPanel({ slug, canWrite }: { slug: string; canWrite: boolean }) {
               value={value.name}
               disabled={!canWrite}
               onChange={(e) => set('name', e.target.value)}
+            />
+          </Field>
+          <Field
+            label="Logo URL"
+            hint="Shown in this tenant's admin. Leave blank for the TERN wordmark."
+          >
+            <Input
+              type="url"
+              value={value.logoUrl ?? ''}
+              disabled={!canWrite}
+              placeholder="https://example.com/logo.svg"
+              onChange={(e) => set('logoUrl', e.target.value || null)}
             />
           </Field>
           <Field label="Address" hint="The slug is fixed once a page has been shared.">

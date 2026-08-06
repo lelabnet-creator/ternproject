@@ -66,6 +66,7 @@ export interface TenantSettings {
   subscriberDisclaimer: string | null
   layout: 'list' | 'grid' | 'compact'
   accent: string
+  logoUrl: string | null
   sizingAssumptions: { intervalS: number; concurrentViewers: number }
   syslog: {
     host: string
@@ -233,6 +234,24 @@ export const adminApi = {
       actions: string[]
     }>('GET', `/api/v1/${slug}/logs?${query.toString()}`)
   },
+
+  dangerSummary: (slug: string) =>
+    request<{
+      controls: number
+      checks: number
+      agents: number
+      incidents: number
+      maintenances: number
+      subscribers: number
+      receivers: number
+    }>('GET', `/api/v1/${slug}/danger/summary`),
+
+  emptyTenant: (slug: string, confirm: string) =>
+    request<{ emptied: boolean; deleted: Record<string, number> }>(
+      'POST',
+      `/api/v1/${slug}/danger/empty`,
+      { confirm, understood: true },
+    ),
 
   testSyslog: (slug: string) =>
     request<{ sent: boolean; detail: string }>('POST', `/api/v1/${slug}/logs/syslog/test`),

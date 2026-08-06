@@ -48,6 +48,8 @@ const routes: FastifyPluginAsyncZod = async (app) => {
             layout: z.enum(['list', 'grid', 'compact']),
             /** Chosen accent, from the measured set in the web app. */
             accent: z.string(),
+            /** The tenant's own logo, shown in its admin rail. */
+            logoUrl: z.string().nullable(),
             sizingAssumptions: z.object({
               intervalS: z.number(),
               concurrentViewers: z.number(),
@@ -105,6 +107,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
         subscriberDisclaimer: tenant.subscriberDisclaimer,
         layout: tenant.layout,
         accent: String((tenant.branding as Record<string, unknown>)?.accent ?? 'violet'),
+        logoUrl: ((tenant.branding as Record<string, unknown>)?.logoUrl as string) ?? null,
         sizingAssumptions: tenant.sizingAssumptions ?? { intervalS: 60, concurrentViewers: 20 },
         syslog: tenant.syslog ?? null,
         smtp: tenant.smtp
@@ -148,6 +151,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
           defaultTimezone: z.string().min(1).max(60).optional(),
           subscriberDisclaimer: z.string().max(2000).nullable().optional(),
           accent: z.string().max(30).optional(),
+          logoUrl: z.string().url().max(500).nullable().optional(),
           sizingAssumptions: z
             .object({
               intervalS: z.number().int().min(5).max(86_400),
@@ -195,6 +199,10 @@ const routes: FastifyPluginAsyncZod = async (app) => {
         'syslog',
       ] as const) {
         if (req.body[key] !== undefined) patch[key] = req.body[key]
+      }
+
+      if (req.body.logoUrl !== undefined) {
+        patch.branding = { ...(tenant.branding ?? {}), logoUrl: req.body.logoUrl }
       }
 
       if (req.body.accent !== undefined) {
