@@ -1,0 +1,117 @@
+# TERN — a complete instance.
+#
+#   ./scripts/setup.sh            (asks the questions, writes .env, starts this)
+#   docker compose -f docker-compose.prod.yml up -d
+#
+# Distinct from docker-compose.yml, which is the *development* stack: that one
+# exposes a database on a host port and a mail catcher, and expects the app to
+# be run from source with `pnpm dev`. This one runs the app itself and publishes
+# nothing but the app.
+
+# A project name of its own. `docker-compose.yml` already claims `tern`, and two
+# compose files sharing a project name means the one you start second recreates
+# the other's containers and adopts its volumes — on a developer's machine that
+# quietly destroys the local database.
+name: tern-prod
+
+services:
+  db:
+    # The -ha image, as in the dev stack: it carries timescaledb_toolkit, and
+    # migrations stop on an unknown function without it.
+    image: timescale/timescaledb-ha:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: tern
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-tern}
+      POSTGRES_DB: tern
+      LANG: C.UTF-8
+    command:
+      - postgres
+      - -c
+      - shared_preload_libraries=timescaledb
+      - -c
+      - timescaledb.telemetry_level=off
+    # No `ports:` on purpose. The app reaches the database over the compose
+    # network, and a database on a host port is both an exposure and the cause
+    # of the collision that a machine already running PostgreSQL will hit.
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U tern -d tern']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+
+  app:
+    # Built from this checkout by default. Set TERN_IMAGE to a published tag —
+    # ghcr.io/lelabnet-creator/ternproject:1.0.0 — to run a released image
+    # instead; `scripts/setup.sh` then pulls rather than builds.
+    #
+    # `build:` stays declared either way so a modified checkout still works
+    # without editing this file.
+    image: ${TERN_IMAGE:-tern:local}
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      # `db` is the compose service name; 5432 is the in-network port, which is
+      # unaffected by whatever the host has on 5432 or 5433.
+      DATABASE_URL: postgres://tern:${POSTGRES_PASSWORD:-tern}@db:5432/tern
+
+      # Left unset, the entrypoint generates one into the tern-data volume and
+      # reuses it on every later boot.
+      APP_SECRET: ${APP_SECRET:-}
+
+      API_PORT: 3011
+      API_HOST: 0.0.0.0
+      NODE_ENV: production
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+
+      # Must be the URL a browser actually uses: it signs cookies, builds the
+      # QR pairing URLs and is baked into the generated install scripts.
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:8080}
+
+      # Set behind a reverse proxy, or rate limits and the audit log key on the
+      # proxy's own address.
+      TRUSTED_PROXIES: ${TRUSTED_PROXIES:-}
+
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_SECURE: ${SMTP_SECURE:-false}
+      MAIL_FROM: ${MAIL_FROM:-TERN Status <status@example.com>}
+
+      INGEST_RATE_LIMIT_MAX: ${INGEST_RATE_LIMIT_MAX:-600}
+      DB_POOL_MAX: ${DB_POOL_MAX:-10}
+
+      # Read once, by the entrypoint, to create the status page. Harmless to
+      # leave in place: provisioning never touches a tenant that already exists.
+      #
+      # TERN_ADMIN_* are optional and normally absent: the administrator is
+      # created on the first visit to the admin. Set them only for an instance
+      # that will be reachable before anyone opens it — they close the first-run
+      # window before the first request is served.
+      TERN_TENANT_SLUG: ${TERN_TENANT_SLUG:-}
+      TERN_TENANT_NAME: ${TERN_TENANT_NAME:-}
+      TERN_ADMIN_EMAIL: ${TERN_ADMIN_EMAIL:-}
+      TERN_ADMIN_NAME: ${TERN_ADMIN_NAME:-}
+      TERN_ADMIN_PASSWORD: ${TERN_ADMIN_PASSWORD:-}
+      TERN_DEFAULT_LOCALE: ${TERN_DEFAULT_LOCALE:-en}
+      TERN_DEFAULT_TIMEZONE: ${TERN_DEFAULT_TIMEZONE:-UTC}
+    ports:
+      - '${TERN_HTTP_PORT:-8080}:3011'
+    volumes:
+      # Holds the generated APP_SECRET. Losing it makes every encrypted value
+      # — TOTP secrets, probe auth headers, subscriber addresses — unreadable,
+      # so it belongs in the backup next to the database dump.
+      - tern-data:/var/lib/tern
+
+volumes:
+  db-data:
+  tern-data:

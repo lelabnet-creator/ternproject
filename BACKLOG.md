@@ -31,9 +31,18 @@ milestone plan stays finishable.
 
 ## Not planned
 
-- **Custom CSS / JavaScript injection.** status.io offers it; on a multi-tenant instance it is an
-  XSS vector aimed at every visitor of a tenant's page. Branding through design tokens gives the
-  same reach without handing out script execution.
+- **Custom CSS / JavaScript injection.** status.io offers it; it is an XSS vector aimed at every
+  visitor of the page. Branding through design tokens gives the same reach without handing out
+  script execution.
+
+## Not built yet
+
+- **Hosting more than one status page per instance.** The schema is tenant-scoped everywhere and the
+  API resolves a tenant per request, so the foundation is there — but no endpoint creates a tenant,
+  and no screen manages a set of them. One instance serves the page provisioning made, and the
+  README says so rather than implying otherwise. Building it means tenant CRUD, an owner model above
+  the tenant, per-tenant domains, and a plan for what the system tenant supervises. That is a
+  product, not a patch.
 
 ## Open defects
 

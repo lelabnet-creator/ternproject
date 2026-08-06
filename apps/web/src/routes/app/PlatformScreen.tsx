@@ -186,7 +186,7 @@ export function PlatformScreen() {
                             color: 'var(--color-fg-subtle)',
                           }}
                         >
-                          {tenant.slug} · {tenant.visibility}
+                          {tenant.slug}
                           {tenant.isSystem && ' · this instance'}
                         </span>
                       </td>

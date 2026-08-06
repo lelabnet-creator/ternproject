@@ -47,6 +47,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   })
 
   await app.register(import('./routes/auth.js'), { prefix: '/api/v1/auth' })
+  await app.register(import('./routes/setup.js'), { prefix: '/api/v1' })
   await app.register(import('./routes/ingest.js'), { prefix: '/api/v1' })
   await app.register(import('./routes/agents.js'), { prefix: '/api/v1' })
   await app.register(import('./routes/status.js'), { prefix: '/api/v1' })
@@ -64,6 +65,10 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(import('./routes/download.js'))
   await app.register(import('./routes/receivers.js'), { prefix: '/api/v1' })
   await app.register(import('./routes/controls.js'), { prefix: '/api/v1' })
+
+  // Last: its catch-all answers whatever the routes above did not claim, so it
+  // has to be registered once they all have.
+  await app.register(import('./plugins/web.js'))
 
   return app
 }

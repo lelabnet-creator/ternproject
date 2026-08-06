@@ -56,7 +56,6 @@ export interface Control {
 export interface TenantSettings {
   name: string
   slug: string
-  visibility: 'public' | 'private'
   retentionMode: 'live' | 'historical'
   retentionDays: number
   rawRetentionHours: number
@@ -138,6 +137,34 @@ export interface ProbeRunResult {
 }
 
 export const adminApi = {
+  /**
+   * Whether this instance still has no account at all.
+   *
+   * Asked before the sign-in form is drawn, because on a fresh install there is
+   * nothing to sign in to and a password field is a dead end.
+   */
+  setupState: () =>
+    request<{
+      needsSetup: boolean
+      tenant: { slug: string; name: string } | null
+    }>('GET', '/api/v1/setup/state.json'),
+
+  /** Creates the first administrator and signs them in. Answers 409 afterwards. */
+  createFirstAccount: (body: {
+    email: string
+    name: string
+    password: string
+    /** Only when the instance has no page yet — see setup.ts. */
+    tenantName?: string
+    tenantSlug?: string
+    locale?: string
+    timezone?: string
+  }) =>
+    request<{
+      user: { id: string; email: string; name: string }
+      tenant: { slug: string; name: string }
+    }>('POST', '/api/v1/setup/account', body),
+
   me: () =>
     request<{
       user: { id: string; email: string; name: string; mfaEnabled: boolean }
@@ -288,7 +315,6 @@ export const adminApi = {
         slug: string
         name: string
         isSystem: boolean
-        visibility: string
         retentionMode: string
         retentionDays: number
         controls: number

@@ -1,25 +1,33 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { X } from 'lucide-react'
 import { TernWordmark } from '../../components/brand/TernMark'
 import { ThemePicker } from '../../components/ThemePicker'
 import { forgetPage, recentPages, type RecentPage } from '../../lib/recentPages'
 import { SponsorButton } from '../../components/SponsorButton'
 import { SiteFooter } from '../../components/SiteFooter'
+import { api } from '../../lib/api'
 
 /**
  * What `/` shows.
  *
- * It used to load the demo tenant. On a fresh install that is a page nobody
- * asked for; on a real one it is somebody else's status page served from the
- * root of yours. Neither is defensible, so the root asks which page you want.
+ * An instance serves one status page — nothing in the API creates a tenant, so
+ * the only one that exists is the one provisioning made. So the root asks the
+ * API which page that is and goes there: a visitor arriving at the domain has
+ * been given the domain, not a slug, and asking them to type one is asking for
+ * something they were never handed.
  *
- * It does not check the name before navigating, on purpose. A private tenant
- * answers 404 by design — a landing page that said "that one exists but you
- * cannot see it" would undo that in one line, and turn this field into an
- * oracle for enumerating tenants.
+ * The picker below is the fallback, for the two cases where the answer is not
+ * unambiguous: a private page, which is never named because the public API
+ * answers 404 for it by design, and a database that holds several public ones.
+ * In both, a name typed here is navigated to without being checked first —
+ * confirming existence would turn this field into an oracle.
  */
 export function LandingPage() {
   const [slug, setSlug] = useState('')
+  // `null` while the question is still open. Rendering the picker during that
+  // moment would flash "which status page?" at someone who is about to be sent
+  // to the only one there is.
+  const [resolving, setResolving] = useState(true)
   // Read once, into state, because the list is editable from this screen and
   // has to redraw when an entry is dropped.
   const [recent, setRecent] = useState<RecentPage[]>(recentPages)
@@ -27,6 +35,36 @@ export function LandingPage() {
     .trim()
     .toLowerCase()
     .replace(/^\/+|\/+$/g, '')
+
+  useEffect(() => {
+    let cancelled = false
+
+    api
+      .instance()
+      .then((info) => {
+        if (cancelled) return
+        if (info.tenant) {
+          // replace, not assign: Back from the status page should leave the
+          // site rather than land here and bounce forward again.
+          window.location.replace(`/s/${encodeURIComponent(info.tenant.slug)}`)
+          return
+        }
+        setResolving(false)
+      })
+      // An unreachable API is not a reason to show nothing at all — the picker
+      // still lets someone reach a page they already know the name of.
+      .catch(() => {
+        if (!cancelled) setResolving(false)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  // Blank rather than a spinner: this resolves in one request against an API
+  // on the same origin, and a spinner that shows for 80ms is a flicker.
+  if (resolving) return <main className="landing" aria-busy="true" />
 
   return (
     <main className="landing">

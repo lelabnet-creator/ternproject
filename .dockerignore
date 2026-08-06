@@ -1,0 +1,32 @@
+# Keep the build context small and, more importantly, keep secrets out of it.
+# `.env` holds APP_SECRET and the SMTP password — it must never be copied into
+# a layer, which is why the runtime reads its configuration from the
+# environment instead.
+.env
+.env.*
+!.env.example
+
+node_modules
+**/node_modules
+**/dist
+.turbo
+**/.turbo
+
+.git
+.github
+.claude
+.dual-graph
+
+*.md
+!README.md
+docs
+schemas
+
+# The agent binaries `/install.sh` hands out live in `clients/agent/bin`, which
+# CI populates. They are deliberately not in the image: shipping cross-compiled
+# binaries would double its size, and `routes/download.ts` already answers with
+# a clear "build it or take one from the releases" when they are absent.
+clients
+
+**/*.test.ts
+**/*.integration.test.ts

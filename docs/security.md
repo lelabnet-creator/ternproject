@@ -88,8 +88,8 @@ closed instead of leaking. It is not in place. What is in place instead:
 
 ## Choices that are easy to get wrong
 
-**A private tenant answers 404, not 403.** A 403 confirms the page exists, which
-is exactly what an attacker enumerating slugs wants.
+**An unknown slug answers 404 rather than distinguishing cases.** Confirming
+that a page exists is exactly what an attacker enumerating slugs wants.
 
 **Pairing answers identically for wrong, expired and used-up codes.**
 Distinguishing them tells a guesser which codes exist.
@@ -112,10 +112,10 @@ implied.
 **Webhook signatures cover `<timestamp>.<body>`.** Signing the body alone leaves
 a captured payload replayable forever.
 
-**No custom CSS or JavaScript injection**, ever. status.io offers it; on a
-multi-tenant instance it is an XSS vector aimed at every visitor of a tenant's
-page. Branding goes through design tokens, which reach as far without handing
-out script execution.
+**No custom CSS or JavaScript injection**, ever. status.io offers it; it is an
+XSS vector aimed at every visitor of the page, and the page is the thing people
+open when they already suspect something is wrong. Branding goes through design
+tokens, which reach as far without handing out script execution.
 
 **Simulation data is flagged and excluded from every aggregate.** A demo can
 never become a published SLA number — a correctness property that is also an

@@ -105,7 +105,13 @@ async function get<T>(path: string): Promise<T> {
   return (await response.json()) as T
 }
 
+/** The page this instance serves, or null when that is not unambiguous. */
+export interface InstanceInfo {
+  tenant: { slug: string; name: string } | null
+}
+
 export const api = {
+  instance: () => get<InstanceInfo>('/api/v1/public/instance.json'),
   summary: (slug: string) => get<StatusSummary>(`/api/v1/public/${slug}/summary.json`),
   uptime: (slug: string, period: string) =>
     get<UptimeResponse>(`/api/v1/public/${slug}/uptime.json?period=${period}`),

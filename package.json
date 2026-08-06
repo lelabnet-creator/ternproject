@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "TERN \u2014 multi-tenant IT service status pages, live or historized.",
+  "description": "TERN \u2014 IT service status pages, live or historized.",
   "license": "AGPL-3.0-or-later",
   "repository": {
     "type": "git",
@@ -25,6 +25,7 @@
     "test:watch": "vitest",
     "db:migrate": "pnpm -F @tern/db migrate",
     "db:seed": "pnpm -F @tern/db seed",
+    "db:provision": "pnpm -F @tern/db provision",
     "db:studio": "pnpm -F @tern/db studio",
     "db:generate": "pnpm -F @tern/db generate",
     "gen:schema": "pnpm -F @tern/shared gen:schema"

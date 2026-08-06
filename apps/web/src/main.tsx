@@ -5,6 +5,7 @@ import { I18nextProvider } from 'react-i18next'
 import { applyStoredTheme } from './components/ThemePicker'
 import { initI18n, resolveLocale } from './i18n'
 import { AdminApp } from './routes/app/AdminApp'
+import { AdminEntry } from './routes/app/AdminEntry'
 import { LandingPage } from './routes/public/LandingPage'
 import { StatusPage } from './routes/public/StatusPage'
 import { ResetPasswordScreen } from './routes/app/ResetPasswordScreen'
@@ -36,6 +37,10 @@ const queryClient = new QueryClient({
 
 const path = window.location.pathname
 const adminSlug = path.match(/^\/app\/([^/]+)/)?.[1]
+// `/app` and `/app/` name no page. They still mean the admin of the one page
+// this instance serves — resolved at runtime, since the slug is in the database
+// and one image serves every installation.
+const adminRoot = /^\/app\/?$/.test(path)
 const publicSlug = path.match(/^\/s\/([^/]+)/)?.[1]
 // The reset link's token travels in the query string rather than the path: it
 // is a credential, and a path segment is what ends up in a referrer header and
@@ -51,6 +56,8 @@ createRoot(document.getElementById('root')!).render(
           <ResetPasswordScreen token={resetToken} />
         ) : adminSlug ? (
           <AdminApp slug={adminSlug} />
+        ) : adminRoot ? (
+          <AdminEntry />
         ) : publicSlug ? (
           <StatusPage slug={publicSlug} />
         ) : (

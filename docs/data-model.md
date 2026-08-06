@@ -22,7 +22,7 @@ tenants ─┬─ control_groups ──┬─ controls ─── checks (hyperta
          ├─ maintenances ── maintenance_updates / maintenance_controls
          ├─ subscribers · notifications · receivers · templates
          ├─ viewer_tokens ── viewer_devices
-         ├─ ip_allowlist · domains
+         ├─ domains
          └─ audit_log
 ```
 
@@ -35,7 +35,6 @@ appearance:
 
 | Column                | Why it exists                                                                                                             |
 | --------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `visibility`          | `public` or `private`. A private tenant answers 404 rather than 403 — a 403 confirms the page exists                      |
 | `retention_mode`      | `live` or `historical`. Decides whether the page streams current state or draws history, and which widgets are offered    |
 | `raw_retention_hours` | Raw points kept in `live` mode. Default 168 (7 days)                                                                      |
 | `retention_days`      | History kept in `historical` mode. 7 → 730                                                                                |
@@ -45,7 +44,11 @@ appearance:
 | `is_system`           | The instance's own tenant. Its admins supervise the platform — see [architecture](./architecture.md#the-platform-surface) |
 
 `domains` holds custom hostnames with their verification token and certificate
-state. `ip_allowlist` restricts who may read a private page.
+state.
+
+There is no `visibility` column: a status page is readable by whoever has its
+address. Gating a page behind authentication, and the IP allowlist that
+softened that gate, belong to the hosted edition.
 
 ## Monitoring
 

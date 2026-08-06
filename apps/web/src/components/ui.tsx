@@ -90,7 +90,23 @@ export function Field({
   children: ReactNode
 }) {
   return (
-    <label style={{ display: 'grid', gap: 'var(--space-1)' }}>
+    <label
+      style={{
+        display: 'grid',
+        gap: 'var(--space-1)',
+        /*
+         * Rows keep their natural height instead of sharing out the spare.
+         *
+         * Fields sit side by side in a grid row, so every one is as tall as the
+         * tallest. A field with no hint has two rows rather than three, and the
+         * default `stretch` handed that field's leftover height to its input —
+         * so "Host", alone in lacking a hint, rendered a visibly taller box than
+         * "Port" beside it. Aligning to the start lets the spare height fall to
+         * the bottom, where nothing is drawn.
+         */
+        alignContent: 'start',
+      }}
+    >
       {/* A visible label, never a placeholder standing in for one: the
           placeholder disappears the moment someone starts typing. */}
       <span style={{ fontSize: 'var(--text-sm)', fontWeight: 600 }}>{label}</span>

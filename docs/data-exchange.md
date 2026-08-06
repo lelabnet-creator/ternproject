@@ -147,7 +147,7 @@ with the same bodies as TERN. An agent pointed at a proxy is an ordinary agent.
 | `GET /badge/:slug/:key.svg`                       | A status badge                                                                                                                             |
 | `GET /api/v1/public/:slug/feed.rss` / `.atom`     | Incident history                                                                                                                           |
 
-A private tenant answers **404** on all of these, not 403.
+All of these are readable without authentication — a status page is public.
 
 ### Admin, authenticated
 

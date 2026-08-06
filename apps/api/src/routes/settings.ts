@@ -37,7 +37,6 @@ const routes: FastifyPluginAsyncZod = async (app) => {
           200: z.object({
             name: z.string(),
             slug: z.string(),
-            visibility: z.enum(['public', 'private']),
             retentionMode: z.enum(['live', 'historical']),
             retentionDays: z.number(),
             rawRetentionHours: z.number(),
@@ -97,7 +96,6 @@ const routes: FastifyPluginAsyncZod = async (app) => {
       return {
         name: tenant.name,
         slug: tenant.slug,
-        visibility: tenant.visibility,
         retentionMode: tenant.retentionMode,
         retentionDays: tenant.retentionDays,
         rawRetentionHours: tenant.rawRetentionHours,
@@ -140,7 +138,6 @@ const routes: FastifyPluginAsyncZod = async (app) => {
         params: z.object({ slug: z.string() }),
         body: z.object({
           name: z.string().min(1).max(200).optional(),
-          visibility: z.enum(['public', 'private']).optional(),
           retentionMode: z.enum(['live', 'historical']).optional(),
           retentionDays: z.number().int().min(7).max(730).optional(),
           rawRetentionHours: z.number().int().min(1).max(8760).optional(),
@@ -189,7 +186,6 @@ const routes: FastifyPluginAsyncZod = async (app) => {
       const patch: Record<string, unknown> = {}
       for (const key of [
         'name',
-        'visibility',
         'retentionMode',
         'retentionDays',
         'rawRetentionHours',

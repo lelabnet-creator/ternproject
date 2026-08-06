@@ -7,6 +7,7 @@ import { ThemePicker } from '../../components/ThemePicker'
 import { SponsorButton } from '../../components/SponsorButton'
 import { SiteFooter } from '../../components/SiteFooter'
 import { SetupWizard } from '../../features/onboarding/SetupWizard'
+import { FirstRunSetup } from '../../features/onboarding/FirstRunSetup'
 import { accentById, applyAccent } from '../../lib/accents'
 import { ScriptTabs } from '../../features/control-editor/ScriptTabs'
 import { PreviewStep } from '../../features/control-editor/PreviewStep'
@@ -51,6 +52,19 @@ export function AdminApp({ slug }: { slug: string }) {
   })
   const signedIn = !me.isError && !me.isPending
 
+  /*
+   * Asked only when there is no session, and only then because the answer
+   * decides which of two screens a stranger sees: a sign-in form, or the
+   * first-run setup. On an instance that has been running for a year this
+   * query never fires.
+   */
+  const setupState = useQuery({
+    queryKey: ['setup-state'],
+    queryFn: adminApi.setupState,
+    enabled: me.isError,
+    retry: false,
+  })
+
   // Fetched here as well as in the Controls screen, on the same query key: the
   // first-run wizard needs to know whether this tenant has anything in it yet,
   // and React Query serves both from one request.
@@ -70,7 +84,39 @@ export function AdminApp({ slug }: { slug: string }) {
   }, [accentId])
 
   if (me.isPending) return <Centered>Loading…</Centered>
-  if (me.isError) return <LoginScreen onSignedIn={() => void me.refetch()} />
+
+  if (me.isError) {
+    // Waiting on the answer rather than guessing: drawing the sign-in form and
+    // swapping it for the setup screen a moment later shows a password field to
+    // someone who has no password, which is the confusion this replaces.
+    if (setupState.isPending) return <Centered>Loading…</Centered>
+
+    if (setupState.data?.needsSetup) {
+      return (
+        <FirstRunSetup
+          tenant={setupState.data.tenant}
+          onReady={(createdSlug) => {
+            /*
+             * The address in the bar named a page; setup may have created a
+             * different one. That happens whenever this screen was reached at
+             * `/app/<old-slug>` — a bookmark, or a tab left open across a
+             * reset — and leaving it would point every later request at a page
+             * that does not exist, which surfaces as a bare "Not found" inside
+             * the next wizard.
+             */
+            if (createdSlug && createdSlug !== slug) {
+              window.location.replace(`/app/${encodeURIComponent(createdSlug)}`)
+              return
+            }
+            void setupState.refetch()
+            void me.refetch()
+          }}
+        />
+      )
+    }
+
+    return <LoginScreen onSignedIn={() => void me.refetch()} />
+  }
 
   const membership = me.data.memberships.find((m) => m.slug === slug)
   if (!membership) {
@@ -140,13 +186,14 @@ export function AdminApp({ slug }: { slug: string }) {
           isSystem={membership.isSystem === true}
         />
 
-        <div className="admin-rail-foot" style={{ display: 'grid', gap: 'var(--space-3)' }}>
+        <div
+          className="admin-rail-foot"
+          style={{ display: 'grid', gap: 'var(--space-3)', justifyItems: 'center' }}
+        >
           <ThemePicker />
           {/* At the foot of the rail rather than on a screen: it is the one
               spot an operator passes every session and never has to read. */}
-          <div style={{ display: 'flex', justifyContent: 'center' }}>
-            <SponsorButton />
-          </div>
+          <SponsorButton />
           <Button
             onClick={() => {
               void adminApi.logout().then(() => window.location.reload())
@@ -154,6 +201,22 @@ export function AdminApp({ slug }: { slug: string }) {
           >
             Sign out
           </Button>
+
+          {/* Under sign-out, and deliberately the quietest thing in the rail:
+              nobody navigates by it, but it is the first thing anyone is asked
+              for when reporting that something is wrong. */}
+          <p
+            className="tabular"
+            style={{
+              margin: 0,
+              fontSize: 'var(--text-xs)',
+              color: 'var(--color-fg-subtle)',
+            }}
+          >
+            v{__TERN_VERSION__}
+            <span aria-hidden="true"> · </span>
+            <span title="Build">{__TERN_BUILD__}</span>
+          </p>
         </div>
       </aside>
 

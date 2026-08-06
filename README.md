@@ -2,7 +2,7 @@
 
 # TERN
 
-**Multi-tenant IT service status pages — live or historized, self-hosted, open source.**
+**IT service status pages — live or historized, self-hosted, open source.**
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](./LICENSE)
 
@@ -10,18 +10,25 @@
 
 ---
 
-TERN publishes the health of your IT services on a status page that is public or private, per
-tenant. Data comes in through an ingestion API — from the Rust agent, from your existing monitoring
-via webhooks, or from a three-line script in whatever language you already use.
+TERN publishes the health of your IT services on a status page. Data comes
+in through an ingestion API — from the Rust agent, from your existing monitoring via webhooks, or
+from a three-line script in whatever language you already use.
+
+**One instance serves one status page.** Nothing in the API creates a tenant: the page is created
+once at install and that is the one the instance serves. The schema underneath is tenant-scoped
+throughout — every table carries `tenant_id` and isolation is enforced in one place — so hosting
+several later is a feature to build, not a migration to survive. It is not a feature today, and this
+is not a product for hosting other people's status pages.
 
 Named after the tern, the seabird with the longest migration of any animal: it watches, and it keeps
 going.
 
 ## Why another status page
 
-- **Multi-tenant from the schema up.** One client = one tenant, with its own components, members,
-  branding, retention and domain. Not a single-team tool retrofitted.
-- **Live _or_ historized.** A tenant either streams current state with a short raw window, or keeps
+- **Tenant-scoped from the schema up.** Components, members, branding, retention and domain hang off
+  a tenant rather than off globals. Not a single-team tool retrofitted — but one tenant is what an
+  instance runs today.
+- **Live _or_ historized.** The page either streams current state with a short raw window, or keeps
   a configurable history (7 days → 2 years) backed by continuous aggregates. The page adapts.
 - **Visualizations that show the shape of an outage**, not a row of green dots — built on D3.
 - **Push or pull.** Declarative probes (ping, TCP, HTTP with JSONPath assertions) run either
@@ -40,7 +47,61 @@ administrator running it.
 [`BACKLOG.md`](./BACKLOG.md) records what is deliberately out of scope, and the open defects, with
 reasoning.
 
-## Quick start
+## Running an instance
+
+One command, and it asks what it needs to know: the name of the status page,
+the administrator's account, and the SMTP server used for double opt-in,
+incident notifications and password recovery.
+
+```bash
+git clone https://github.com/lelabnet-creator/ternproject.git && cd ternproject
+TERN_IMAGE=ghcr.io/lelabnet-creator/ternproject:latest ./scripts/setup.sh
+```
+
+That pulls a published multi-architecture image (amd64 and arm64). Drop
+`TERN_IMAGE` to build from the checkout instead — slower, and what you want if
+you have changed anything:
+
+```bash
+./scripts/setup.sh
+```
+
+It writes `.env` (mode 600), builds the image, runs the migrations, creates the
+tenant and waits for the instance to answer — so when it returns, the page is
+up. Re-running it keeps the previous answers as defaults, and never regenerates
+`APP_SECRET`.
+
+Afterwards the stack is ordinary Compose:
+
+```bash
+docker compose -f docker-compose.prod.yml up -d      # start
+docker compose -f docker-compose.prod.yml logs -f app
+docker compose -f docker-compose.prod.yml down       # stop, data kept
+```
+
+One container serves both the API and the web app on the same origin, so there
+is no CORS to configure and no second service to place. Behind a reverse proxy,
+set `PUBLIC_BASE_URL` to the external URL and `TRUSTED_PROXIES` to the proxy's
+CIDR — rate limits and the audit log both key on the client address.
+
+Back up two things: the database, and the `tern-data` volume. That volume holds
+`APP_SECRET`, and without it the TOTP secrets, probe credentials and subscriber
+addresses in the dump cannot be decrypted.
+
+Upgrading is a pull and a recreate — the entrypoint migrates before the server
+binds, and pinning a version is what stops an unattended restart from moving you
+onto a release you have not read:
+
+```bash
+TERN_IMAGE=ghcr.io/lelabnet-creator/ternproject:1.0.0
+docker compose -f docker-compose.prod.yml pull app
+docker compose -f docker-compose.prod.yml up -d
+```
+
+## Quick start (development)
+
+Clones the repository and runs the app from source with demo data — not an
+installation. For an instance to actually use, see above.
 
 Linux and macOS:
 
@@ -162,8 +223,7 @@ buffers their points on disk and replays them when the link returns.
 ## Security
 
 Local login with Argon2id, TOTP MFA (mandatory for admins), opaque session cookies, per-tenant API
-keys, PIN-based agent pairing, read-only QR viewer sessions, optional IP allowlists, and an audit
-trail. Found something? See [`SECURITY.md`](./SECURITY.md).
+keys, PIN-based agent pairing, read-only QR viewer sessions, and an audit trail. Found something? See [`SECURITY.md`](./SECURITY.md).
 
 ## Supporting TERN
 
