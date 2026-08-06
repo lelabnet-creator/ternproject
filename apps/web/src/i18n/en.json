@@ -34,7 +34,18 @@
     "p95": "95th percentile",
     "p99": "99th percentile",
     "today": "Today",
-    "noRecord": "No record"
+    "noRecord": "No record",
+    "swimlane_one": "{{count}} interruption in this window",
+    "swimlane_other": "{{count}} interruptions in this window",
+    "swimlane_zero": "No interruption in this window",
+    "duration_one": "{{minutes}} minute",
+    "duration_other": "{{minutes}} minutes",
+    "calendar": "Availability over {{weeks}} weeks",
+    "value": "Current value",
+    "warnAt": "warn {{value}}",
+    "limitAt": "limit {{value}}",
+    "samples": "samples",
+    "widgetPreview": "Preview with sample data"
   },
   "incident": {
     "active": "Active incidents",

@@ -5,7 +5,7 @@ import { defineConfig } from 'vitest/config'
 // more useful than isolated suites that can drift apart.
 export default defineConfig({
   test: {
-    include: ['{apps,packages}/*/src/**/*.{test,spec,integration.test}.ts'],
+    include: ['{apps,packages}/*/src/**/*.{test,spec,integration.test}.{ts,tsx}'],
     passWithNoTests: true,
     environment: 'node',
     setupFiles: ['apps/api/src/test/setup.ts'],

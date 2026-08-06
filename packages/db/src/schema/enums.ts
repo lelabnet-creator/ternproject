@@ -18,6 +18,14 @@ export const retentionMode = pgEnum('retention_mode', ['live', 'historical'])
 export const memberRole = pgEnum('member_role', ['admin', 'user', 'visitor'])
 
 /**
+ * Density of the public page.
+ *
+ * `list` is one component per row with room for a chart; `grid` packs them two
+ * or three across; `compact` strips them to a status line for a wall display.
+ */
+export const pageLayout = pgEnum('page_layout', ['list', 'grid', 'compact'])
+
+/**
  * `unknown` is deliberately distinct from `down`: a control we have stopped
  * hearing from is not the same claim as a control we know is broken, and
  * conflating them turns every network hiccup into a fake outage.

@@ -1,5 +1,5 @@
 import { boolean, index, integer, jsonb, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core'
-import { retentionMode, tenantVisibility } from './enums.js'
+import { pageLayout, retentionMode, tenantVisibility } from './enums.js'
 
 /**
  * A tenant is one customer and one status page. Every other business table
@@ -25,6 +25,13 @@ export const tenants = pgTable(
 
     /** Tenant branding: logo URL, accent colour, footer text. */
     branding: jsonb().$type<Record<string, unknown>>().notNull().default({}),
+
+    /**
+     * How densely the public page lays its components out. Ordering lives on
+     * `controls.position` and `control_groups.position`, which already exist —
+     * this is only the density.
+     */
+    layout: pageLayout().notNull().default('list'),
 
     defaultLocale: text().notNull().default('en'),
     defaultTimezone: text().notNull().default('UTC'),

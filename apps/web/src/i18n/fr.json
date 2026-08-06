@@ -34,7 +34,18 @@
     "p95": "95e centile",
     "p99": "99e centile",
     "today": "Aujourd'hui",
-    "noRecord": "Aucun relevé"
+    "noRecord": "Aucun relevé",
+    "swimlane_one": "{{count}} interruption sur cette période",
+    "swimlane_other": "{{count}} interruptions sur cette période",
+    "swimlane_zero": "Aucune interruption sur cette période",
+    "duration_one": "{{minutes}} minute",
+    "duration_other": "{{minutes}} minutes",
+    "calendar": "Disponibilité sur {{weeks}} semaines",
+    "value": "Valeur actuelle",
+    "warnAt": "seuil {{value}}",
+    "limitAt": "limite {{value}}",
+    "samples": "relevés",
+    "widgetPreview": "Aperçu avec des données d'exemple"
   },
   "incident": {
     "active": "Incidents en cours",

@@ -80,6 +80,19 @@ export const controls = pgTable(
     /** Availability target, used to compute the remaining error budget. */
     slaTarget: integer(),
 
+    /**
+     * Which visualisation represents this control on the status page.
+     *
+     * Resolved against `charts/registry.ts`, which is also what decides the
+     * payload shape the generated scripts push — so the widget and the script
+     * that feeds it cannot disagree.
+     *
+     * Defaults to the ribbon, which is what every existing control already
+     * renders.
+     */
+    widget: text().notNull().default('uptime-ribbon'),
+    widgetOptions: jsonb().$type<Record<string, unknown>>().notNull().default({}),
+
     /** Visible on the public page. Private controls need `status:read:all`. */
     isPublic: boolean().notNull().default(true),
     enabled: boolean().notNull().default(true),
