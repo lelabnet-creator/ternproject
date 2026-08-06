@@ -632,21 +632,116 @@ a.tern-target {
   min-height: 100dvh;
 }
 
+/* Stacked, the seam is horizontal — the vertical one would sit across nothing. */
+.landing-image::after,
+.landing-panel::before {
+  display: none;
+}
+
+@media (min-width: 64rem) {
+  .landing-image::after,
+  .landing-panel::before {
+    display: block;
+  }
+}
+
 .landing-image {
+  position: relative;
   background-image: url('/bg.jpeg');
   background-size: cover;
   background-position: center;
 }
 
+/*
+ * The seam between photograph and form, given depth.
+ *
+ * Two layers rather than a border: a shadow cast *onto* the photograph by the
+ * panel, and a thin highlight on the panel's own edge. That is how an edge
+ * reads as one surface overlapping another rather than as two images butted
+ * together — which is what a 1px line looks like at this scale.
+ *
+ * Drawn on the image so it lands under the panel in the stacking order, and
+ * cheap: two gradients, no filter, nothing to composite per frame.
+ */
+.landing-image::after {
+  content: '';
+  position: absolute;
+  inset-block: 0;
+  inset-inline-end: 0;
+  width: 28px;
+  background: linear-gradient(to right, transparent, rgb(0 0 0 / 0.28));
+  pointer-events: none;
+}
+
 .landing-panel {
+  position: relative;
   display: grid;
   place-items: center;
   padding: var(--space-6) var(--space-4);
+  /*
+   * Translucent over the photograph, blurred so the card on top stays legible.
+   *
+   * `color-mix` rather than a hand-picked rgba: the panel then follows the
+   * theme's own background instead of being a third colour that has to be
+   * maintained beside it. The fallback is the opaque token, so a browser
+   * without `backdrop-filter` gets a solid panel rather than text over a
+   * photograph.
+   */
   background: var(--color-bg);
+  background: color-mix(in srgb, var(--color-bg) 72%, transparent);
+  backdrop-filter: blur(18px) saturate(1.1);
+  -webkit-backdrop-filter: blur(18px) saturate(1.1);
+}
+
+@supports not (backdrop-filter: blur(1px)) {
+  .landing-panel {
+    background: var(--color-bg);
+  }
+}
+
+/* The lit edge of the panel itself, catching the light from the photograph. */
+.landing-panel::before {
+  content: '';
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: 0;
+  width: 1px;
+  background: linear-gradient(
+    to bottom,
+    transparent,
+    rgb(255 255 255 / 0.6) 20%,
+    rgb(255 255 255 / 0.6) 80%,
+    transparent
+  );
+  pointer-events: none;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .landing-panel::before {
+    /* A white highlight on a dark panel reads as a scratch, not as an edge. */
+    background: linear-gradient(
+      to bottom,
+      transparent,
+      rgb(255 255 255 / 0.14) 20%,
+      rgb(255 255 255 / 0.14) 80%,
+      transparent
+    );
+  }
+}
+
+[data-theme='dark'] .landing-panel::before {
+  background: linear-gradient(
+    to bottom,
+    transparent,
+    rgb(255 255 255 / 0.14) 20%,
+    rgb(255 255 255 / 0.14) 80%,
+    transparent
+  );
 }
 
 @media (min-width: 64rem) {
   .landing {
+    position: relative;
     grid-template-rows: none;
     /* The photo takes the larger share: it is the reason the page is worth
        looking at, and the form needs a measure, not a half. */
@@ -655,5 +750,12 @@ a.tern-target {
 
   .landing-image {
     min-height: 100dvh;
+    /* Full bleed under both columns: a blur with nothing behind it is a tint. */
+    position: absolute;
+    inset: 0;
+  }
+
+  .landing-panel {
+    grid-column: 2;
   }
 }

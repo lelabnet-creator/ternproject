@@ -46,7 +46,10 @@ export function AdminApp({ slug }: { slug: string }) {
     queryFn: () => api.summary(slug),
     retry: false,
   })
-  const branding = summary.data?.tenant.branding as Record<string, unknown> | undefined
+  const signedIn = !me.isError && !me.isPending
+  const branding = signedIn
+    ? (summary.data?.tenant.branding as Record<string, unknown> | undefined)
+    : undefined
   const logoUrl = typeof branding?.logoUrl === 'string' ? branding.logoUrl : null
   const accentId = branding?.accent
   useEffect(() => {
@@ -925,57 +928,77 @@ function LoginScreen({ onSignedIn }: { onSignedIn: () => void }) {
   })
 
   return (
-    <Centered>
-      <Card style={{ width: 'min(28rem, 100%)' }}>
-        <form
-          onSubmit={(event) => {
-            event.preventDefault()
-            signIn.mutate()
-          }}
-          style={{ display: 'grid', gap: 'var(--space-4)' }}
-        >
-          <TernWordmark size={28} />
+    /*
+     * The same shape as the root: photograph on one side, a card on the other.
+     * Signing in and choosing a page are the two doors into this product, and
+     * two doors that look unrelated make the second one feel like a different
+     * building.
+     */
+    <main className="landing">
+      <div className="landing-image" role="img" aria-label="A tern over the sea" />
 
-          {error && <Banner tone="down">{error}</Banner>}
+      <div className="landing-panel">
+        <Card style={{ width: 'min(26rem, 100%)' }}>
+          <div style={{ textAlign: 'center', marginBottom: 'var(--space-5)' }}>
+            <TernWordmark size={34} />
+            <h1
+              style={{
+                margin: 'var(--space-3) 0 0',
+                fontSize: 'var(--text-xl)',
+                color: 'var(--color-fg)',
+              }}
+            >
+              Sign in
+            </h1>
+          </div>
+          <form
+            onSubmit={(event) => {
+              event.preventDefault()
+              signIn.mutate()
+            }}
+            style={{ display: 'grid', gap: 'var(--space-4)' }}
+          >
+            {error && <Banner tone="down">{error}</Banner>}
 
-          {needsMfa ? (
-            <Field label="Authentication code" hint="From your authenticator app.">
-              <Input
-                value={code}
-                onChange={(e) => setCode(e.target.value)}
-                inputMode="numeric"
-                autoComplete="one-time-code"
-                autoFocus
-              />
-            </Field>
-          ) : (
-            <>
-              <Field label="Email">
+            {needsMfa ? (
+              <Field label="Authentication code" hint="From your authenticator app.">
                 <Input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  autoComplete="username"
+                  value={code}
+                  onChange={(e) => setCode(e.target.value)}
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
                   autoFocus
                 />
               </Field>
-              <Field label="Password">
-                <Input
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  autoComplete="current-password"
-                />
-              </Field>
-            </>
-          )}
+            ) : (
+              <>
+                <Field label="Email">
+                  <Input
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    autoComplete="username"
+                    autoFocus
+                  />
+                </Field>
+                <Field label="Password">
+                  <Input
+                    type="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    autoComplete="current-password"
+                  />
+                </Field>
+              </>
+            )}
 
-          <Button type="submit" variant="primary" busy={signIn.isPending}>
-            {needsMfa ? 'Verify' : 'Sign in'}
-          </Button>
-        </form>
-      </Card>
-    </Centered>
+            <Button type="submit" variant="primary" busy={signIn.isPending}>
+              {needsMfa ? 'Verify' : 'Sign in'}
+            </Button>
+          </form>
+        </Card>
+      </div>
+    </main>
   )
 }
 
