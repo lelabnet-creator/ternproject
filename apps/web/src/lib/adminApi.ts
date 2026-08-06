@@ -56,6 +56,7 @@ export interface Control {
 export interface ScriptBundle {
   languages: { id: string; label: string; extension: string; syntax: string }[]
   scripts: Record<string, string>
+  agent: { config: string; pairCommand: string; runCommand: string }
 }
 
 export interface ProbeRunResult {

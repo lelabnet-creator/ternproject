@@ -6,6 +6,9 @@ import {
   generateMockSeries,
   payloadShapeForWidget,
   probeSchema,
+  renderAgentConfig,
+  renderAgentPairCommand,
+  renderAgentRunCommand,
   renderAllTemplates,
   SCRIPT_TEMPLATES,
 } from '@tern/shared'
@@ -461,6 +464,12 @@ const routes: FastifyPluginAsyncZod = async (app) => {
               }),
             ),
             scripts: z.record(z.string(), z.string()),
+            /** The Rust agent's equivalent: a config file and two commands. */
+            agent: z.object({
+              config: z.string(),
+              pairCommand: z.string(),
+              runCommand: z.string(),
+            }),
           }),
         },
       },
@@ -492,6 +501,26 @@ const routes: FastifyPluginAsyncZod = async (app) => {
           syntax: t.syntax,
         })),
         scripts,
+        agent: {
+          config: renderAgentConfig({
+            baseUrl: config.PUBLIC_BASE_URL,
+            controlKey: control.key,
+            apiKey: req.query.apiKey ?? 'tern_YOUR_API_KEY',
+            intervalS: control.expectedIntervalS ?? undefined,
+            // The control's own probe, so the file the editor shows is the one
+            // that would run this control — not a generic example.
+            probe:
+              control.kind === 'push'
+                ? undefined
+                : { type: control.kind, ...(control.config as Record<string, unknown>) },
+            degradedMs: control.degradedThresholdMs ?? undefined,
+            downMs: control.downThresholdMs ?? undefined,
+          }),
+          // The PIN is deliberately absent: it is minted on demand from the
+          // agent tab, so one is never left sitting in a cached response.
+          pairCommand: renderAgentPairCommand(config.PUBLIC_BASE_URL),
+          runCommand: renderAgentRunCommand(),
+        },
       }
     },
   )

@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { SCRIPT_TEMPLATES, renderAllTemplates, renderTemplate } from './templates.js'
+import {
+  SCRIPT_TEMPLATES,
+  renderAgentConfig,
+  renderAgentPairCommand,
+  renderAllTemplates,
+  renderTemplate,
+} from './templates.js'
 
 const CTX = {
   baseUrl: 'https://status.example.com/',
@@ -186,5 +192,52 @@ describe('generated scripts declare only what they read', () => {
     for (const template of SCRIPT_TEMPLATES) {
       expect(rendered[template.id]!.toLowerCase(), template.id).toMatch(/degraded[_ ]?ms/)
     }
+  })
+})
+
+describe('the agent config', () => {
+  it('carries the control probe, not a generic example', () => {
+    const config = renderAgentConfig({
+      baseUrl: 'https://status.example.com/',
+      controlKey: 'api-gateway',
+      apiKey: 'tern_key',
+      probe: { type: 'http', url: 'https://example.com/health', followRedirects: true },
+      downMs: 4000,
+      degradedMs: 750,
+    })
+
+    expect(config).toContain('server = "https://status.example.com"')
+    expect(config).toContain('[[probes]]')
+    expect(config).toContain('control_key = "api-gateway"')
+    // camelCase on the wire, snake_case in the file the agent parses.
+    expect(config).toContain('follow_redirects = true')
+
+    // A probe with no assertions calls a 500 healthy, so the thresholds the
+    // operator already set are used rather than left out.
+    // Not just the assertion's presence: an assertion whose bounds were dropped
+    // constrains nothing while looking like it does.
+    expect(config).toContain('type = "status_code"')
+    expect(config).toContain('range = [200, 299]')
+    expect(config).toContain('ms = 4000')
+    expect(config).toContain('ms = 750')
+  })
+
+  it('comments the example for a push control instead of writing a probe it cannot run', () => {
+    const config = renderAgentConfig({
+      baseUrl: 'https://status.example.com',
+      controlKey: 'backup',
+      apiKey: 'tern_key',
+    })
+
+    // Uncommenting is a decision; a live probe nobody asked for is not.
+    expect(config).not.toMatch(/^\[\[probes\]\]/m)
+    expect(config).toContain('# [[probes]]')
+  })
+
+  it('keeps the PIN out of the pair command until one is minted', () => {
+    expect(renderAgentPairCommand('https://status.example.com/')).toContain('--pin <PIN>')
+    expect(renderAgentPairCommand('https://status.example.com', '4K7Q-92XB')).toContain(
+      '--pin 4K7Q-92XB',
+    )
   })
 })

@@ -1023,3 +1023,143 @@ export function renderAllTemplates(ctx: TemplateContext): Record<string, string>
   // Through renderTemplate, so the whitespace tidy-up applies here too.
   return Object.fromEntries(SCRIPT_TEMPLATES.map((t) => [t.id, renderTemplate(t.id, ctx)]))
 }
+
+// ── The Rust agent ──────────────────────────────────────────────────────────
+
+export interface AgentContext {
+  baseUrl: string
+  controlKey: string
+  apiKey: string
+  /** Seconds between runs. */
+  intervalS?: number
+  /**
+   * The control's probe, when it has one. A push control has none, and the
+   * generated file then carries a commented HTTP example rather than nothing:
+   * an agent config with no probes is a service that starts and does nothing.
+   */
+  probe?: { type: string; [key: string]: unknown }
+  degradedMs?: number
+  downMs?: number
+}
+
+/**
+ * The `agent.toml` for one control.
+ *
+ * Generated from the same place as the ten scripts, and consumed by the same
+ * parser the agent uses, so what the editor shows is what `tern-agent run`
+ * accepts. Keys are snake_case because that is what `config.rs` deserialises —
+ * the API speaks camelCase and the conversion happens here, once.
+ */
+export function renderAgentConfig(ctx: AgentContext): string {
+  const base = ctx.baseUrl.replace(/\/$/, '')
+  const lines = [
+    `server = "${base}"`,
+    `api_key = "${ctx.apiKey}"`,
+    `interval_s = ${ctx.intervalS ?? 60}`,
+    '',
+  ]
+
+  if (!ctx.probe || ctx.probe.type === 'push') {
+    lines.push(
+      '# This control is fed by a push script rather than a probe, so there is',
+      '# nothing here for the agent to run. Uncomment and adjust to have the',
+      '# agent check it instead.',
+      '#',
+      '# [[probes]]',
+      `# control_key = "${ctx.controlKey}"`,
+      '# type = "http"',
+      '# url = "https://example.com/health"',
+      '#',
+      '#   [[probes.assertions]]',
+      '#   type = "status_code"',
+      '#   eq = 200',
+      '',
+    )
+    return lines.join('\n')
+  }
+
+  lines.push('[[probes]]', `control_key = "${ctx.controlKey}"`)
+
+  for (const [key, value] of Object.entries(ctx.probe)) {
+    // `assertions` is emitted below as its own table array, and nested objects
+    // (headers) would need quoting rules this generator does not need to know.
+    if (key === 'assertions' || value === undefined || value === null) continue
+    if (!isEmittable(value)) continue
+    lines.push(`${snake(key)} = ${literal(value)}`)
+  }
+
+  const assertions = Array.isArray(ctx.probe.assertions) ? ctx.probe.assertions : []
+  const derived = assertions.length > 0 ? assertions : defaultAssertions(ctx)
+
+  for (const assertion of derived) {
+    if (typeof assertion !== 'object' || assertion === null) continue
+    lines.push('', '  [[probes.assertions]]')
+    for (const [key, value] of Object.entries(assertion as Record<string, unknown>)) {
+      if (value === undefined || value === null || !isEmittable(value)) continue
+      lines.push(`  ${snake(key)} = ${literal(value)}`)
+    }
+  }
+
+  lines.push('')
+  return lines.join('\n')
+}
+
+/**
+ * What to assert when the control has no assertions of its own.
+ *
+ * A probe with an empty assertion list reports "up" for anything that answers,
+ * including a 500. The thresholds already configured on the control are the
+ * closest thing to the operator's own intent, so they are used.
+ */
+function defaultAssertions(ctx: AgentContext): Record<string, unknown>[] {
+  const assertions: Record<string, unknown>[] = []
+
+  if (ctx.probe?.type === 'http') {
+    assertions.push({ type: 'status_code', range: [200, 299] })
+  }
+  if (ctx.downMs) {
+    assertions.push({ type: 'latency', ms: ctx.downMs, severity: 'down' })
+  }
+  if (ctx.degradedMs) {
+    assertions.push({ type: 'latency', ms: ctx.degradedMs, severity: 'degraded' })
+  }
+  return assertions
+}
+
+/** The pairing command, with the PIN the admin just generated. */
+export function renderAgentPairCommand(baseUrl: string, pin?: string): string {
+  const base = baseUrl.replace(/\/$/, '')
+  return `tern-agent pair --server ${base} --pin ${pin ?? '<PIN>'}`
+}
+
+export function renderAgentRunCommand(): string {
+  return 'tern-agent run --config agent.toml'
+}
+
+/**
+ * Scalars and arrays of scalars.
+ *
+ * Arrays matter: `status_code` carries `range = [200, 299]`, and dropping it
+ * emits an assertion that constrains nothing while looking like it does. Nested
+ * tables (HTTP headers) are left out deliberately — they would need quoting
+ * rules this generator has no reason to know, and the operator adds them by hand.
+ */
+function isEmittable(value: unknown): boolean {
+  if (Array.isArray(value)) return value.every((item) => item !== null && !isObject(item))
+  return !isObject(value)
+}
+
+function isObject(value: unknown): boolean {
+  return typeof value === 'object' && value !== null
+}
+
+function snake(key: string): string {
+  return key.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`)
+}
+
+function literal(value: unknown): string {
+  if (typeof value === 'string') return `"${value.replace(/"/g, '\\"')}"`
+  if (typeof value === 'boolean' || typeof value === 'number') return String(value)
+  if (Array.isArray(value)) return `[${value.map(literal).join(', ')}]`
+  return `"${String(value)}"`
+}
