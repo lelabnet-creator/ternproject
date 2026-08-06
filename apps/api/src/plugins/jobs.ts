@@ -1,6 +1,7 @@
 import { eq } from 'drizzle-orm'
 import fp from 'fastify-plugin'
 import type { FastifyInstance, FastifyPluginAsync } from 'fastify'
+import { runLocalProbes } from '../services/local-probes.js'
 import { schema } from '@tern/db'
 import { config } from '../config.js'
 import { processQueue, purgeUnconfirmed } from '../services/notify.js'
@@ -70,6 +71,16 @@ const JOBS: Job[] = [
     name: 'maintenance-reminders',
     intervalMs: 60_000,
     run: sendMaintenanceReminders,
+  },
+  {
+    /*
+     * The instance's own agent. Polled often and self-throttling: each control
+     * carries its own interval, so a short tick only means a probe starts close
+     * to when it is due rather than up to a minute late.
+     */
+    name: 'local-probes',
+    intervalMs: 10_000,
+    run: (app) => runLocalProbes(app),
   },
   {
     name: 'stale-controls',

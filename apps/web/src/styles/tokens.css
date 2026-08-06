@@ -609,6 +609,33 @@ a.tern-target {
 }
 
 /* A row of small facts: label above value, wrapping into the space it has. */
+/*
+ * The widget editor: the gallery and the live preview on the left, the selected
+ * widget's options in a column beside them.
+ *
+ * One column until there is width for two. The options are a sidebar, not a
+ * second page — reading them below a gallery of nine cards meant scrolling past
+ * everything to change a setting and scrolling back to see what it did.
+ */
+.preview-split {
+  display: grid;
+  gap: var(--space-4);
+  align-items: start;
+}
+
+@media (min-width: 64rem) {
+  .preview-split.has-options {
+    grid-template-columns: minmax(0, 1fr) 20rem;
+  }
+
+  .preview-split > .preview-aside {
+    /* Follows the gallery down: the point of moving it here is to keep it in
+       view while a choice is being made. */
+    position: sticky;
+    top: var(--space-4);
+  }
+}
+
 .facts {
   display: grid;
   gap: var(--space-3);

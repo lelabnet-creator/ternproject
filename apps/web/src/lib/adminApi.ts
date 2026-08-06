@@ -40,6 +40,8 @@ export interface Control {
   description: string | null
   groupId: string | null
   kind: string
+  /** The probe spec — empty for a `push` control. */
+  config: Record<string, unknown>
   isPublic: boolean
   enabled: boolean
   expectedIntervalS: number | null
