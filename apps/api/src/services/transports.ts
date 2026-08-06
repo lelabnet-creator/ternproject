@@ -14,6 +14,44 @@ import { config } from '../config.js'
 
 let mailer: Transporter | null = null
 
+/**
+ * A tenant's own mail settings, when it has them.
+ *
+ * Cached per tenant rather than rebuilt per message: a transporter holds a
+ * connection pool, and creating one per notification would open a socket per
+ * subscriber during exactly the incident that produced the mail.
+ */
+const tenantMailers = new Map<string, Transporter>()
+
+export interface TenantMail {
+  tenantId: string
+  host: string
+  port: number
+  secure: boolean
+  user?: string
+  password?: string
+  from: string
+}
+
+export function forgetTenantMailer(tenantId: string): void {
+  tenantMailers.get(tenantId)?.close()
+  tenantMailers.delete(tenantId)
+}
+
+function tenantTransporter(mail: TenantMail): Transporter {
+  const existing = tenantMailers.get(mail.tenantId)
+  if (existing) return existing
+
+  const created = createTransport({
+    host: mail.host,
+    port: mail.port,
+    secure: mail.secure,
+    auth: mail.user ? { user: mail.user, pass: mail.password } : undefined,
+  })
+  tenantMailers.set(mail.tenantId, created)
+  return created
+}
+
 function transporter(): Transporter {
   mailer ??= createTransport({
     host: config.SMTP_HOST,
@@ -33,10 +71,14 @@ export interface RenderedMessage {
 export async function sendEmail(
   to: string,
   message: RenderedMessage,
-  options: { unsubscribeUrl?: string } = {},
+  options: { unsubscribeUrl?: string; tenantMail?: TenantMail | null } = {},
 ) {
-  await transporter().sendMail({
-    from: config.MAIL_FROM,
+  // A tenant that has configured its own sender uses it; everyone else uses the
+  // instance's. One sender per installation is the right default — a tenant
+  // sending as itself is the exception that has to be asked for.
+  const mail = options.tenantMail
+  await (mail ? tenantTransporter(mail) : transporter()).sendMail({
+    from: mail?.from ?? config.MAIL_FROM,
     to,
     subject: message.subject,
     text: message.text,

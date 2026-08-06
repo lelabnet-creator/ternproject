@@ -56,6 +56,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(import('./routes/subscribers.js'), { prefix: '/api/v1' })
   await app.register(import('./routes/notifications.js'), { prefix: '/api/v1' })
   await app.register(import('./routes/system.js'), { prefix: '/api/v1' })
+  await app.register(import('./routes/settings.js'), { prefix: '/api/v1' })
   await app.register(import('./routes/receivers.js'), { prefix: '/api/v1' })
   await app.register(import('./routes/controls.js'), { prefix: '/api/v1' })
 

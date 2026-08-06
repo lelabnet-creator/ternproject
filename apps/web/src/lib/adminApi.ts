@@ -53,6 +53,43 @@ export interface Control {
   position: number
 }
 
+export interface TenantSettings {
+  name: string
+  slug: string
+  visibility: 'public' | 'private'
+  retentionMode: 'live' | 'historical'
+  retentionDays: number
+  rawRetentionHours: number
+  defaultLocale: string
+  defaultTimezone: string
+  subscriberDisclaimer: string | null
+  layout: 'list' | 'grid' | 'compact'
+  sizingAssumptions: { intervalS: number; concurrentViewers: number }
+  smtp: {
+    host: string
+    port: number
+    secure: boolean
+    user: string | null
+    from: string
+    hasPassword: boolean
+  } | null
+  instanceSmtp: { host: string; port: number; secure: boolean; from: string }
+}
+
+/** What a PATCH may carry. The password is write-only and never read back. */
+export type TenantSettingsPatch = Partial<
+  Omit<TenantSettings, 'slug' | 'smtp' | 'instanceSmtp' | 'layout'>
+> & {
+  smtp?: {
+    host: string
+    port: number
+    secure: boolean
+    user?: string
+    password?: string
+    from: string
+  } | null
+}
+
 export interface Agent {
   id: string
   name: string
@@ -158,6 +195,11 @@ export const adminApi = {
   ) => request<{ ok: boolean; reordered: number }>('PATCH', `/api/v1/${slug}/layout`, body),
 
   agents: (slug: string) => request<Agent[]>('GET', `/api/v1/${slug}/agents`),
+
+  settings: (slug: string) => request<TenantSettings>('GET', `/api/v1/${slug}/settings`),
+
+  updateSettings: (slug: string, body: TenantSettingsPatch) =>
+    request<{ ok: boolean }>('PATCH', `/api/v1/${slug}/settings`, body),
 
   systemOverview: () =>
     request<{

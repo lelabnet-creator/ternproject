@@ -165,6 +165,21 @@ Local login with Argon2id, TOTP MFA (mandatory for admins), opaque session cooki
 keys, PIN-based agent pairing, read-only QR viewer sessions, optional IP allowlists, and an audit
 trail. Found something? See [`SECURITY.md`](./SECURITY.md).
 
+## Supporting TERN
+
+Nobody sells TERN. There is no enterprise edition, no feature held behind a plan, no hosted version
+with the useful parts removed — multi-tenancy, probes, the agent and notifications are all AGPL,
+including what a commercial vendor would have put in the paid tier.
+
+That only works if the people using it fund it.
+[GitHub Sponsors](https://github.com/sponsors/tern-status) pays for the code signing certificates
+that would stop the macOS and Windows builds tripping security warnings, for the time it takes to
+track advisories and keep dependencies current, and for outside review of code that authenticates
+everybody and sees everything.
+
+No budget is fine. A precise bug report, a translation or a fix is worth a great deal and costs less
+— see [`CONTRIBUTING.md`](./CONTRIBUTING.md).
+
 ## License
 
 [GNU AGPL-3.0-or-later](./LICENSE). Running a modified TERN as a network service means publishing

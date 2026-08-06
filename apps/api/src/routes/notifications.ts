@@ -169,12 +169,38 @@ const routes: FastifyPluginAsyncZod = async (app) => {
       },
     },
     async (req) => {
+      const [tenant] = await app.db
+        .select()
+        .from(schema.tenants)
+        .where(eq(schema.tenants.id, req.tenant!.id))
+        .limit(1)
+
+      // Through the tenant's own sender when it has one: a test that always
+      // used the instance's mail would pass while the override was broken.
+      const tenantMail = tenant?.smtp
+        ? {
+            tenantId: tenant.id,
+            host: tenant.smtp.host,
+            port: tenant.smtp.port,
+            secure: tenant.smtp.secure,
+            user: tenant.smtp.user,
+            password: tenant.smtpPasswordEnc
+              ? decryptSecret(tenant.smtpPasswordEnc, config.APP_SECRET)
+              : undefined,
+            from: tenant.smtp.from,
+          }
+        : null
+
       try {
-        await sendEmail(req.body.to, {
-          subject: `TERN test message — ${req.tenant!.slug}`,
-          text: 'If you are reading this, TERN can send mail with its current settings.',
-          html: '<p>If you are reading this, TERN can send mail with its current settings.</p>',
-        })
+        await sendEmail(
+          req.body.to,
+          {
+            subject: `TERN test message — ${req.tenant!.slug}`,
+            text: 'If you are reading this, TERN can send mail with its current settings.',
+            html: '<p>If you are reading this, TERN can send mail with its current settings.</p>',
+          },
+          { tenantMail },
+        )
 
         await audit(app, {
           action: 'notifications.mail_tested',
@@ -186,7 +212,10 @@ const routes: FastifyPluginAsyncZod = async (app) => {
           ip: req.ip,
         })
 
-        return { sent: true, detail: `Accepted for delivery to ${req.body.to}` }
+        return {
+          sent: true,
+          detail: `Accepted for delivery to ${req.body.to}${tenantMail ? ` via ${tenantMail.host}` : ''}`,
+        }
       } catch (error) {
         // Reported rather than thrown: "connection refused on localhost:1025" is
         // the answer, and a 500 with a stack trace is not.

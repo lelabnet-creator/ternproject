@@ -298,7 +298,7 @@ function AgentPanel({
                       style={{
                         fontSize: 'var(--text-xs)',
                         fontWeight: 700,
-                        color: 'var(--color-accent)',
+                        color: 'var(--color-accent-ink)',
                       }}
                     >
                       running

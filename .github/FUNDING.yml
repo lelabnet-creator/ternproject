@@ -1,0 +1,5 @@
+# Puts the "Sponsor" button on the repository page.
+#
+# GitHub Sponsors only — one channel, so there is a single place to look and a
+# single thing to keep accurate. Add others here if that ever changes.
+github: [tern-status]

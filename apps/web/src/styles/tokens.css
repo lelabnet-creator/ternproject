@@ -78,14 +78,43 @@
 /* ── Light theme ─────────────────────────────────────────────────────────── */
 :root,
 [data-theme='light'] {
-  --color-bg: #f8fafc;
+  /*
+   * ── The light theme ─────────────────────────────────────────────────────
+   * Re-stepped rather than tweaked, on three rules a designer would apply and
+   * this palette was breaking:
+   *
+   * 1. **Neutrals carry the brand's temperature.** These are not slate greys;
+   *    every one is mixed toward `--brand-ink`, the deep navy of the marque.
+   *    Greys borrowed from a framework beside a navy logo read as two products
+   *    stapled together.
+   * 2. **The elevation ladder must have rungs.** `--color-surface` and
+   *    `--color-surface-raised` were the same white, so a card and a selected
+   *    card were distinguishable only by their border. Three visible steps now:
+   *    page, card, raised.
+   * 3. **The page is paper, not white.** A near-white background under white
+   *    cards makes the cards disappear; this one is the brand's own paper, and
+   *    the cards sit on it.
+   *
+   * Every value below is measured, not judged: body text 14.8:1 on a card,
+   * muted 9.3:1, subtle 5.6:1 and 5.0:1 on the page behind it — all above the
+   * 4.5:1 floor with room to spare.
+   */
+  --color-bg: #eef2f6;
   --color-surface: #ffffff;
-  --color-surface-raised: #ffffff;
-  --color-fg: #0f172a;
-  --color-fg-muted: #475569; /* 7.4:1 on --color-surface */
-  --color-fg-subtle: #64748b; /* 4.8:1 — the floor for secondary text */
-  --color-border: #d8e0e8;
-  --color-border-strong: #b6c2ce;
+  --color-surface-raised: #f6f9fc;
+  --color-fg: #0d2a3f;
+  --color-fg-muted: #33495c; /* 9.3:1 on --color-surface */
+  --color-fg-subtle: #546a7c; /* 5.6:1 on a card, 5.0:1 on the page */
+  /*
+   * Two weights, and the distinction is not decorative. `--color-border`
+   * separates surfaces — a card from the page — where a faint line is enough.
+   * `--color-border-strong` draws the edge of an input or a control, which
+   * WCAG treats as a meaningful boundary and holds to 3:1; #7b93a7 measures
+   * 3.19:1 on a card. The previous value was 1.92:1, a field whose edge you
+   * had to already know was there.
+   */
+  --color-border: #cdd9e4;
+  --color-border-strong: #7b93a7;
 
   /*
    * ── The accent ──────────────────────────────────────────────────────────
@@ -106,6 +135,15 @@
    */
   --color-accent: #7c3aed;
   --color-accent-fg: #ffffff;
+  /**
+   * The accent as *text or an edge*, rather than as a fill.
+   *
+   * A fill is read against its own background, so a mid-tone works; the same
+   * colour written on a card has to clear 4.5:1 against that card. In light
+   * mode one value does both — #7c3aed measures 5.7:1 on white — so this is the
+   * same colour. In dark mode it cannot be, and is not.
+   */
+  --color-accent-ink: #7c3aed;
   /** Tinted surface for a selected row or an active nav item. */
   --color-accent-soft: #f1eafe;
   --color-focus: #2563eb;
@@ -155,11 +193,23 @@
     --color-fg-muted: #cbd5e1;
     --color-fg-subtle: #94a3b8;
     --color-border: #2e4c63;
-    --color-border-strong: #4a6b85;
+    /* 3.33:1 on the card — an input's edge is a meaningful boundary, and the
+       previous #4a6b85 measured 2.12:1. */
+    --color-border-strong: #6b8ba6;
     /* Re-stepped for the dark surface, not lightened from the light value.
        Worst pair here is 21.8 ΔE, against `--status-unknown`. */
     --color-accent: #8b5cf6;
     --color-accent-fg: #1a0b2e;
+    /*
+     * Lighter than the fill, and deliberately so: #8b5cf6 written on the dark
+     * card measures 2.82:1, which is unreadable. This one is 5.5:1.
+     *
+     * The trade, stated rather than hidden: it sits ΔE 12 from `--status-unknown`
+     * grey, below the floor that would apply if the two were categories in one
+     * chart. They are not — this is chrome, that is a state, and every state
+     * still carries an icon and a word beside its colour.
+     */
+    --color-accent-ink: #b8a3ff;
     --color-accent-soft: #2a2050;
     --color-focus: #60a5fa;
     --color-scrim: rgb(2 6 23 / 0.7);
@@ -197,9 +247,10 @@
   --color-fg-muted: #cbd5e1;
   --color-fg-subtle: #94a3b8;
   --color-border: #2e4c63;
-  --color-border-strong: #4a6b85;
+  --color-border-strong: #6b8ba6;
   --color-accent: #8b5cf6;
   --color-accent-fg: #1a0b2e;
+  --color-accent-ink: #b8a3ff;
   --color-accent-soft: #2a2050;
   --color-focus: #60a5fa;
   --color-scrim: rgb(2 6 23 / 0.7);
@@ -378,7 +429,7 @@ a.tern-target {
 
 /* Current location by weight, colour *and* a solid edge — never colour alone. */
 .admin-nav-item.is-current {
-  color: var(--color-accent);
+  color: var(--color-accent-ink);
   background: var(--color-accent-soft);
   border-color: var(--color-accent);
 }
@@ -465,4 +516,68 @@ a.tern-target {
    paragraph on a 1440px display is unreadable however much space there is. */
 .measure {
   max-width: 68ch;
+}
+
+/* ── Tabs ──────────────────────────────────────────────────────────────────
+ * An underline rather than a pill: a strip of pills competes with the rail's
+ * pills, and two things that look like navigation at two levels is how people
+ * stop being able to tell where they are.
+ */
+.tabs {
+  display: flex;
+  gap: var(--space-1);
+  overflow-x: auto;
+  scrollbar-width: none;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.tab {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 44px;
+  padding: 0 var(--space-4);
+  border: 0;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  background: transparent;
+  color: var(--color-fg-subtle);
+  font-family: inherit;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    color var(--duration-fast) var(--ease-out),
+    border-color var(--duration-fast) var(--ease-out);
+}
+
+.tab:hover {
+  color: var(--color-fg);
+}
+
+.tab.is-selected {
+  color: var(--color-accent-ink);
+  border-bottom-color: var(--color-accent);
+}
+
+.tab-badge {
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-full);
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--color-fg-muted);
+}
+
+/* A row of small facts: label above value, wrapping into the space it has. */
+.facts {
+  display: grid;
+  gap: var(--space-3);
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
 }

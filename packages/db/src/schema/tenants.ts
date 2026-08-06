@@ -51,6 +51,37 @@ export const tenants = pgTable(
     /** Shown on the subscription form — jurisdictions differ, so it is text. */
     subscriberDisclaimer: text(),
 
+    /**
+     * Per-tenant mail, overriding the instance's SMTP.
+     *
+     * Optional by design: most installations want one sender and one
+     * reputation, and the instance default remains the answer when this is
+     * null. A tenant that must send as itself — its own domain, its own
+     * deliverability — sets it here.
+     *
+     * The password is not in this object. It is encrypted beside it, because a
+     * settings blob gets logged, diffed and exported by things that have no
+     * business holding a credential.
+     */
+    smtp: jsonb().$type<{
+      host: string
+      port: number
+      secure: boolean
+      user?: string
+      from: string
+    } | null>(),
+    smtpPasswordEnc: text(),
+
+    /**
+     * What the Capacity calculator should assume about this deployment.
+     *
+     * Saved because the alternative is re-typing the shape of your own fleet
+     * every time you open the screen, and because the numbers it produces are
+     * only as good as the assumptions behind them — which are worth recording
+     * rather than re-guessing.
+     */
+    sizingAssumptions: jsonb().$type<{ intervalS: number; concurrentViewers: number }>(),
+
     createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
   },

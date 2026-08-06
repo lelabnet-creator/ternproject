@@ -1,7 +1,9 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { adminApi } from '../../lib/adminApi'
-import { Banner, Card, Field, Input } from '../../components/ui'
+import { useEffect } from 'react'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { adminApi, ApiError } from '../../lib/adminApi'
+import { Banner, Button, Card, Field, Input } from '../../components/ui'
 
 /**
  * Whether the HTTP layer is sized for the fleet that grew since it was
@@ -17,8 +19,36 @@ import { Banner, Card, Field, Input } from '../../components/ui'
  * per-process values shared by every tenant on the instance. A form here would
  * either lie or let one tenant throttle another.
  */
-export function CapacityScreen({ slug }: { slug: string }) {
+export function CapacityPanel({ slug, canWrite }: { slug: string; canWrite: boolean }) {
+  const queryClient = useQueryClient()
+  const settings = useQuery({
+    queryKey: ['settings', slug],
+    queryFn: () => adminApi.settings(slug),
+  })
+
   const [what, setWhat] = useState({ intervalS: 60, concurrentViewers: 20 })
+  const [dirty, setDirty] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  // The saved assumptions, not defaults invented afresh each visit: the numbers
+  // this screen produces are only as good as what is assumed behind them, and
+  // re-typing the shape of your own fleet every time is how they end up wrong.
+  useEffect(() => {
+    if (settings.data) {
+      setWhat(settings.data.sizingAssumptions)
+      setDirty(false)
+    }
+  }, [settings.data])
+
+  const save = useMutation({
+    mutationFn: () => adminApi.updateSettings(slug, { sizingAssumptions: what }),
+    onSuccess: async () => {
+      setError(null)
+      setDirty(false)
+      await queryClient.invalidateQueries({ queryKey: ['settings', slug] })
+    },
+    onError: (err) => setError(err instanceof ApiError ? err.message : String(err)),
+  })
   const [hypothetical, setHypothetical] = useState<{ agents: string; probesPerAgent: string }>({
     agents: '',
     probesPerAgent: '',
@@ -36,7 +66,7 @@ export function CapacityScreen({ slug }: { slug: string }) {
       }),
   })
 
-  if (capacity.isPending) return <p style={{ paddingTop: 'var(--space-6)' }}>Measuring…</p>
+  if (capacity.isPending) return <p>Measuring…</p>
   if (capacity.isError || !capacity.data) {
     return <Banner tone="down">Could not read the capacity settings.</Banner>
   }
@@ -47,14 +77,13 @@ export function CapacityScreen({ slug }: { slug: string }) {
   const poolTight = effective.dbPoolMax < sizing.recommended.dbPoolMax
 
   return (
-    <section style={{ paddingTop: 'var(--space-6)', display: 'grid', gap: 'var(--space-5)' }}>
-      <div>
-        <h1 style={{ margin: 0, fontSize: 'var(--text-xl)' }}>Capacity</h1>
-        <p style={{ margin: 'var(--space-1) 0 0', color: 'var(--color-fg-subtle)' }}>
-          {measured.agents} active agent{measured.agents === 1 ? '' : 's'} · {measured.probes}{' '}
-          control{measured.probes === 1 ? '' : 's'} · {measured.retentionDays}-day retention
-        </p>
-      </div>
+    <section style={{ display: 'grid', gap: 'var(--space-4)' }}>
+      <p className="measure" style={{ margin: 0, color: 'var(--color-fg-subtle)' }}>
+        {measured.agents} active agent{measured.agents === 1 ? '' : 's'} · {measured.probes} control
+        {measured.probes === 1 ? '' : 's'} · {measured.retentionDays}-day retention
+      </p>
+
+      {error && <Banner tone="down">{error}</Banner>}
 
       {(ingestTight || poolTight) && (
         <Banner tone="degraded">
@@ -86,7 +115,11 @@ export function CapacityScreen({ slug }: { slug: string }) {
               type="number"
               min={5}
               value={what.intervalS}
-              onChange={(e) => setWhat({ ...what, intervalS: Number(e.target.value) || 60 })}
+              disabled={!canWrite}
+              onChange={(e) => {
+                setWhat({ ...what, intervalS: Number(e.target.value) || 60 })
+                setDirty(true)
+              }}
             />
           </Field>
           <Field label="Concurrent viewers" hint="People with the page open at once.">
@@ -94,7 +127,11 @@ export function CapacityScreen({ slug }: { slug: string }) {
               type="number"
               min={0}
               value={what.concurrentViewers}
-              onChange={(e) => setWhat({ ...what, concurrentViewers: Number(e.target.value) || 0 })}
+              disabled={!canWrite}
+              onChange={(e) => {
+                setWhat({ ...what, concurrentViewers: Number(e.target.value) || 0 })
+                setDirty(true)
+              }}
             />
           </Field>
           <Field label="Agents" hint={`Blank = measured (${measured.agents}).`}>
@@ -206,15 +243,44 @@ export function CapacityScreen({ slug }: { slug: string }) {
           </ul>
         )}
 
+        {canWrite && (
+          <div
+            style={{
+              display: 'flex',
+              gap: 'var(--space-3)',
+              alignItems: 'center',
+              marginTop: 'var(--space-4)',
+            }}
+          >
+            <Button
+              variant="primary"
+              busy={save.isPending}
+              disabled={!dirty}
+              onClick={() => save.mutate()}
+            >
+              Save assumptions
+            </Button>
+            {dirty && (
+              <span style={{ fontSize: 'var(--text-sm)', color: 'var(--color-fg-subtle)' }}>
+                Unsaved
+              </span>
+            )}
+          </div>
+        )}
+
         <p
+          className="measure"
           style={{
             margin: 'var(--space-4) 0 0',
             fontSize: 'var(--text-xs)',
             color: 'var(--color-fg-subtle)',
           }}
         >
-          These are per-process and shared by every tenant on this instance, so they are set in the
-          environment and restarted — not edited here.
+          {/* Said plainly, because "why can I not save this" is a fair question
+              about a screen full of numbers. */}
+          The assumptions above are yours and are saved. The limits in the table are per-process and
+          shared by every tenant on this instance — they are set in the environment and applied at
+          restart, so this screen names the variable rather than pretending to change it.
         </p>
       </Card>
     </section>

@@ -10,8 +10,7 @@ import type { CheckStatusValue } from '@tern/shared/status'
 import { api } from '../../lib/api'
 import { LayoutScreen } from './LayoutScreen'
 import { FleetScreen } from './FleetScreen'
-import { NotificationsScreen } from './NotificationsScreen'
-import { CapacityScreen } from './CapacityScreen'
+import { OptionsScreen } from './OptionsScreen'
 import { PlatformScreen } from './PlatformScreen'
 
 /**
@@ -83,10 +82,8 @@ export function AdminApp({ slug }: { slug: string }) {
           <LayoutScreen slug={slug} canWrite={canWrite} />
         ) : section === 'agents' ? (
           <FleetScreen slug={slug} canWrite={canWrite} />
-        ) : section === 'notifications' ? (
-          <NotificationsScreen slug={slug} canWrite={canWrite} />
-        ) : section === 'capacity' ? (
-          <CapacityScreen slug={slug} />
+        ) : section === 'options' ? (
+          <OptionsScreen slug={slug} canWrite={canWrite} />
         ) : section === 'platform' ? (
           <PlatformScreen />
         ) : (
@@ -103,8 +100,7 @@ const SECTIONS = [
   { id: 'controls', label: 'Controls' },
   { id: 'layout', label: 'Page layout' },
   { id: 'agents', label: 'Agents' },
-  { id: 'notifications', label: 'Notifications' },
-  { id: 'capacity', label: 'Capacity' },
+  { id: 'options', label: 'Options' },
   { id: 'platform', label: 'Platform' },
 ] as const
 

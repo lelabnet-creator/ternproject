@@ -175,7 +175,7 @@ export function PlatformScreen() {
                       <td style={cell}>
                         <a
                           href={`/app/${tenant.slug}`}
-                          style={{ color: 'var(--color-accent)', fontWeight: 600 }}
+                          style={{ color: 'var(--color-accent-ink)', fontWeight: 600 }}
                         >
                           {tenant.name}
                         </a>
