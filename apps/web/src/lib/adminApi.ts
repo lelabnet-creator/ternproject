@@ -65,6 +65,7 @@ export interface Agent {
   lastSeenAt: string | null
   pairedAt: string
   jobCount: number
+  scopeControlIds: string[]
 }
 
 export interface ScriptBundle {

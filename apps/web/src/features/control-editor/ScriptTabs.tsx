@@ -92,7 +92,7 @@ export function ScriptTabs({
       </div>
 
       {active === AGENT_TAB ? (
-        <AgentPanel slug={slug} agent={bundle.data.agent} />
+        <AgentPanel slug={slug} controlId={controlId} agent={bundle.data.agent} />
       ) : (
         <>
           <CodeBlock label={`tern_push.${language?.extension ?? 'txt'}`}>{script}</CodeBlock>
@@ -140,16 +140,59 @@ export function ScriptTabs({
  * bundle. A pairing code is a credential with a short life; one delivered with
  * every page view would sit in a cache and in a back button, unused and valid.
  */
-function AgentPanel({ slug, agent }: { slug: string; agent: ScriptBundle['agent'] }) {
+function AgentPanel({
+  slug,
+  controlId,
+  agent,
+}: {
+  slug: string
+  controlId: string
+  agent: ScriptBundle['agent']
+}) {
   const pair = useMutation({ mutationFn: () => adminApi.createPairingCode(slug) })
+
+  // A tenant that already runs agents rarely needs another one. Asking for a PIN
+  // when a paired agent will pick this control up on its next start is busywork
+  // that ends in a fleet of near-duplicates.
+  const agents = useQuery({ queryKey: ['agents', slug], queryFn: () => adminApi.agents(slug) })
+  const covering = (agents.data ?? []).filter(
+    (a) =>
+      a.status !== 'revoked' &&
+      (a.scopeControlIds.length === 0 || a.scopeControlIds.includes(controlId)),
+  )
+
+  const [pairAnyway, setPairAnyway] = useState(false)
+  const showPairing = covering.length === 0 || pairAnyway
 
   return (
     <div style={{ display: 'grid', gap: 'var(--space-4)' }}>
+      {covering.length > 0 && (
+        <Banner tone="operational">
+          {covering.length === 1
+            ? `“${covering[0]!.name}” already covers this control`
+            : `${covering.length} agents already cover this control`}
+          {' — '}
+          {covering
+            .slice(0, 4)
+            .map((a) => a.name)
+            .join(', ')}
+          {covering.length > 4 && `, +${covering.length - 4}`}. It starts being probed on their next
+          run, so there is nothing to install.{' '}
+          <a href={`/app/${slug}/agents`} style={{ color: 'inherit' }}>
+            See the fleet
+          </a>
+          .
+        </Banner>
+      )}
+
       <section>
         <h3 style={{ margin: '0 0 var(--space-2)', fontSize: 'var(--text-sm)' }}>
           1 · Pair the agent
         </h3>
-        {pair.data ? (
+        {!showPairing && (
+          <Button onClick={() => setPairAnyway(true)}>Pair another agent anyway</Button>
+        )}
+        {!showPairing ? null : pair.data ? (
           <>
             <CodeBlock label="on the machine being monitored">
               {agent.pairCommand.replace('<PIN>', pair.data.pin)}

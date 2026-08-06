@@ -295,6 +295,12 @@ const routes: FastifyPluginAsyncZod = async (app) => {
               pairedAt: z.string(),
               /** How many probes this agent is assigned, from its key's scope. */
               jobCount: z.number(),
+              /**
+               * The controls its key is limited to. Empty means every control —
+               * which is what makes "is this control already covered" answerable
+               * without a second request per agent.
+               */
+              scopeControlIds: z.array(z.string()),
             }),
           ),
         },
@@ -343,6 +349,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
           lastSeenAt: row.lastSeenAt?.toISOString() ?? null,
           pairedAt: row.createdAt.toISOString(),
           jobCount: row.status === 'revoked' ? 0 : jobCount,
+          scopeControlIds: scope ?? [],
         }
       })
     },
