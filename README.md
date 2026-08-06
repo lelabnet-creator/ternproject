@@ -68,6 +68,23 @@ clients/agent    Rust agent
 schemas/      probe.schema.json + cross-language conformance fixtures
 ```
 
+## The agent
+
+One binary, three commands. It pairs with a PIN generated in the admin, writes its own config with
+owner-only permissions, and runs the probes in it on a schedule.
+
+```sh
+tern-agent pair --server https://status.example.com --pin 4K7Q-92XB   # writes agent.toml (0600)
+tern-agent run  --config agent.toml --once                            # every probe once, then exit
+tern-agent run  --config agent.toml                                   # the scheduled loop
+```
+
+Probes are declarative — `http`, `tcp`, `ping`, `dns`, `cert` — and are evaluated by the same
+assertion engine the server uses, held to the shared fixtures in `schemas/conformance/`. Two things
+it does that the server cannot: real ICMP where the host permits it (falling back to a TCP connect,
+and saying so, where it does not), and a bounded queue on disk so an unreachable server delays
+history rather than losing it.
+
 ## Security
 
 Local login with Argon2id, TOTP MFA (mandatory for admins), opaque session cookies, per-tenant API

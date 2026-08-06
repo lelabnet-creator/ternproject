@@ -61,7 +61,9 @@ pub enum ValueKind {
 
 // ── Assertions ──────────────────────────────────────────────────────────────
 
-#[derive(Debug, Clone, Deserialize)]
+// Serialize as well as Deserialize: an `agent.toml` round-trips through this
+// type when the editor generates one, so the two must agree in both directions.
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Assertion {
     StatusCode {

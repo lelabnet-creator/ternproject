@@ -4,5 +4,8 @@
 //! third-party integrations, and so the conformance suite can drive it directly
 //! rather than through the CLI.
 
+pub mod config;
 pub mod probe;
+pub mod probe_transport;
+pub mod runner;
 pub mod transport;
