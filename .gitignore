@@ -31,3 +31,6 @@ test-results/
 .idea/
 .vscode/*
 !.vscode/extensions.json
+
+# Rust
+clients/agent/target/
