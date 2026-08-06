@@ -25,7 +25,8 @@
     "noData": "Aucune donnée",
     "noDataHint": "Ce composant n'a rien remonté depuis sa création.",
     "loadError": "Impossible de charger le statut",
-    "retry": "Réessayer"
+    "retry": "Réessayer",
+    "manage": "Administrer cette page"
   },
   "chart": {
     "uptimeRibbon": "Disponibilité quotidienne sur les {{days}} derniers jours",

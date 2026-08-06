@@ -15,6 +15,7 @@ import { api } from '../../lib/api'
 import { LayoutScreen } from './LayoutScreen'
 import { FleetScreen } from './FleetScreen'
 import { OptionsScreen } from './OptionsScreen'
+import { LogsScreen } from './LogsScreen'
 import { PlatformScreen } from './PlatformScreen'
 
 /**
@@ -99,6 +100,8 @@ export function AdminApp({ slug }: { slug: string }) {
           <LayoutScreen slug={slug} canWrite={canWrite} />
         ) : section === 'agents' ? (
           <FleetScreen slug={slug} canWrite={canWrite} />
+        ) : section === 'logs' ? (
+          <LogsScreen slug={slug} canWrite={canWrite} />
         ) : section === 'options' ? (
           <OptionsScreen slug={slug} canWrite={canWrite} />
         ) : section === 'platform' ? (
@@ -117,6 +120,7 @@ const SECTIONS = [
   { id: 'controls', label: 'Controls' },
   { id: 'layout', label: 'Page layout' },
   { id: 'agents', label: 'Agents' },
+  { id: 'logs', label: 'Logs' },
   { id: 'options', label: 'Options' },
   { id: 'platform', label: 'Platform' },
 ] as const

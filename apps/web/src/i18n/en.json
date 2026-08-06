@@ -25,7 +25,8 @@
     "noData": "No data yet",
     "noDataHint": "This component has not reported since it was created.",
     "loadError": "Could not load status",
-    "retry": "Retry"
+    "retry": "Retry",
+    "manage": "Manage this page"
   },
   "chart": {
     "uptimeRibbon": "Daily uptime over the last {{days}} days",

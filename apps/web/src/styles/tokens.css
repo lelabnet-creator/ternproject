@@ -620,3 +620,40 @@ a.tern-target {
 .form-actions > :first-child:not(button) {
   margin-right: auto;
 }
+
+/* ── The landing screen ────────────────────────────────────────────────────
+ * Photograph on one side, the form on the other, once there is room for two.
+ * Below that the photo becomes a band above the card: a half-width column on a
+ * phone is neither a picture nor a form.
+ */
+.landing {
+  display: grid;
+  grid-template-rows: 12rem 1fr;
+  min-height: 100dvh;
+}
+
+.landing-image {
+  background-image: url('/bg.jpeg');
+  background-size: cover;
+  background-position: center;
+}
+
+.landing-panel {
+  display: grid;
+  place-items: center;
+  padding: var(--space-6) var(--space-4);
+  background: var(--color-bg);
+}
+
+@media (min-width: 64rem) {
+  .landing {
+    grid-template-rows: none;
+    /* The photo takes the larger share: it is the reason the page is worth
+       looking at, and the form needs a measure, not a half. */
+    grid-template-columns: 1fr minmax(26rem, 34rem);
+  }
+
+  .landing-image {
+    min-height: 100dvh;
+  }
+}

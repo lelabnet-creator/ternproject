@@ -66,6 +66,14 @@ export interface TenantSettings {
   layout: 'list' | 'grid' | 'compact'
   accent: string
   sizingAssumptions: { intervalS: number; concurrentViewers: number }
+  syslog: {
+    host: string
+    port: number
+    protocol: 'udp' | 'tcp'
+    facility: number
+    format: 'rfc5424' | 'json'
+    appName: string
+  } | null
   smtp: {
     host: string
     port: number
@@ -206,6 +214,27 @@ export const adminApi = {
     request<{ id: string; url: string }>('POST', `/api/v1/${slug}/receivers`, body),
 
   settings: (slug: string) => request<TenantSettings>('GET', `/api/v1/${slug}/settings`),
+
+  logs: (slug: string, filters: { q?: string; action?: string } = {}) => {
+    const query = new URLSearchParams()
+    if (filters.q) query.set('q', filters.q)
+    if (filters.action) query.set('action', filters.action)
+    return request<{
+      entries: {
+        id: string
+        ts: string
+        action: string
+        actor: string
+        target: string | null
+        ip: string | null
+        meta: Record<string, unknown>
+      }[]
+      actions: string[]
+    }>('GET', `/api/v1/${slug}/logs?${query.toString()}`)
+  },
+
+  testSyslog: (slug: string) =>
+    request<{ sent: boolean; detail: string }>('POST', `/api/v1/${slug}/logs/syslog/test`),
 
   updateSettings: (slug: string, body: TenantSettingsPatch) =>
     request<{ ok: boolean }>('PATCH', `/api/v1/${slug}/settings`, body),

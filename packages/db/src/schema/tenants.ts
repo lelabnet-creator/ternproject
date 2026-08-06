@@ -82,6 +82,23 @@ export const tenants = pgTable(
      */
     sizingAssumptions: jsonb().$type<{ intervalS: number; concurrentViewers: number }>(),
 
+    /**
+     * Where this tenant's audit events are mirrored, when it wants them
+     * elsewhere.
+     *
+     * Mirrored rather than moved: the local trail stays whatever happens to the
+     * far end, because a log that only exists on a host you cannot reach during
+     * an incident is not a log you have.
+     */
+    syslog: jsonb().$type<{
+      host: string
+      port: number
+      protocol: 'udp' | 'tcp'
+      facility: number
+      format: 'rfc5424' | 'json'
+      appName: string
+    } | null>(),
+
     createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
   },

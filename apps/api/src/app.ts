@@ -57,6 +57,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(import('./routes/notifications.js'), { prefix: '/api/v1' })
   await app.register(import('./routes/system.js'), { prefix: '/api/v1' })
   await app.register(import('./routes/settings.js'), { prefix: '/api/v1' })
+  await app.register(import('./routes/logs.js'), { prefix: '/api/v1' })
   // No prefix: the installer lives at /install.sh, which is where a one-liner
   // can be read aloud.
   await app.register(import('./routes/download.js'))

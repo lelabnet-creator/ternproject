@@ -74,7 +74,7 @@ export function StatusPage({ slug }: { slug: string }) {
         padding: 'var(--space-6) var(--space-4) var(--space-12)',
       }}
     >
-      <Header name={data.tenant.name} />
+      <Header name={data.tenant.name} slug={slug} />
 
       {!online && (
         <Banner tone="unknown">
@@ -296,7 +296,7 @@ function ComponentCard({
 
 // ── Layout pieces ───────────────────────────────────────────────────────────
 
-function Header({ name }: { name: string }) {
+function Header({ name, slug }: { name: string; slug: string }) {
   return (
     <header
       style={{
@@ -309,8 +309,36 @@ function Header({ name }: { name: string }) {
       }}
     >
       <h1 style={{ margin: 0, fontSize: 'var(--text-xl)', fontWeight: 600 }}>{name}</h1>
-      <ThemeToggle />
+      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-4)' }}>
+        <AdminLink slug={slug} />
+        <ThemeToggle />
+      </div>
     </header>
+  )
+}
+
+/**
+ * A way back to the admin from the page it publishes.
+ *
+ * Shown to everyone rather than only to members: the link leads to a sign-in,
+ * and hiding it would mean asking the server whether the reader is a member —
+ * which is a request, a round trip and a fact about the reader, to save one
+ * line of text.
+ */
+function AdminLink({ slug }: { slug: string }) {
+  const { t } = useTranslation()
+
+  return (
+    <a
+      href={`/app/${slug}`}
+      style={{
+        fontSize: 'var(--text-sm)',
+        color: 'var(--color-fg-subtle)',
+        textDecoration: 'none',
+      }}
+    >
+      {t('page.manage')}
+    </a>
   )
 }
 

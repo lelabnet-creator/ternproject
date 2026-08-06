@@ -4,7 +4,7 @@ import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod'
 import { schema } from '@tern/db'
 import { encryptSecret } from '@tern/shared'
 import { config } from '../config.js'
-import { audit } from '../services/audit.js'
+import { audit, forgetCollector } from '../services/audit.js'
 
 /**
  * The settings a tenant owns.
@@ -51,6 +51,17 @@ const routes: FastifyPluginAsyncZod = async (app) => {
               intervalS: z.number(),
               concurrentViewers: z.number(),
             }),
+            /** Null when nothing is configured. */
+            syslog: z
+              .object({
+                host: z.string(),
+                port: z.number(),
+                protocol: z.enum(['udp', 'tcp']),
+                facility: z.number(),
+                format: z.enum(['rfc5424', 'json']),
+                appName: z.string(),
+              })
+              .nullable(),
             /** Null means "the instance default is used". Never the password. */
             smtp: z
               .object({
@@ -93,6 +104,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
         layout: tenant.layout,
         accent: String((tenant.branding as Record<string, unknown>)?.accent ?? 'violet'),
         sizingAssumptions: tenant.sizingAssumptions ?? { intervalS: 60, concurrentViewers: 20 },
+        syslog: tenant.syslog ?? null,
         smtp: tenant.smtp
           ? {
               host: tenant.smtp.host,
@@ -137,6 +149,18 @@ const routes: FastifyPluginAsyncZod = async (app) => {
               concurrentViewers: z.number().int().min(0).max(1_000_000),
             })
             .optional(),
+          /** `null` stops mirroring; the local trail is unaffected either way. */
+          syslog: z
+            .object({
+              host: z.string().min(1).max(255),
+              port: z.number().int().min(1).max(65535),
+              protocol: z.enum(['udp', 'tcp']),
+              facility: z.number().int().min(0).max(23),
+              format: z.enum(['rfc5424', 'json']),
+              appName: z.string().min(1).max(48),
+            })
+            .nullable()
+            .optional(),
           /** `null` clears the override and returns the tenant to instance mail. */
           smtp: smtpSchema.nullable().optional(),
         }),
@@ -162,6 +186,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
         'defaultTimezone',
         'subscriberDisclaimer',
         'sizingAssumptions',
+        'syslog',
       ] as const) {
         if (req.body[key] !== undefined) patch[key] = req.body[key]
       }
@@ -191,6 +216,10 @@ const routes: FastifyPluginAsyncZod = async (app) => {
 
       patch.updatedAt = new Date()
       await app.db.update(schema.tenants).set(patch).where(eq(schema.tenants.id, tenant.id))
+
+      // Otherwise turning forwarding off leaves it on for up to a minute, which
+      // is exactly the minute someone is watching to check that it stopped.
+      if (req.body.syslog !== undefined) forgetCollector(tenant.id)
 
       await audit(app, {
         action: 'tenant.settings_updated',

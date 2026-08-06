@@ -5,6 +5,7 @@ import { I18nextProvider } from 'react-i18next'
 import { applyStoredTheme } from './components/ThemePicker'
 import { initI18n, resolveLocale } from './i18n'
 import { AdminApp } from './routes/app/AdminApp'
+import { LandingPage } from './routes/public/LandingPage'
 import { StatusPage } from './routes/public/StatusPage'
 import './styles/tokens.css'
 
@@ -40,7 +41,15 @@ createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <I18nextProvider i18n={i18n}>
       <QueryClientProvider client={queryClient}>
-        {adminSlug ? <AdminApp slug={adminSlug} /> : <StatusPage slug={publicSlug ?? 'acme'} />}
+        {adminSlug ? (
+          <AdminApp slug={adminSlug} />
+        ) : publicSlug ? (
+          <StatusPage slug={publicSlug} />
+        ) : (
+          // No slug, no guess. The root used to load the demo tenant, which on a
+          // real installation is somebody else's status page served from yours.
+          <LandingPage />
+        )}
       </QueryClientProvider>
     </I18nextProvider>
   </StrictMode>,
