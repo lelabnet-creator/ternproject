@@ -212,6 +212,92 @@ const routes: FastifyPluginAsyncZod = async (app) => {
   )
 
   /**
+   * How the public page is arranged: its density, and the order of the
+   * components on it.
+   *
+   * One endpoint rather than a PATCH per control, and one transaction, because
+   * a half-applied reordering is a page with two components claiming position 3
+   * — a state no reader could make sense of and no retry would repair.
+   *
+   * The order is applied exactly as sent. Positions are renumbered from zero on
+   * the server so a client that sends 0,1,1,4 still ends up with a total order.
+   */
+  app.patch(
+    '/:slug/layout',
+    {
+      onRequest: [app.requireTenant()],
+      preHandler: [app.requirePermission('tenant:settings')],
+      schema: {
+        params: z.object({ slug: z.string() }),
+        body: z.object({
+          layout: z.enum(['list', 'grid', 'compact']).optional(),
+          order: z
+            .array(
+              z.object({
+                controlId: z.string().uuid(),
+                groupId: z.string().uuid().nullable().optional(),
+              }),
+            )
+            .max(1000)
+            .optional(),
+        }),
+        response: { 200: z.object({ ok: z.boolean(), reordered: z.number() }) },
+      },
+    },
+    async (req) => {
+      const tenantId = req.tenant!.id
+
+      // Every id must belong to this tenant before anything is written. Checking
+      // inside the loop would leave the first few controls already moved when a
+      // foreign id turned up halfway through.
+      const order = req.body.order ?? []
+      if (order.length > 0) {
+        const owned = await app.db
+          .select({ id: schema.controls.id })
+          .from(schema.controls)
+          .where(eq(schema.controls.tenantId, tenantId))
+        const ownedIds = new Set(owned.map((row) => row.id))
+
+        const foreign = order.find((entry) => !ownedIds.has(entry.controlId))
+        if (foreign) throw app.httpErrors.notFound('Unknown control in the requested order')
+      }
+
+      await app.db.transaction(async (tx) => {
+        if (req.body.layout) {
+          await tx
+            .update(schema.tenants)
+            .set({ layout: req.body.layout })
+            .where(eq(schema.tenants.id, tenantId))
+        }
+
+        for (const [position, entry] of order.entries()) {
+          await tx
+            .update(schema.controls)
+            .set({
+              position,
+              // Sent only when the move crossed groups; `undefined` leaves the
+              // column alone, which is not the same as clearing it to null.
+              ...(entry.groupId === undefined ? {} : { groupId: entry.groupId }),
+              updatedAt: new Date(),
+            })
+            .where(eq(schema.controls.id, entry.controlId))
+        }
+      })
+
+      await audit(app, {
+        action: 'tenant.layout_updated',
+        tenantId,
+        actorId: req.actor.userId,
+        target: tenantId,
+        meta: { layout: req.body.layout, reordered: order.length },
+        ip: req.ip,
+      })
+
+      return { ok: true, reordered: order.length }
+    },
+  )
+
+  /**
    * Fills a control with plausible history so a widget can be judged on what it
    * looks like with data rather than on an empty axis.
    *

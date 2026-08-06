@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { adminApi, ApiError, type Control } from '../../lib/adminApi'
 import { Banner, Button, Card, CodeBlock, EmptyState, Field, Input } from '../../components/ui'
@@ -7,6 +7,7 @@ import { ScriptTabs } from '../../features/control-editor/ScriptTabs'
 import { PreviewStep } from '../../features/control-editor/PreviewStep'
 import { DEFAULT_WIDGET } from '../../charts/registry'
 import { api } from '../../lib/api'
+import { LayoutScreen } from './LayoutScreen'
 
 /**
  * The admin surface.
@@ -17,6 +18,7 @@ import { api } from '../../lib/api'
  */
 export function AdminApp({ slug }: { slug: string }) {
   const me = useQuery({ queryKey: ['me'], queryFn: adminApi.me, retry: false })
+  const [section, setSection] = useSection(slug)
 
   if (me.isPending) return <Centered>Loading…</Centered>
   if (me.isError) return <LoginScreen onSignedIn={() => void me.refetch()} />
@@ -64,8 +66,109 @@ export function AdminApp({ slug }: { slug: string }) {
         </Button>
       </header>
 
-      <ControlsScreen slug={slug} canWrite={membership.role === 'admin'} />
+      <AdminNav slug={slug} section={section} onNavigate={setSection} />
+
+      {section === 'layout' ? (
+        <LayoutScreen slug={slug} canWrite={membership.role === 'admin'} />
+      ) : (
+        <ControlsScreen slug={slug} canWrite={membership.role === 'admin'} />
+      )}
     </div>
+  )
+}
+
+// ── Navigation ──────────────────────────────────────────────────────────────
+
+const SECTIONS = [
+  { id: 'controls', label: 'Controls' },
+  { id: 'layout', label: 'Page layout' },
+] as const
+
+type Section = (typeof SECTIONS)[number]['id']
+
+/**
+ * Two sections, and the URL says which one.
+ *
+ * A router library would be more machinery than this needs, but the address bar
+ * still has to be right: /app/acme/layout must be linkable, reloadable, and the
+ * browser's back button must work. That is `pushState` plus `popstate`, not a
+ * piece of component state pretending to be a route.
+ */
+function useSection(slug: string): [Section, (next: Section) => void] {
+  const read = (): Section =>
+    window.location.pathname.startsWith(`/app/${slug}/layout`) ? 'layout' : 'controls'
+
+  const [section, setSection] = useState<Section>(read)
+
+  useEffect(() => {
+    // Re-read the path on popstate rather than closing over `read`, so the
+    // listener has no stale slug and the effect needs no dependency on it.
+    const onPop = () =>
+      setSection(window.location.pathname.startsWith(`/app/${slug}/layout`) ? 'layout' : 'controls')
+    window.addEventListener('popstate', onPop)
+    return () => window.removeEventListener('popstate', onPop)
+  }, [slug])
+
+  const navigate = (next: Section) => {
+    window.history.pushState({}, '', next === 'controls' ? `/app/${slug}` : `/app/${slug}/${next}`)
+    setSection(next)
+  }
+
+  return [section, navigate]
+}
+
+function AdminNav({
+  slug,
+  section,
+  onNavigate,
+}: {
+  slug: string
+  section: Section
+  onNavigate: (next: Section) => void
+}) {
+  return (
+    <nav
+      aria-label="Sections"
+      style={{
+        display: 'flex',
+        gap: 'var(--space-2)',
+        paddingTop: 'var(--space-4)',
+        flexWrap: 'wrap',
+      }}
+    >
+      {SECTIONS.map((entry) => {
+        const current = entry.id === section
+        return (
+          <a
+            key={entry.id}
+            href={entry.id === 'controls' ? `/app/${slug}` : `/app/${slug}/${entry.id}`}
+            // A real link, so it can be opened in a new tab and read by anything
+            // that harvests links — the click handler only avoids the reload.
+            onClick={(event) => {
+              if (event.metaKey || event.ctrlKey || event.shiftKey) return
+              event.preventDefault()
+              onNavigate(entry.id)
+            }}
+            aria-current={current ? 'page' : undefined}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              minHeight: 44,
+              padding: '0 var(--space-4)',
+              borderRadius: 'var(--radius-sm)',
+              border: `1px solid ${current ? 'var(--color-accent)' : 'var(--color-border)'}`,
+              background: current ? 'var(--color-surface-raised)' : 'transparent',
+              color: 'var(--color-fg)',
+              textDecoration: 'none',
+              fontSize: 'var(--text-sm)',
+              fontWeight: 600,
+            }}
+          >
+            {entry.label}
+          </a>
+        )
+      })}
+    </nav>
   )
 }
 

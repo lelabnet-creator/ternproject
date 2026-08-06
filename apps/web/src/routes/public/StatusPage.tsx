@@ -105,7 +105,7 @@ export function StatusPage({ slug }: { slug: string }) {
             </h2>
           )}
 
-          <div style={{ display: 'grid', gap: 'var(--space-3)' }}>
+          <div style={layoutStyle(data.tenant.layout)}>
             {components.map((component) => (
               <ComponentCard
                 key={component.id}
@@ -114,6 +114,7 @@ export function StatusPage({ slug }: { slug: string }) {
                 showRibbon={data.tenant.retentionMode === 'historical'}
                 locale={locale}
                 timeZone={timeZone}
+                layout={data.tenant.layout}
               />
             ))}
           </div>
@@ -125,18 +126,39 @@ export function StatusPage({ slug }: { slug: string }) {
   )
 }
 
+/**
+ * The density the tenant chose, expressed as a grid.
+ *
+ * `grid` uses auto-fit with a minimum, not a fixed column count: on a phone
+ * that resolves to one column on its own, so there is no breakpoint to keep in
+ * sync with anything. `compact` stays one column and tightens the gap — the
+ * cards themselves shed their chart, which is where the height actually goes.
+ */
+function layoutStyle(layout: 'list' | 'grid' | 'compact'): React.CSSProperties {
+  if (layout === 'grid') {
+    return {
+      display: 'grid',
+      gap: 'var(--space-3)',
+      gridTemplateColumns: 'repeat(auto-fit, minmax(20rem, 1fr))',
+    }
+  }
+  return { display: 'grid', gap: layout === 'compact' ? 'var(--space-1)' : 'var(--space-3)' }
+}
+
 function ComponentCard({
   component,
   days,
   showRibbon,
   locale,
   timeZone,
+  layout,
 }: {
   component: StatusComponent
   days: UptimeDay[]
   showRibbon: boolean
   locale: string
   timeZone: string
+  layout: 'list' | 'grid' | 'compact'
 }) {
   const { t } = useTranslation()
   const presentation = STATUS_PRESENTATION[component.status]
@@ -151,7 +173,7 @@ function ComponentCard({
         background: 'var(--color-surface)',
         border: '1px solid var(--color-border)',
         borderRadius: 'var(--radius-md)',
-        padding: 'var(--space-4)',
+        padding: layout === 'compact' ? 'var(--space-2) var(--space-3)' : 'var(--space-4)',
         boxShadow: 'var(--shadow-card)',
       }}
     >
@@ -212,7 +234,7 @@ function ComponentCard({
         </p>
       )}
 
-      {showRibbon && (
+      {showRibbon && layout !== 'compact' && (
         <div style={{ marginTop: 'var(--space-4)' }}>
           {days.length === 0 ? (
             <p style={{ fontSize: 'var(--text-sm)', color: 'var(--color-fg-subtle)', margin: 0 }}>

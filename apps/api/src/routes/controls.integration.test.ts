@@ -272,3 +272,73 @@ describe('probe dry run', () => {
     expect(response.json().debug).toBeUndefined()
   }, 15_000)
 })
+
+describe('page layout', () => {
+  it('applies a density and a total order in one call', async () => {
+    const a = (await create({ key: `lay-a-${Date.now()}` })).json().id
+    const b = (await create({ key: `lay-b-${Date.now()}` })).json().id
+
+    const response = await fx.app.inject({
+      method: 'PATCH',
+      url: `/api/v1/${fx.slug}/layout`,
+      headers: { cookie: adminCookie },
+      payload: { layout: 'grid', order: [{ controlId: b }, { controlId: a }] },
+    })
+    expect(response.statusCode).toBe(200)
+
+    const [tenant] = await fx.app.db
+      .select()
+      .from(schema.tenants)
+      .where(eq(schema.tenants.id, fx.tenantId))
+    expect(tenant!.layout).toBe('grid')
+
+    const rows = await fx.app.db
+      .select({ id: schema.controls.id, position: schema.controls.position })
+      .from(schema.controls)
+      .where(eq(schema.controls.tenantId, fx.tenantId))
+    const positionOf = (id: string) => rows.find((r) => r.id === id)!.position
+    // Renumbered from zero server-side, so a client that sends duplicate or
+    // sparse positions still produces a total order.
+    expect(positionOf(b)).toBeLessThan(positionOf(a))
+  })
+
+  it('moves nothing when one id in the order belongs to another tenant', async () => {
+    const mine = (await create({ key: `lay-mine-${Date.now()}` })).json().id
+    const before = await fx.app.db
+      .select({ position: schema.controls.position })
+      .from(schema.controls)
+      .where(eq(schema.controls.id, mine))
+
+    const other = await createFixture()
+    try {
+      const response = await fx.app.inject({
+        method: 'PATCH',
+        url: `/api/v1/${fx.slug}/layout`,
+        headers: { cookie: adminCookie },
+        payload: { order: [{ controlId: mine }, { controlId: other.controls.publicId }] },
+      })
+      expect(response.statusCode).toBe(404)
+    } finally {
+      await other.cleanup()
+    }
+
+    // The point of validating before the transaction: a rejected request must
+    // not leave the first few controls already moved.
+    const after = await fx.app.db
+      .select({ position: schema.controls.position })
+      .from(schema.controls)
+      .where(eq(schema.controls.id, mine))
+    expect(after[0]!.position).toBe(before[0]!.position)
+  }, 30_000)
+
+  it('refuses a member, who can communicate but not rearrange the page', async () => {
+    const memberCookie = await login(fx.app, fx.users.member.email)
+    const response = await fx.app.inject({
+      method: 'PATCH',
+      url: `/api/v1/${fx.slug}/layout`,
+      headers: { cookie: memberCookie },
+      payload: { layout: 'compact' },
+    })
+    expect(response.statusCode).toBe(403)
+  })
+})

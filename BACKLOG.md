@@ -16,6 +16,12 @@ milestone plan stays finishable.
 - **Multiple status pages per tenant** — per-control visibility already covers the public/internal
   split.
 - **Custom email sending domain** with dedicated TLS certificates.
+- **Free-form grid layout** — placing each component at an arbitrary x/y/width/height for a NOC
+  wall. Shipped instead: three densities and an explicit order, which covers arranging a page
+  without inventing a second layout model. The free grid needs per-breakpoint coordinates in the
+  schema, a responsive strategy for what a hand-placed 4-column wall becomes on a phone, and a
+  keyboard equivalent for free placement — dragging in two dimensions has no obvious arrow-key
+  analogue, and the reordering screen deliberately never offers a move the keyboard cannot make.
 
 ## Not planned
 

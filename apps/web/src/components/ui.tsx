@@ -32,6 +32,7 @@ export function Button({
   type = 'button',
   disabled,
   busy,
+  ariaLabel,
 }: {
   children: ReactNode
   onClick?: () => void
@@ -39,6 +40,8 @@ export function Button({
   type?: 'button' | 'submit'
   disabled?: boolean
   busy?: boolean
+  /** Required when the visible content is a glyph — a screen reader reads this instead. */
+  ariaLabel?: string
 }) {
   const palette = {
     primary: { bg: 'var(--color-accent)', fg: 'var(--color-accent-fg)', border: 'transparent' },
@@ -54,6 +57,8 @@ export function Button({
       // classic way to create two of something.
       disabled={disabled || busy}
       aria-busy={busy}
+      aria-label={ariaLabel}
+      title={ariaLabel}
       style={{
         background: palette.bg,
         color: palette.fg,

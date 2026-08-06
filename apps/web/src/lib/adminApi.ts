@@ -117,6 +117,11 @@ export const adminApi = {
       {},
     ),
 
+  updateLayout: (
+    slug: string,
+    body: { layout: 'list' | 'grid' | 'compact'; order: { controlId: string }[] },
+  ) => request<{ ok: boolean; reordered: number }>('PATCH', `/api/v1/${slug}/layout`, body),
+
   agents: (slug: string) =>
     request<
       { id: string; name: string; os: string | null; status: string; lastSeenAt: string | null }[]
