@@ -11,6 +11,7 @@ import { api } from '../../lib/api'
 import { LayoutScreen } from './LayoutScreen'
 import { FleetScreen } from './FleetScreen'
 import { NotificationsScreen } from './NotificationsScreen'
+import { CapacityScreen } from './CapacityScreen'
 
 /**
  * The admin surface.
@@ -77,6 +78,8 @@ export function AdminApp({ slug }: { slug: string }) {
         <FleetScreen slug={slug} canWrite={membership.role === 'admin'} />
       ) : section === 'notifications' ? (
         <NotificationsScreen slug={slug} canWrite={membership.role === 'admin'} />
+      ) : section === 'capacity' ? (
+        <CapacityScreen slug={slug} />
       ) : (
         <ControlsScreen slug={slug} canWrite={membership.role === 'admin'} />
       )}
@@ -91,6 +94,7 @@ const SECTIONS = [
   { id: 'layout', label: 'Page layout' },
   { id: 'agents', label: 'Agents' },
   { id: 'notifications', label: 'Notifications' },
+  { id: 'capacity', label: 'Capacity' },
 ] as const
 
 type Section = (typeof SECTIONS)[number]['id']

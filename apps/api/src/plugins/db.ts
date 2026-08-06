@@ -18,7 +18,7 @@ declare module 'fastify' {
 }
 
 const plugin: FastifyPluginAsync = async (app) => {
-  const { db, sql } = createDatabase(config.DATABASE_URL)
+  const { db, sql } = createDatabase(config.DATABASE_URL, { max: config.DB_POOL_MAX })
 
   app.decorate('db', db)
   app.decorate('sql', sql)

@@ -4,6 +4,7 @@ import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod'
 import { schema } from '@tern/db'
 import { checkStatusSchema } from '@tern/shared'
 import { authenticateApiKey, keyCoversControl, type ApiKeyContext } from '../services/apikeys.js'
+import { config } from '../config.js'
 
 /**
  * Ingestion — how measurements actually arrive.
@@ -83,8 +84,9 @@ const routes: FastifyPluginAsyncZod = async (app) => {
   await app.register(import('@fastify/rate-limit'), {
     // Generous: this is the hot path for a fleet of agents, and the API key
     // already bounds who can reach it. The limit exists to stop a runaway loop,
-    // not to police normal use.
-    max: 600,
+    // not to police normal use — see the Capacity screen for what this
+    // deployment's fleet actually needs.
+    max: config.INGEST_RATE_LIMIT_MAX,
     timeWindow: '1 minute',
     keyGenerator: (req) => req.headers.authorization ?? req.ip,
   })

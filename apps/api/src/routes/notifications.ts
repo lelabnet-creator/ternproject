@@ -2,7 +2,14 @@ import { and, eq } from 'drizzle-orm'
 import { z } from 'zod'
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod'
 import { schema } from '@tern/db'
-import { blindIndex, decryptSecret, encryptSecret, generateToken, hashToken } from '@tern/shared'
+import {
+  blindIndex,
+  decryptSecret,
+  encryptSecret,
+  generateToken,
+  hashToken,
+  sizeDeployment,
+} from '@tern/shared'
 import { config } from '../config.js'
 import { audit } from '../services/audit.js'
 import { sendEmail, sendWebhook } from '../services/transports.js'
@@ -22,6 +29,99 @@ import { sendEmail, sendWebhook } from '../services/transports.js'
  */
 
 const routes: FastifyPluginAsyncZod = async (app) => {
+  /**
+   * The HTTP layer's limits, beside what this tenant's fleet actually asks of
+   * them.
+   *
+   * Read-only for the same reason the mail settings are: these are per-process
+   * and shared by every tenant. What is useful is knowing whether the values in
+   * the environment fit the fleet that grew since they were set.
+   */
+  app.get(
+    '/:slug/capacity',
+    {
+      onRequest: [app.requireTenant()],
+      preHandler: [app.requirePermission('tenant:settings')],
+      schema: {
+        params: z.object({ slug: z.string() }),
+        querystring: z.object({
+          /** Override the measured fleet to try a hypothetical one. */
+          agents: z.coerce.number().int().min(0).max(100_000).optional(),
+          probesPerAgent: z.coerce.number().int().min(0).max(1000).optional(),
+          intervalS: z.coerce.number().int().min(5).max(86_400).optional(),
+          concurrentViewers: z.coerce.number().int().min(0).max(1_000_000).optional(),
+        }),
+        response: {
+          200: z.object({
+            measured: z.object({
+              agents: z.number(),
+              probes: z.number(),
+              retentionDays: z.number(),
+            }),
+            effective: z.object({
+              ingestRateLimitPerMinute: z.number(),
+              dbPoolMax: z.number(),
+              authRateLimitPerMinute: z.number(),
+            }),
+            sizing: z.object({
+              pointsPerMinute: z.number(),
+              ingestRequestsPerMinute: z.number(),
+              readRequestsPerMinute: z.number(),
+              rawPointsRetained: z.number(),
+              rawStorageMb: z.number(),
+              recommended: z.object({
+                ingestRateLimitPerMinute: z.number(),
+                dbPoolMax: z.number(),
+              }),
+              notes: z.array(z.string()),
+            }),
+          }),
+        },
+      },
+    },
+    async (req) => {
+      const tenantId = req.tenant!.id
+
+      const [agentRows, controlRows, [tenant]] = await Promise.all([
+        app.db
+          .select({ id: schema.agents.id })
+          .from(schema.agents)
+          .where(and(eq(schema.agents.tenantId, tenantId), eq(schema.agents.status, 'active'))),
+        app.db
+          .select({ id: schema.controls.id })
+          .from(schema.controls)
+          .where(and(eq(schema.controls.tenantId, tenantId), eq(schema.controls.enabled, true))),
+        app.db
+          .select({ retentionDays: schema.tenants.retentionDays })
+          .from(schema.tenants)
+          .where(eq(schema.tenants.id, tenantId))
+          .limit(1),
+      ])
+
+      const agents = req.query.agents ?? agentRows.length
+      const probesPerAgent = req.query.probesPerAgent ?? controlRows.length
+      const retentionDays = tenant?.retentionDays ?? 90
+
+      const sizing = sizeDeployment({
+        agents,
+        probesPerAgent,
+        intervalS: req.query.intervalS ?? 60,
+        concurrentViewers: req.query.concurrentViewers ?? 20,
+        retentionDays,
+      })
+
+      return {
+        measured: { agents: agentRows.length, probes: controlRows.length, retentionDays },
+        effective: {
+          ingestRateLimitPerMinute: config.INGEST_RATE_LIMIT_MAX,
+          dbPoolMax: config.DB_POOL_MAX,
+          authRateLimitPerMinute: config.AUTH_RATE_LIMIT_MAX,
+        },
+        sizing,
+      }
+    },
+  )
+
   app.get(
     '/:slug/notifications/mail',
     {

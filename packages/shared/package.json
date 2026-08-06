@@ -12,6 +12,7 @@
     "./probe": "./src/probe.ts",
     "./probe-runner": "./src/probe-runner.ts",
     "./templates": "./src/templates.ts",
+    "./sizing": "./src/sizing.ts",
     "./crypto": "./src/crypto.ts"
   },
   "scripts": {

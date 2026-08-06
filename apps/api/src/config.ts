@@ -70,6 +70,19 @@ const schema = z.object({
    */
   PAIR_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(10),
 
+  /**
+   * Ingest requests per minute, per API key.
+   *
+   * The default suits a small fleet. The Capacity screen computes what this
+   * deployment actually needs — a limit below the fleet's own rate turns a
+   * routine retry into a self-inflicted outage of the one path that must not
+   * fail.
+   */
+  INGEST_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(600),
+
+  /** PostgreSQL connections per API instance. Each is a backend process. */
+  DB_POOL_MAX: z.coerce.number().int().min(2).max(200).default(10),
+
   /** Signups per minute per IP. Writing a row and sending mail deserves a tight bound. */
   SUBSCRIBE_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(5),
 

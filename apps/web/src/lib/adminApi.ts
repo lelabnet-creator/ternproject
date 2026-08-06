@@ -152,6 +152,38 @@ export const adminApi = {
 
   agents: (slug: string) => request<Agent[]>('GET', `/api/v1/${slug}/agents`),
 
+  capacity: (
+    slug: string,
+    what: {
+      intervalS?: number
+      concurrentViewers?: number
+      agents?: number
+      probesPerAgent?: number
+    },
+  ) => {
+    const query = new URLSearchParams()
+    for (const [key, value] of Object.entries(what)) {
+      if (value !== undefined && Number.isFinite(value)) query.set(key, String(value))
+    }
+    return request<{
+      measured: { agents: number; probes: number; retentionDays: number }
+      effective: {
+        ingestRateLimitPerMinute: number
+        dbPoolMax: number
+        authRateLimitPerMinute: number
+      }
+      sizing: {
+        pointsPerMinute: number
+        ingestRequestsPerMinute: number
+        readRequestsPerMinute: number
+        rawPointsRetained: number
+        rawStorageMb: number
+        recommended: { ingestRateLimitPerMinute: number; dbPoolMax: number }
+        notes: string[]
+      }
+    }>('GET', `/api/v1/${slug}/capacity?${query.toString()}`)
+  },
+
   mailSettings: (slug: string) =>
     request<{
       host: string
