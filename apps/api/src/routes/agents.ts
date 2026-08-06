@@ -1,4 +1,4 @@
-import { and, eq, isNull, sql } from 'drizzle-orm'
+import { and, eq, inArray, isNull, sql } from 'drizzle-orm'
 import { z } from 'zod'
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod'
 import { schema } from '@tern/db'
@@ -411,6 +411,82 @@ const routes: FastifyPluginAsyncZod = async (app) => {
       })
 
       return { ok: true }
+    },
+  )
+
+  /**
+   * Revoke or delete several agents at once.
+   *
+   * Two verbs, because they are not the same act. **Revoke** kills the key and
+   * keeps the record — the agent stops reporting and the fleet still shows that
+   * it existed, which is what an audit needs. **Delete** removes the record
+   * entirely, and is for tidying a list of long-dead agents rather than for
+   * stopping one.
+   *
+   * Delete revokes first regardless of the agent's state: removing the row
+   * while leaving a working credential behind would be a deletion in name only.
+   */
+  app.post(
+    '/:slug/agents/bulk',
+    {
+      onRequest: [app.requireTenant()],
+      preHandler: [app.requirePermission('agent:manage')],
+      schema: {
+        params: z.object({ slug: z.string() }),
+        body: z.object({
+          ids: z.array(z.string().uuid()).min(1).max(200),
+          action: z.enum(['revoke', 'delete']),
+        }),
+        response: { 200: z.object({ ok: z.boolean(), affected: z.number() }) },
+      },
+    },
+    async (req) => {
+      const owned = await app.db
+        .select({ id: schema.agents.id, apiKeyId: schema.agents.apiKeyId })
+        .from(schema.agents)
+        .where(
+          and(eq(schema.agents.tenantId, req.tenant!.id), inArray(schema.agents.id, req.body.ids)),
+        )
+
+      // Every id checked before anything is written: a foreign id halfway
+      // through would otherwise leave part of the request applied.
+      if (owned.length !== req.body.ids.length) {
+        throw app.httpErrors.notFound('Unknown agent in the selection')
+      }
+
+      const keyIds = owned.map((a) => a.apiKeyId).filter((id): id is string => Boolean(id))
+
+      await app.db.transaction(async (tx) => {
+        // The key dies in both cases. A deleted record with a live credential
+        // is worse than no deletion at all.
+        if (keyIds.length > 0) {
+          await tx
+            .update(schema.apiKeys)
+            .set({ revokedAt: new Date() })
+            .where(inArray(schema.apiKeys.id, keyIds))
+        }
+
+        if (req.body.action === 'delete') {
+          await tx.delete(schema.agents).where(inArray(schema.agents.id, req.body.ids))
+        } else {
+          await tx
+            .update(schema.agents)
+            .set({ status: 'revoked', revokedAt: new Date() })
+            .where(inArray(schema.agents.id, req.body.ids))
+        }
+      })
+
+      await audit(app, {
+        action: req.body.action === 'delete' ? 'agent.deleted' : 'agent.revoked',
+        tenantId: req.tenant!.id,
+        actorId: req.actor.userId,
+        // Ids rather than a count: after a bulk delete the records are gone, and
+        // the log is the only place left that says which.
+        meta: { agents: req.body.ids },
+        ip: req.ip,
+      })
+
+      return { ok: true, affected: owned.length }
     },
   )
 

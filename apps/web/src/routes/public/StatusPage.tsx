@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { TernWordmark } from '../../components/brand/TernMark'
 import { ThemePicker } from '../../components/ThemePicker'
+import { accentById, applyAccent } from '../../lib/accents'
 import { type UptimeDay } from '../../charts/UptimeRibbon'
 import { resolveOptions, widgetById } from '../../charts/registry'
 import { SystemPulse } from '../../charts/SystemPulse'
@@ -40,6 +41,11 @@ export function StatusPage({ slug }: { slug: string }) {
 
   const online = useOnline()
 
+  const accentId = (summary.data?.tenant.branding as Record<string, unknown> | undefined)?.accent
+  useEffect(() => {
+    applyAccent(accentById(typeof accentId === 'string' ? accentId : undefined))
+  }, [accentId])
+
   if (summary.isPending) return <PageSkeleton />
   if (summary.isError || !summary.data) {
     return (
@@ -53,6 +59,12 @@ export function StatusPage({ slug }: { slug: string }) {
   const data = summary.data
   const locale = i18n.language
   const timeZone = data.tenant.defaultTimezone
+
+  // The admin's layout editor frames this page to preview an arrangement that
+  // has not been saved. Presentation only — the query cannot reveal a component
+  // the reader could not already see, reorder anything server-side, or persist.
+  const preview = previewOverrides()
+  const layout = preview.layout ?? data.tenant.layout
 
   return (
     <div
@@ -89,7 +101,7 @@ export function StatusPage({ slug }: { slug: string }) {
         </p>
       </section>
 
-      {groupTree(data).map(({ group, components }) => (
+      {groupTree(data, preview.order).map(({ group, components }) => (
         <section key={group?.id ?? 'ungrouped'} style={{ marginBottom: 'var(--space-8) ' }}>
           {group && (
             <h2
@@ -106,7 +118,7 @@ export function StatusPage({ slug }: { slug: string }) {
             </h2>
           )}
 
-          <div style={layoutStyle(data.tenant.layout)}>
+          <div style={layoutStyle(layout)}>
             {components.map((component) => (
               <ComponentCard
                 key={component.id}
@@ -115,7 +127,7 @@ export function StatusPage({ slug }: { slug: string }) {
                 showRibbon={data.tenant.retentionMode === 'historical'}
                 locale={locale}
                 timeZone={timeZone}
-                layout={data.tenant.layout}
+                layout={layout}
               />
             ))}
           </div>
@@ -135,6 +147,26 @@ export function StatusPage({ slug }: { slug: string }) {
  * sync with anything. `compact` stays one column and tightens the gap — the
  * cards themselves shed their chart, which is where the height actually goes.
  */
+/**
+ * A draft arrangement passed in by the layout editor's preview frame.
+ *
+ * Read from the URL rather than posted to the server because a preview that
+ * saved would not be a preview. `order` is a list of control ids; anything not
+ * in it keeps its stored position, so a partial list degrades to "these first".
+ */
+function previewOverrides(): { layout?: 'list' | 'grid' | 'compact'; order?: string[] } {
+  const params = new URLSearchParams(window.location.search)
+  if (params.get('preview') !== '1') return {}
+
+  const layout = params.get('layout')
+  const order = params.get('order')
+
+  return {
+    layout: layout === 'list' || layout === 'grid' || layout === 'compact' ? layout : undefined,
+    order: order ? order.split(',').filter(Boolean) : undefined,
+  }
+}
+
 function layoutStyle(layout: 'list' | 'grid' | 'compact'): React.CSSProperties {
   if (layout === 'grid') {
     return {
@@ -412,20 +444,33 @@ function countDescendants(data: StatusSummary, groupId: string): number {
 }
 
 /** Flattens the group tree into reading order, ungrouped components last. */
-function groupTree(data: StatusSummary) {
+function groupTree(data: StatusSummary, previewOrder?: string[]) {
   const sections: { group: StatusGroupLike | null; components: StatusComponent[] }[] = []
+
+  // A draft order from the layout editor, applied to presentation only. Anything
+  // the list does not mention keeps its stored position and sorts after, so a
+  // partial list degrades to "these first" rather than to chaos.
+  const rank = previewOrder ? new Map(previewOrder.map((id, index) => [id, index])) : null
+  const arrange = (components: StatusComponent[]) =>
+    rank
+      ? [...components].sort(
+          (a, b) =>
+            (rank.get(a.id) ?? Number.MAX_SAFE_INTEGER) -
+            (rank.get(b.id) ?? Number.MAX_SAFE_INTEGER),
+        )
+      : components
 
   const walk = (parentId: string | null) => {
     for (const group of data.groups.filter((g) => g.parentId === parentId)) {
       const components = data.components.filter((c) => c.groupId === group.id)
-      if (components.length > 0) sections.push({ group, components })
+      if (components.length > 0) sections.push({ group, components: arrange(components) })
       walk(group.id)
     }
   }
   walk(null)
 
   const ungrouped = data.components.filter((c) => c.groupId === null)
-  if (ungrouped.length > 0) sections.push({ group: null, components: ungrouped })
+  if (ungrouped.length > 0) sections.push({ group: null, components: arrange(ungrouped) })
 
   return sections
 }

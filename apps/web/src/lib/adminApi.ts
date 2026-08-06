@@ -64,6 +64,7 @@ export interface TenantSettings {
   defaultTimezone: string
   subscriberDisclaimer: string | null
   layout: 'list' | 'grid' | 'compact'
+  accent: string
   sizingAssumptions: { intervalS: number; concurrentViewers: number }
   smtp: {
     host: string
@@ -195,6 +196,14 @@ export const adminApi = {
   ) => request<{ ok: boolean; reordered: number }>('PATCH', `/api/v1/${slug}/layout`, body),
 
   agents: (slug: string) => request<Agent[]>('GET', `/api/v1/${slug}/agents`),
+
+  receivers: (slug: string) =>
+    request<
+      { id: string; name: string; kind: string; enabled: boolean; lastReceivedAt: string | null }[]
+    >('GET', `/api/v1/${slug}/receivers`),
+
+  createReceiver: (slug: string, body: { name: string; kind: string }) =>
+    request<{ id: string; url: string }>('POST', `/api/v1/${slug}/receivers`, body),
 
   settings: (slug: string) => request<TenantSettings>('GET', `/api/v1/${slug}/settings`),
 
@@ -340,6 +349,12 @@ export const adminApi = {
 
   updateAgent: (slug: string, id: string, body: { name?: string; site?: string | null }) =>
     request<{ ok: boolean }>('PATCH', `/api/v1/${slug}/agents/${id}`, body),
+
+  bulkAgents: (slug: string, ids: string[], action: 'revoke' | 'delete') =>
+    request<{ ok: boolean; affected: number }>('POST', `/api/v1/${slug}/agents/bulk`, {
+      ids,
+      action,
+    }),
 
   revokeAgent: (slug: string, id: string) =>
     request<{ ok: boolean }>('DELETE', `/api/v1/${slug}/agents/${id}`),

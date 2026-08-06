@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { adminApi, ApiError, type TenantSettingsPatch } from '../../lib/adminApi'
 import { Tabs } from '../../components/Tabs'
+import { ACCENTS, accentById, applyAccent } from '../../lib/accents'
 import { Banner, Button, Card, Field, Input } from '../../components/ui'
 import { NotificationsPanels } from '../../features/settings/NotificationsPanels'
 import { CapacityPanel } from '../../features/settings/CapacityPanel'
@@ -60,6 +61,9 @@ function GeneralPanel({ slug, canWrite }: { slug: string; canWrite: boolean }) {
   useEffect(() => {
     setDraft({})
     setSaved(false)
+    // The stored accent wins on load, so an unsaved trial does not survive a
+    // navigation and quietly become the tenant's colour.
+    if (settings.data) applyAccent(accentById(settings.data.accent))
   }, [settings.data])
 
   const save = useMutation({
@@ -127,6 +131,78 @@ function GeneralPanel({ slug, canWrite }: { slug: string; canWrite: boolean }) {
               onSelect={() => set('visibility', id)}
             />
           ))}
+        </div>
+      </Card>
+
+      <Card>
+        <h2 style={{ margin: '0 0 var(--space-2)', fontSize: 'var(--text-base)' }}>Accent</h2>
+        <p
+          className="measure"
+          style={{
+            margin: '0 0 var(--space-3)',
+            fontSize: 'var(--text-sm)',
+            color: 'var(--color-fg-subtle)',
+          }}
+        >
+          A short list, and the reason is arithmetic rather than taste: the status palette already
+          occupies green, amber, orange, crimson, blue and grey, so an accent near any of them would
+          start being read as a state. Teal, steel blue, indigo, amber and pink were all measured
+          and all failed. These are what is left — the number is each one&rsquo;s distance from the
+          nearest status colour.
+        </p>
+
+        <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
+          {ACCENTS.map((accent) => {
+            const selected = value.accent === accent.id
+            return (
+              <button
+                key={accent.id}
+                type="button"
+                role="radio"
+                aria-checked={selected}
+                disabled={!canWrite}
+                onClick={() => {
+                  set('accent', accent.id)
+                  // Applied at once: an accent you have to save to see is one
+                  // you cannot compare.
+                  applyAccent(accent)
+                }}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 'var(--space-2)',
+                  minHeight: 44,
+                  padding: '0 var(--space-3)',
+                  borderRadius: 'var(--radius-md)',
+                  border: `1px solid ${selected ? accent.light : 'var(--color-border)'}`,
+                  background: selected ? 'var(--color-surface-raised)' : 'var(--color-surface)',
+                  color: 'var(--color-fg)',
+                  fontFamily: 'inherit',
+                  fontSize: 'var(--text-sm)',
+                  fontWeight: 600,
+                  cursor: canWrite ? 'pointer' : 'not-allowed',
+                }}
+              >
+                <span
+                  aria-hidden="true"
+                  style={{
+                    width: 18,
+                    height: 18,
+                    borderRadius: '50%',
+                    background: accent.light,
+                    boxShadow: `inset 0 0 0 3px var(--color-surface), 0 0 0 1px ${accent.light}`,
+                  }}
+                />
+                {accent.label}
+                <span
+                  className="tabular"
+                  style={{ fontSize: 'var(--text-xs)', color: 'var(--color-fg-subtle)' }}
+                >
+                  ΔE {accent.separation}
+                </span>
+              </button>
+            )
+          })}
         </div>
       </Card>
 

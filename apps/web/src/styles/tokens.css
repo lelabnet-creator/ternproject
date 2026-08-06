@@ -133,8 +133,8 @@
    *
    * White on #7c3aed is 4.9:1, so it carries button text at any size.
    */
-  --color-accent: #7c3aed;
-  --color-accent-fg: #ffffff;
+  --color-accent: var(--accent-light, #7c3aed);
+  --color-accent-fg: var(--accent-light-fg, #ffffff);
   /**
    * The accent as *text or an edge*, rather than as a fill.
    *
@@ -143,9 +143,9 @@
    * mode one value does both — #7c3aed measures 5.7:1 on white — so this is the
    * same colour. In dark mode it cannot be, and is not.
    */
-  --color-accent-ink: #7c3aed;
+  --color-accent-ink: var(--accent-light-ink, #7c3aed);
   /** Tinted surface for a selected row or an active nav item. */
-  --color-accent-soft: #f1eafe;
+  --color-accent-soft: var(--accent-light-soft, #f1eafe);
   --color-focus: #2563eb;
   --color-scrim: rgb(15 23 42 / 0.45);
 
@@ -198,8 +198,8 @@
     --color-border-strong: #6b8ba6;
     /* Re-stepped for the dark surface, not lightened from the light value.
        Worst pair here is 21.8 ΔE, against `--status-unknown`. */
-    --color-accent: #8b5cf6;
-    --color-accent-fg: #1a0b2e;
+    --color-accent: var(--accent-dark, #8b5cf6);
+    --color-accent-fg: var(--accent-dark-fg, #1a0b2e);
     /*
      * Lighter than the fill, and deliberately so: #8b5cf6 written on the dark
      * card measures 2.82:1, which is unreadable. This one is 5.5:1.
@@ -209,8 +209,8 @@
      * chart. They are not — this is chrome, that is a state, and every state
      * still carries an icon and a word beside its colour.
      */
-    --color-accent-ink: #b8a3ff;
-    --color-accent-soft: #2a2050;
+    --color-accent-ink: var(--accent-dark-ink, #b8a3ff);
+    --color-accent-soft: var(--accent-dark-soft, #2a2050);
     --color-focus: #60a5fa;
     --color-scrim: rgb(2 6 23 / 0.7);
 
@@ -248,10 +248,10 @@
   --color-fg-subtle: #94a3b8;
   --color-border: #2e4c63;
   --color-border-strong: #6b8ba6;
-  --color-accent: #8b5cf6;
-  --color-accent-fg: #1a0b2e;
-  --color-accent-ink: #b8a3ff;
-  --color-accent-soft: #2a2050;
+  --color-accent: var(--accent-dark, #8b5cf6);
+  --color-accent-fg: var(--accent-dark-fg, #1a0b2e);
+  --color-accent-ink: var(--accent-dark-ink, #b8a3ff);
+  --color-accent-soft: var(--accent-dark-soft, #2a2050);
   --color-focus: #60a5fa;
   --color-scrim: rgb(2 6 23 / 0.7);
 

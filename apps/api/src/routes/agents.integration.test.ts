@@ -573,3 +573,118 @@ describe('who runs a probe', () => {
     }
   }, 30_000)
 })
+
+describe('removing agents', () => {
+  let cookie: string
+
+  beforeAll(async () => {
+    cookie = await login(fx.app, fx.users.admin.email)
+  }, 30_000)
+
+  const pair = async (hostname: string) => {
+    const code = await fx.app.inject({
+      method: 'POST',
+      url: `/api/v1/${fx.slug}/pairing-codes`,
+      headers: { cookie },
+      payload: {},
+    })
+    const paired = await fx.app.inject({
+      method: 'POST',
+      url: '/api/v1/pair',
+      payload: { code: code.json().pin, hostname },
+    })
+    return paired.json() as { agentId: string; apiKey: string }
+  }
+
+  it('revokes several at once, and their keys stop working', async () => {
+    const a = await pair('bulk-a')
+    const b = await pair('bulk-b')
+
+    const response = await fx.app.inject({
+      method: 'POST',
+      url: `/api/v1/${fx.slug}/agents/bulk`,
+      headers: { cookie },
+      payload: { ids: [a.agentId, b.agentId], action: 'revoke' },
+    })
+    expect(response.statusCode).toBe(200)
+    expect(response.json().affected).toBe(2)
+
+    // The record surviving is the point of revoke; the key not surviving is
+    // what makes it a revocation rather than a label.
+    const jobs = await fx.app.inject({
+      method: 'GET',
+      url: '/api/v1/agent/jobs',
+      headers: { authorization: `Bearer ${a.apiKey}` },
+    })
+    expect(jobs.statusCode).toBe(401)
+  })
+
+  it('deletes several, revoking their keys on the way out', async () => {
+    const a = await pair('gone-a')
+    const b = await pair('gone-b')
+
+    const response = await fx.app.inject({
+      method: 'POST',
+      url: `/api/v1/${fx.slug}/agents/bulk`,
+      headers: { cookie },
+      payload: { ids: [a.agentId, b.agentId], action: 'delete' },
+    })
+    expect(response.statusCode).toBe(200)
+
+    const listed = await fx.app.inject({
+      method: 'GET',
+      url: `/api/v1/${fx.slug}/agents`,
+      headers: { cookie },
+    })
+    const ids = (listed.json() as { id: string }[]).map((agent) => agent.id)
+    expect(ids).not.toContain(a.agentId)
+    expect(ids).not.toContain(b.agentId)
+
+    // A deleted record with a live credential would be a deletion in name only.
+    const jobs = await fx.app.inject({
+      method: 'GET',
+      url: '/api/v1/agent/jobs',
+      headers: { authorization: `Bearer ${b.apiKey}` },
+    })
+    expect(jobs.statusCode).toBe(401)
+  })
+
+  it('changes nothing when one id belongs to another tenant', async () => {
+    const mine = await pair('mine-bulk')
+    const other = await createFixture()
+
+    try {
+      const otherCookie = await login(other.app, other.users.admin.email)
+      const code = await other.app.inject({
+        method: 'POST',
+        url: `/api/v1/${other.slug}/pairing-codes`,
+        headers: { cookie: otherCookie },
+        payload: {},
+      })
+      const theirs = await other.app.inject({
+        method: 'POST',
+        url: '/api/v1/pair',
+        payload: { code: code.json().pin, hostname: 'theirs-bulk' },
+      })
+
+      const response = await fx.app.inject({
+        method: 'POST',
+        url: `/api/v1/${fx.slug}/agents/bulk`,
+        headers: { cookie },
+        payload: { ids: [mine.agentId, theirs.json().agentId], action: 'delete' },
+      })
+      expect(response.statusCode).toBe(404)
+
+      // And the one that was ours is untouched: validation happens before the
+      // transaction, not inside the loop.
+      const stillJobs = await fx.app.inject({
+        method: 'GET',
+        url: '/api/v1/agent/jobs',
+        headers: { authorization: `Bearer ${mine.apiKey}` },
+      })
+      expect(stillJobs.statusCode).toBe(200)
+    } finally {
+      await other.cleanup()
+    }
+  }, 30_000)
+})

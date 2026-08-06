@@ -126,6 +126,15 @@ const METRIC_FIELD = (use: string): FieldSpec => ({
 export interface WidgetDefinition {
   id: string
   label: string
+  /**
+   * A Lucide icon name, so a card can say which chart it uses at a glance.
+   *
+   * Shape carries the distinction, not hue: a set of coloured chips for widget
+   * types would be a second categorical palette on a page that already has the
+   * status one, and two palettes on one screen is how a violet "sparkline" chip
+   * starts being read as a state.
+   */
+  icon: string
   /** One sentence: the question this widget answers. Shown in the gallery. */
   purpose: string
   accepts: DataKind[]
@@ -288,6 +297,7 @@ const TileAdapter: ComponentType<WidgetProps> = ({ series, options, unit, valueL
 export const WIDGETS: readonly WidgetDefinition[] = [
   {
     id: 'uptime-ribbon',
+    icon: 'AlignJustify',
     label: 'Uptime ribbon',
     purpose: 'Which days were bad, at a glance.',
     accepts: ['status'],
@@ -318,6 +328,7 @@ export const WIDGETS: readonly WidgetDefinition[] = [
   },
   {
     id: 'status-swimlane',
+    icon: 'GanttChart',
     label: 'Status timeline',
     purpose: 'When exactly it was down, to the minute.',
     accepts: ['status'],
@@ -347,6 +358,7 @@ export const WIDGETS: readonly WidgetDefinition[] = [
   },
   {
     id: 'availability-calendar',
+    icon: 'CalendarDays',
     label: 'Availability calendar',
     purpose: 'Whether there is a pattern — a bad weekday, a bad week of the month.',
     accepts: ['status'],
@@ -364,6 +376,7 @@ export const WIDGETS: readonly WidgetDefinition[] = [
   },
   {
     id: 'latency-band',
+    icon: 'AreaChart',
     label: 'Response time band',
     purpose: 'Whether it is slow, and for how many people.',
     accepts: ['status', 'numeric'],
@@ -394,6 +407,7 @@ export const WIDGETS: readonly WidgetDefinition[] = [
   },
   {
     id: 'value-bullet',
+    icon: 'Gauge',
     label: 'Value against limits',
     purpose: 'A measurement, and how close it is to the line that matters.',
     accepts: ['numeric'],
@@ -421,6 +435,7 @@ export const WIDGETS: readonly WidgetDefinition[] = [
   },
   {
     id: 'live-sparkline',
+    icon: 'Activity',
     label: 'Live stream',
     purpose: 'What is happening right now, for a tenant keeping no history.',
     accepts: ['status', 'numeric'],
@@ -447,6 +462,7 @@ export const WIDGETS: readonly WidgetDefinition[] = [
   },
   {
     id: 'stat-tile',
+    icon: 'Hash',
     label: 'Single number',
     purpose: 'One figure, large. Sometimes the right answer is not a chart.',
     accepts: ['status', 'numeric'],

@@ -45,6 +45,8 @@ const routes: FastifyPluginAsyncZod = async (app) => {
             defaultTimezone: z.string(),
             subscriberDisclaimer: z.string().nullable(),
             layout: z.enum(['list', 'grid', 'compact']),
+            /** Chosen accent, from the measured set in the web app. */
+            accent: z.string(),
             sizingAssumptions: z.object({
               intervalS: z.number(),
               concurrentViewers: z.number(),
@@ -89,6 +91,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
         defaultTimezone: tenant.defaultTimezone,
         subscriberDisclaimer: tenant.subscriberDisclaimer,
         layout: tenant.layout,
+        accent: String((tenant.branding as Record<string, unknown>)?.accent ?? 'violet'),
         sizingAssumptions: tenant.sizingAssumptions ?? { intervalS: 60, concurrentViewers: 20 },
         smtp: tenant.smtp
           ? {
@@ -127,6 +130,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
           defaultLocale: z.string().min(2).max(10).optional(),
           defaultTimezone: z.string().min(1).max(60).optional(),
           subscriberDisclaimer: z.string().max(2000).nullable().optional(),
+          accent: z.string().max(30).optional(),
           sizingAssumptions: z
             .object({
               intervalS: z.number().int().min(5).max(86_400),
@@ -160,6 +164,12 @@ const routes: FastifyPluginAsyncZod = async (app) => {
         'sizingAssumptions',
       ] as const) {
         if (req.body[key] !== undefined) patch[key] = req.body[key]
+      }
+
+      if (req.body.accent !== undefined) {
+        // Merged into branding rather than given a column: it is one of several
+        // presentation choices and they belong together.
+        patch.branding = { ...(tenant.branding ?? {}), accent: req.body.accent }
       }
 
       if (req.body.smtp !== undefined) {

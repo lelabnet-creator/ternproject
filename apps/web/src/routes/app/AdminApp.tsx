@@ -4,8 +4,10 @@ import { adminApi, ApiError, type Control } from '../../lib/adminApi'
 import { Banner, Button, Card, CodeBlock, EmptyState, Field, Input } from '../../components/ui'
 import { TernWordmark } from '../../components/brand/TernMark'
 import { ThemePicker } from '../../components/ThemePicker'
+import { accentById, applyAccent } from '../../lib/accents'
 import { ScriptTabs } from '../../features/control-editor/ScriptTabs'
 import { PreviewStep } from '../../features/control-editor/PreviewStep'
+import * as Icons from 'lucide-react'
 import { DEFAULT_WIDGET, resolveOptions, widgetById } from '../../charts/registry'
 import type { CheckStatusValue } from '@tern/shared/status'
 import { api } from '../../lib/api'
@@ -34,6 +36,18 @@ import { PlatformScreen } from './PlatformScreen'
 export function AdminApp({ slug }: { slug: string }) {
   const me = useQuery({ queryKey: ['me'], queryFn: adminApi.me, retry: false })
   const [section, setSection] = useSection(slug)
+
+  // The tenant's accent, applied to its admin as well as its page: an operator
+  // switching between two tenants should see which one they are in.
+  const summary = useQuery({
+    queryKey: ['summary', slug],
+    queryFn: () => api.summary(slug),
+    retry: false,
+  })
+  const accentId = (summary.data?.tenant.branding as Record<string, unknown> | undefined)?.accent
+  useEffect(() => {
+    applyAccent(accentById(typeof accentId === 'string' ? accentId : undefined))
+  }, [accentId])
 
   if (me.isPending) return <Centered>Loading…</Centered>
   if (me.isError) return <LoginScreen onSignedIn={() => void me.refetch()} />
@@ -273,13 +287,24 @@ function ControlCard({
 
   return (
     <Card>
-      <div style={{ display: 'grid', gap: 'var(--space-2)', height: '100%' }}>
-        <div style={{ display: 'flex', gap: 'var(--space-2)', alignItems: 'baseline' }}>
+      <div
+        style={{
+          display: 'grid',
+          gap: 'var(--space-2)',
+          height: '100%',
+          // The footer bleeds to the card's edge, so the card owns its padding
+          // rather than the content inside it.
+          overflow: 'hidden',
+          borderRadius: 'var(--radius-md)',
+        }}
+      >
+        <div style={{ display: 'flex', gap: 'var(--space-2)', alignItems: 'center' }}>
           <strong style={{ flex: 1, minWidth: 0 }}>{control.name}</strong>
           {/* State as a word, never as a colour alone — and only when it is not
               the default, so the eye lands on the exceptions. */}
           {!control.isPublic && <Tag>internal</Tag>}
           {!control.enabled && <Tag tone="down">disabled</Tag>}
+          {canWrite && <Button onClick={onEdit}>Edit</Button>}
         </div>
 
         <code
@@ -305,31 +330,64 @@ function ControlCard({
           </p>
         )}
 
+        {/* A tinted strip rather than more white: the specs live here, each
+            with an icon, so a card can be read by shape before it is read by
+            word. The icons are tinted with the accent rather than given hues of
+            their own — a second categorical palette beside the status one is
+            how a coloured chip starts being mistaken for a state. */}
         <div
           style={{
             display: 'flex',
-            gap: 'var(--space-2)',
+            gap: 'var(--space-3)',
             flexWrap: 'wrap',
+            alignItems: 'center',
             fontSize: 'var(--text-xs)',
-            color: 'var(--color-fg-subtle)',
+            color: 'var(--color-fg-muted)',
             marginTop: 'auto',
-            paddingTop: 'var(--space-2)',
+            marginInline: 'calc(-1 * var(--space-4))',
+            marginBottom: 'calc(-1 * var(--space-4))',
+            padding: 'var(--space-3) var(--space-4)',
+            background: 'var(--color-surface-raised)',
+            borderTop: '1px solid var(--color-border)',
           }}
         >
-          <span>{control.kind === 'push' ? 'pushed' : `${control.kind} probe`}</span>
-          <span aria-hidden="true">·</span>
-          <span>{widget.label}</span>
+          <Spec
+            icon={control.kind === 'push' ? 'ArrowUpFromLine' : 'Radar'}
+            label={control.kind === 'push' ? 'pushed' : `${control.kind} probe`}
+          />
+          <Spec icon={widget.icon} label={widget.label} />
         </div>
-
-        {canWrite && (
-          <div>
-            {/* A visible button, not an action behind hover — there is no hover
-                on a phone. */}
-            <Button onClick={onEdit}>Edit</Button>
-          </div>
-        )}
       </div>
     </Card>
+  )
+}
+
+/** One fact about a control: an icon, and the word it stands for. */
+function Spec({ icon, label }: { icon: string; label: string }) {
+  const Icon = (Icons as unknown as Record<string, React.ComponentType<{ size?: number }>>)[icon]
+
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+      <span
+        aria-hidden="true"
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          width: 22,
+          height: 22,
+          borderRadius: 'var(--radius-sm)',
+          background: 'var(--color-accent-soft)',
+          color: 'var(--color-accent-ink)',
+          flexShrink: 0,
+        }}
+      >
+        {/* Never the icon alone — the word beside it is what a screen reader
+            and a colourblind reader both get. */}
+        {Icon ? <Icon size={13} /> : null}
+      </span>
+      {label}
+    </span>
   )
 }
 

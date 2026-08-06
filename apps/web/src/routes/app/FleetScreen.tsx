@@ -24,6 +24,26 @@ export function FleetScreen({ slug, canWrite }: { slug: string; canWrite: boolea
 
   const [selected, setSelected] = useState<string | null>(null)
   const [pairing, setPairing] = useState(false)
+  const [picked, setPicked] = useState<Set<string>>(new Set())
+  const [confirmBulk, setConfirmBulk] = useState<'revoke' | 'delete' | null>(null)
+
+  const queryClient = useQueryClient()
+  const bulk = useMutation({
+    mutationFn: (action: 'revoke' | 'delete') => adminApi.bulkAgents(slug, [...picked], action),
+    onSuccess: async () => {
+      setPicked(new Set())
+      setConfirmBulk(null)
+      await queryClient.invalidateQueries({ queryKey: ['agents', slug] })
+    },
+  })
+
+  const toggle = (id: string) =>
+    setPicked((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
 
   if (agents.isPending) return <p style={{ paddingTop: 'var(--space-6)' }}>Loading the fleet…</p>
   if (agents.isError) return <Banner tone="down">Could not load the agents.</Banner>
@@ -62,6 +82,50 @@ export function FleetScreen({ slug, canWrite }: { slug: string; canWrite: boolea
 
       {pairing && <PairPanel slug={slug} onDone={() => setPairing(false)} />}
 
+      {/* A bar rather than a per-row menu: the whole point of selecting several
+          is to act on them once. */}
+      {canWrite && picked.size > 0 && (
+        <Card>
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 'var(--space-3)',
+              flexWrap: 'wrap',
+            }}
+          >
+            <strong style={{ flex: 1, minWidth: 0 }}>{picked.size} selected</strong>
+            <Button onClick={() => setPicked(new Set())}>Clear</Button>
+            <Button onClick={() => setConfirmBulk('revoke')}>Revoke</Button>
+            <Button variant="danger" onClick={() => setConfirmBulk('delete')}>
+              Delete
+            </Button>
+          </div>
+
+          {confirmBulk && (
+            <div style={{ marginTop: 'var(--space-3)' }}>
+              <Banner tone="down">
+                {/* The two verbs are not the same act, and the difference is
+                    what someone needs to know before pressing either. */}
+                {confirmBulk === 'revoke'
+                  ? `Revoke ${picked.size} agent(s)? Their keys stop working immediately; the records stay, so the fleet still shows they existed.`
+                  : `Delete ${picked.size} agent(s)? Their keys are revoked and the records are removed. The audit log keeps which ones — nothing else will.`}
+              </Banner>
+              <div style={{ display: 'flex', gap: 'var(--space-2)', marginTop: 'var(--space-2)' }}>
+                <Button
+                  variant="danger"
+                  busy={bulk.isPending}
+                  onClick={() => bulk.mutate(confirmBulk)}
+                >
+                  {confirmBulk === 'revoke' ? 'Revoke them' : 'Delete them'}
+                </Button>
+                <Button onClick={() => setConfirmBulk(null)}>Keep them</Button>
+              </div>
+            </div>
+          )}
+        </Card>
+      )}
+
       {agents.data.length === 0 ? (
         <EmptyState
           title="No agents yet"
@@ -90,6 +154,8 @@ export function FleetScreen({ slug, canWrite }: { slug: string; canWrite: boolea
                 canWrite={canWrite}
                 selected={agent.id === selected}
                 onSelect={() => setSelected(agent.id)}
+                picked={picked.has(agent.id)}
+                onPick={() => toggle(agent.id)}
                 now={now}
               />
             ))}
@@ -176,6 +242,8 @@ function AgentRow({
   canWrite,
   selected,
   onSelect,
+  picked,
+  onPick,
   now,
 }: {
   slug: string
@@ -183,6 +251,8 @@ function AgentRow({
   canWrite: boolean
   selected: boolean
   onSelect: () => void
+  picked: boolean
+  onPick: () => void
   now: number
 }) {
   const queryClient = useQueryClient()
@@ -230,6 +300,17 @@ function AgentRow({
           flexWrap: 'wrap',
         }}
       >
+        {canWrite && (
+          <input
+            type="checkbox"
+            checked={picked}
+            aria-label={`Select ${agent.name}`}
+            onClick={(event) => event.stopPropagation()}
+            onChange={onPick}
+            style={{ width: 20, height: 20, flexShrink: 0 }}
+          />
+        )}
+
         <span
           aria-hidden="true"
           style={{

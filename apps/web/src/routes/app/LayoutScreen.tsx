@@ -20,6 +20,7 @@ import { CSS } from '@dnd-kit/utilities'
 import { adminApi, ApiError, type Control } from '../../lib/adminApi'
 import { api } from '../../lib/api'
 import { Banner, Button, Card, EmptyState } from '../../components/ui'
+import { Tabs } from '../../components/Tabs'
 
 /**
  * Arranging the public page: its density, and the order of its components.
@@ -55,6 +56,7 @@ export function LayoutScreen({ slug, canWrite }: { slug: string; canWrite: boole
   const [density, setDensity] = useState<PageLayout | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
+  const [view, setView] = useState('order')
 
   // The server is the source of truth until the first edit; after that the
   // local draft is, or a background refetch would undo a move mid-edit.
@@ -185,55 +187,72 @@ export function LayoutScreen({ slug, canWrite }: { slug: string; canWrite: boole
         </div>
       </fieldset>
 
-      {/* ── Preview ─────────────────────────────────────────────────────── */}
-      <LayoutPreview slug={slug} density={density} order={order} />
+      {/* Two views of one decision, so neither is scrolled past to reach the
+          other: arrange on one tab, see the result on the next. */}
+      <Tabs
+        label="Arrangement"
+        active={view}
+        onChange={setView}
+        tabs={[
+          { id: 'order', label: 'Order' },
+          { id: 'preview', label: 'Preview' },
+        ]}
+      >
+        {view === 'preview' && <LayoutPreview slug={slug} density={density} order={order} />}
+        {view === 'order' && (
+          <div>
+            <p
+              style={{
+                margin: '0 0 var(--space-3)',
+                fontSize: 'var(--text-sm)',
+                color: 'var(--color-fg-subtle)',
+              }}
+            >
+              Drag a component, or use the arrows — both do the same thing, and the arrows work
+              without a mouse.
+            </p>
 
-      {/* ── Order ───────────────────────────────────────────────────────── */}
-      <div>
-        <h2 style={{ margin: '0 0 var(--space-2)', fontSize: 'var(--text-base)' }}>Order</h2>
-        <p
-          style={{
-            margin: '0 0 var(--space-3)',
-            fontSize: 'var(--text-sm)',
-            color: 'var(--color-fg-subtle)',
-          }}
-        >
-          Drag a component, or use the arrows — both do the same thing, and the arrows work without
-          a mouse.
-        </p>
-
-        {order.length === 0 ? (
-          <EmptyState
-            title="Nothing to arrange yet"
-            hint="Create a control and it will appear here."
-          />
-        ) : (
-          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
-            <SortableContext items={order.map((c) => c.id)} strategy={verticalListSortingStrategy}>
-              <ol
-                style={{
-                  listStyle: 'none',
-                  margin: 0,
-                  padding: 0,
-                  display: 'grid',
-                  gap: 'var(--space-2)',
-                }}
+            {order.length === 0 ? (
+              <EmptyState
+                title="Nothing to arrange yet"
+                hint="Create a control and it will appear here."
+              />
+            ) : (
+              <DndContext
+                sensors={sensors}
+                collisionDetection={closestCenter}
+                onDragEnd={onDragEnd}
               >
-                {order.map((control, index) => (
-                  <SortableRow
-                    key={control.id}
-                    control={control}
-                    index={index}
-                    total={order.length}
-                    canWrite={canWrite}
-                    onMove={move}
-                  />
-                ))}
-              </ol>
-            </SortableContext>
-          </DndContext>
+                <SortableContext
+                  items={order.map((c) => c.id)}
+                  strategy={verticalListSortingStrategy}
+                >
+                  <ol
+                    style={{
+                      listStyle: 'none',
+                      margin: 0,
+                      padding: 0,
+                      display: 'grid',
+                      gap: 'var(--space-2)',
+                    }}
+                  >
+                    {order.map((control, index) => (
+                      <SortableRow
+                        key={control.id}
+                        control={control}
+                        index={index}
+                        total={order.length}
+                        canWrite={canWrite}
+                        onMove={move}
+                      />
+                    ))}
+                  </ol>
+                </SortableContext>
+              </DndContext>
+            )}
+          </div>
         )}
-      </div>
+      </Tabs>
 
       {canWrite && (
         <div style={{ display: 'flex', gap: 'var(--space-3)', alignItems: 'center' }}>
@@ -278,14 +297,11 @@ function LayoutPreview({
   order: Control[]
 }) {
   const [width, setWidth] = useState<'desktop' | 'phone'>('desktop')
-  const [nonce, setNonce] = useState(0)
 
-  // Reload when the saved arrangement could have changed. `order` and `density`
-  // are the draft, so this fires on save — and on an edit, which is honest:
-  // the frame then visibly differs from the list above it.
-  useEffect(() => {
-    setNonce((n) => n + 1)
-  }, [density, order])
+  // The draft travels in the URL, so the frame shows the arrangement being
+  // edited rather than the one last saved. A preview that ignored the choice
+  // being made previewed nothing.
+  const src = `/s/${slug}?preview=1&layout=${density}&order=${order.map((c) => c.id).join(',')}`
 
   return (
     <section>
@@ -340,8 +356,8 @@ function LayoutPreview({
           color: 'var(--color-fg-subtle)',
         }}
       >
-        The real page, not a drawing of it — so it cannot drift from what visitors get. It shows the{' '}
-        <strong>saved</strong> arrangement; save to see a change here.
+        The real page, not a drawing of it — so it cannot drift from what visitors get. It follows
+        the choices above before they are saved; visitors see the saved one.
       </p>
 
       <div
@@ -354,9 +370,11 @@ function LayoutPreview({
         }}
       >
         <iframe
-          key={nonce}
+          // Keyed by the draft: changing the density or the order remounts the
+          // frame, which is the whole point of it being here.
+          key={src}
           title="Public page preview"
-          src={`/s/${slug}?preview=1`}
+          src={src}
           /*
            * Deliberately not sandboxed, and the reasoning is worth keeping.
            * `allow-same-origin` alone blocks scripts, which leaves a blank

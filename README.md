@@ -167,11 +167,11 @@ trail. Found something? See [`SECURITY.md`](./SECURITY.md).
 
 ## Supporting TERN
 
-Nobody sells TERN. There is no enterprise edition, no feature held behind a plan, no hosted version
-with the useful parts removed — multi-tenancy, probes, the agent and notifications are all AGPL,
-including what a commercial vendor would have put in the paid tier.
+This repository is not a trial. What you clone is the product — multi-tenancy, probes, the agent,
+notifications, history — under AGPL, with no cap on components or tenants and nothing to unlock.
 
-That only works if the people using it fund it.
+A hosted version with some premium features is planned; it is not available yet. Until then the
+project moves at the speed the people using it can fund.
 [GitHub Sponsors](https://github.com/sponsors/tern-status) pays for the code signing certificates
 that would stop the macOS and Windows builds tripping security warnings, for the time it takes to
 track advisories and keep dependencies current, and for outside review of code that authenticates

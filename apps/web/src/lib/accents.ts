@@ -1,0 +1,117 @@
+/**
+ * The accents a tenant may choose.
+ *
+ * Short list, and the reason is arithmetic rather than taste. The status palette
+ * already occupies green, amber, orange, crimson, blue and grey, and an accent
+ * that lands near any of them starts being read as a state — a primary button
+ * that looks "operational" is the defect this whole file exists to prevent.
+ *
+ * Every candidate was measured against all six statuses in both themes. Teal
+ * failed against operational (ΔE 8.6) and maintenance (4.8); steel blue failed
+ * at 3.2; amber at 10.6; pink at 9.9; indigo at 14.1. What survives is the
+ * purple-to-magenta arc, plus the brand's own ink — which passes at 17.3 and is
+ * the option for anyone who wants no colour at all.
+ *
+ * The number beside each is its worst pair, so a future change can be checked
+ * rather than argued about.
+ */
+
+export interface Accent {
+  id: string
+  label: string
+  /** Fill: buttons, selected chips. Read against its own background. */
+  light: string
+  /** The same colour as text or an edge, which must clear 4.5:1 on a card. */
+  lightInk: string
+  /** Tinted surface for a selected row. */
+  lightSoft: string
+  dark: string
+  darkInk: string
+  darkSoft: string
+  darkFg: string
+  lightFg: string
+  /** Worst normal-vision ΔE against any status colour. */
+  separation: number
+}
+
+export const ACCENTS: Accent[] = [
+  {
+    id: 'ink',
+    label: 'Ink',
+    // The marque's own navy. No hue to clash with anything, and the highest
+    // contrast of the set at 14.8:1.
+    light: '#0d2a3f',
+    lightInk: '#0d2a3f',
+    lightSoft: '#dfe7ee',
+    lightFg: '#ffffff',
+    dark: '#e2e8f0',
+    darkInk: '#e2e8f0',
+    darkSoft: '#24455e',
+    darkFg: '#0d2a3f',
+    separation: 17.3,
+  },
+  {
+    id: 'violet',
+    label: 'Violet',
+    light: '#7c3aed',
+    lightInk: '#7c3aed',
+    lightSoft: '#f1eafe',
+    lightFg: '#ffffff',
+    dark: '#8b5cf6',
+    darkInk: '#b8a3ff',
+    darkSoft: '#2a2050',
+    darkFg: '#1a0b2e',
+    separation: 19.8,
+  },
+  {
+    id: 'purple',
+    label: 'Purple',
+    light: '#9333ea',
+    lightInk: '#9333ea',
+    lightSoft: '#f5e9fe',
+    lightFg: '#ffffff',
+    dark: '#a855f7',
+    darkInk: '#d8b4fe',
+    darkSoft: '#2f1d4d',
+    darkFg: '#1e0836',
+    separation: 22.5,
+  },
+  {
+    id: 'magenta',
+    label: 'Magenta',
+    light: '#c026d3',
+    lightInk: '#c026d3',
+    lightSoft: '#fbe8fd',
+    lightFg: '#ffffff',
+    dark: '#d946ef',
+    darkInk: '#f0abfc',
+    darkSoft: '#3d1247',
+    darkFg: '#2b0630',
+    separation: 22.7,
+  },
+]
+
+export const DEFAULT_ACCENT = ACCENTS[1]!
+
+export function accentById(id: string | null | undefined): Accent {
+  return ACCENTS.find((accent) => accent.id === id) ?? DEFAULT_ACCENT
+}
+
+/**
+ * Writes the chosen accent onto the document.
+ *
+ * Both themes at once, as separate variables, because the theme can change
+ * without the accent changing — a picker that only set "the current one" would
+ * lose the other half the moment someone switched to dark.
+ */
+export function applyAccent(accent: Accent): void {
+  const root = document.documentElement
+  root.style.setProperty('--accent-light', accent.light)
+  root.style.setProperty('--accent-light-ink', accent.lightInk)
+  root.style.setProperty('--accent-light-soft', accent.lightSoft)
+  root.style.setProperty('--accent-light-fg', accent.lightFg)
+  root.style.setProperty('--accent-dark', accent.dark)
+  root.style.setProperty('--accent-dark-ink', accent.darkInk)
+  root.style.setProperty('--accent-dark-soft', accent.darkSoft)
+  root.style.setProperty('--accent-dark-fg', accent.darkFg)
+}

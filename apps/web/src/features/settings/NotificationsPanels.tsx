@@ -31,7 +31,7 @@ export function NotificationsPanels({ slug, canWrite }: { slug: string; canWrite
     >
       {tab === 'email' && <EmailPanel slug={slug} canWrite={canWrite} />}
       {tab === 'outbound' && <OutboundPanel slug={slug} canWrite={canWrite} />}
-      {tab === 'inbound' && <InboundPanel slug={slug} />}
+      {tab === 'inbound' && <InboundPanel slug={slug} canWrite={canWrite} />}
     </Tabs>
   )
 }
@@ -513,9 +513,148 @@ const INBOUND_EXAMPLE = `{
   "ts": "2026-08-06T09:12:00Z"
 }`
 
-function InboundPanel({ slug }: { slug: string }) {
+const RECEIVER_KINDS = [
+  ['alertmanager', 'Prometheus Alertmanager'],
+  ['grafana', 'Grafana'],
+  ['uptimerobot', 'UptimeRobot'],
+  ['zabbix', 'Zabbix'],
+  ['pagerduty', 'PagerDuty'],
+  ['healthchecks', 'Healthchecks.io'],
+  ['generic', 'Generic (the shape below)'],
+] as const
+
+function InboundPanel({ slug, canWrite }: { slug: string; canWrite: boolean }) {
+  const queryClient = useQueryClient()
+  const receivers = useQuery({
+    queryKey: ['receivers', slug],
+    queryFn: () => adminApi.receivers(slug),
+  })
+
+  const [name, setName] = useState('')
+  const [kind, setKind] = useState<string>('generic')
+  const [created, setCreated] = useState<{ url: string } | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  const create = useMutation({
+    mutationFn: () => adminApi.createReceiver(slug, { name, kind }),
+    onSuccess: async (r) => {
+      setCreated({ url: r.url })
+      setName('')
+      setError(null)
+      await queryClient.invalidateQueries({ queryKey: ['receivers', slug] })
+    },
+    onError: (err) => setError(err instanceof ApiError ? err.message : String(err)),
+  })
+
   return (
     <div style={{ display: 'grid', gap: 'var(--space-4)' }}>
+      {error && <Banner tone="down">{error}</Banner>}
+
+      <Card>
+        <h2 style={{ margin: '0 0 var(--space-2)', fontSize: 'var(--text-base)' }}>
+          Your endpoint URL
+        </h2>
+        <p
+          className="measure"
+          style={{
+            margin: '0 0 var(--space-3)',
+            fontSize: 'var(--text-sm)',
+            color: 'var(--color-fg-subtle)',
+          }}
+        >
+          The id and the token are not something to look up — they are minted here, together, as one
+          URL. <strong>It is shown once.</strong> The token is the credential, so a receiver URL is
+          as sensitive as an API key: paste it straight into the sending system, and if it leaks,
+          delete the receiver rather than trying to rotate it.
+        </p>
+
+        {created && (
+          <div style={{ marginBottom: 'var(--space-3)' }}>
+            <Banner tone="degraded">Copy this now — it is not shown again.</Banner>
+            <CodeBlock label="POST here">{created.url}</CodeBlock>
+          </div>
+        )}
+
+        {receivers.data && receivers.data.length > 0 && (
+          <div style={{ display: 'grid', gap: 'var(--space-2)', marginBottom: 'var(--space-4)' }}>
+            {receivers.data.map((receiver) => (
+              <div
+                key={receiver.id}
+                style={{
+                  display: 'flex',
+                  gap: 'var(--space-3)',
+                  alignItems: 'baseline',
+                  flexWrap: 'wrap',
+                  padding: 'var(--space-2) 0',
+                  borderTop: '1px solid var(--color-border)',
+                  fontSize: 'var(--text-sm)',
+                }}
+              >
+                <strong style={{ flex: 1, minWidth: 0 }}>{receiver.name}</strong>
+                <code style={{ fontSize: 'var(--text-xs)', color: 'var(--color-fg-subtle)' }}>
+                  {receiver.kind}
+                </code>
+                <span
+                  className="tabular"
+                  style={{ fontSize: 'var(--text-xs)', color: 'var(--color-fg-subtle)' }}
+                >
+                  {receiver.lastReceivedAt
+                    ? `last received ${new Date(receiver.lastReceivedAt).toLocaleString()}`
+                    : 'nothing received yet'}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {canWrite && (
+          <div style={{ display: 'grid', gap: 'var(--space-3)', maxWidth: '34rem' }}>
+            <div className="facts">
+              <Field label="Name" hint="What is sending to it — you will see this in the list.">
+                <Input
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="Alertmanager, production"
+                />
+              </Field>
+              <Field label="Source" hint="Decides how the payload is read.">
+                <select
+                  value={kind}
+                  onChange={(e) => setKind(e.target.value)}
+                  style={{
+                    background: 'var(--color-bg)',
+                    color: 'var(--color-fg)',
+                    border: '1px solid var(--color-border-strong)',
+                    borderRadius: 'var(--radius-sm)',
+                    padding: 'var(--space-2) var(--space-3)',
+                    fontSize: 'var(--text-base)',
+                    fontFamily: 'inherit',
+                    minHeight: 44,
+                    width: '100%',
+                  }}
+                >
+                  {RECEIVER_KINDS.map(([id, label]) => (
+                    <option key={id} value={id}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            </div>
+            <div>
+              <Button
+                variant="primary"
+                busy={create.isPending}
+                disabled={name.trim().length === 0}
+                onClick={() => create.mutate()}
+              >
+                Create a receiver
+              </Button>
+            </div>
+          </div>
+        )}
+      </Card>
+
       <Card>
         <h2 style={{ margin: '0 0 var(--space-2)', fontSize: 'var(--text-base)' }}>
           What you can send us
@@ -590,8 +729,8 @@ function InboundPanel({ slug }: { slug: string }) {
         >
           A receiver maps the source&rsquo;s own identifier onto a control key. An unmapped
           identifier is reported back by name rather than guessed at — silently inventing a control
-          from an alert label is how a status page grows components nobody meant to publish.
-          Receivers are created through the API today; managing them here is not built yet.
+          from an alert label is how a status page grows components nobody meant to publish. A
+          receiver&rsquo;s mapping is edited through the API for now.
         </p>
       </Card>
 
