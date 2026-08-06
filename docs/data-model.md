@@ -33,15 +33,16 @@ tenants ─┬─ control_groups ──┬─ controls ─── checks (hyperta
 One client, one status page. The columns that change behaviour rather than
 appearance:
 
-| Column                | Why it exists                                                                                                          |
-| --------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| `visibility`          | `public` or `private`. A private tenant answers 404 rather than 403 — a 403 confirms the page exists                   |
-| `retention_mode`      | `live` or `historical`. Decides whether the page streams current state or draws history, and which widgets are offered |
-| `raw_retention_hours` | Raw points kept in `live` mode. Default 168 (7 days)                                                                   |
-| `retention_days`      | History kept in `historical` mode. 7 → 730                                                                             |
-| `rollups_enabled`     | Whether the continuous aggregates are read at all                                                                      |
-| `layout`              | `list`, `grid` or `compact` — the public page's density                                                                |
-| `branding`            | Design-token overrides. Not CSS: see [security](./security.md)                                                         |
+| Column                | Why it exists                                                                                                             |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `visibility`          | `public` or `private`. A private tenant answers 404 rather than 403 — a 403 confirms the page exists                      |
+| `retention_mode`      | `live` or `historical`. Decides whether the page streams current state or draws history, and which widgets are offered    |
+| `raw_retention_hours` | Raw points kept in `live` mode. Default 168 (7 days)                                                                      |
+| `retention_days`      | History kept in `historical` mode. 7 → 730                                                                                |
+| `rollups_enabled`     | Whether the continuous aggregates are read at all                                                                         |
+| `layout`              | `list`, `grid` or `compact` — the public page's density                                                                   |
+| `branding`            | Design-token overrides. Not CSS: see [security](./security.md)                                                            |
+| `is_system`           | The instance's own tenant. Its admins supervise the platform — see [architecture](./architecture.md#the-platform-surface) |
 
 `domains` holds custom hostnames with their verification token and certificate
 state. `ip_allowlist` restricts who may read a private page.
@@ -67,6 +68,7 @@ One thing being monitored.
 | `value_unit` / `value_label`                  | What a measurement means, when the control reports one                                                                                                         |
 | `widget` / `widget_options`                   | Which chart draws it. Resolved against the web app's registry; an unknown id falls back rather than throwing                                                   |
 | `is_public`                                   | Internal controls never appear on the public page                                                                                                              |
+| `probe_policy`                                | `single` (one agent runs it) or `all` (every eligible agent does). Without this, every agent whose key covers a control ran the same probe                     |
 | `position`                                    | Order on the public page, set from the layout screen                                                                                                           |
 
 `(tenant_id, key)` is unique. A duplicate is reported as a conflict, not as a

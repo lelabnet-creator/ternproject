@@ -12,6 +12,7 @@ import { LayoutScreen } from './LayoutScreen'
 import { FleetScreen } from './FleetScreen'
 import { NotificationsScreen } from './NotificationsScreen'
 import { CapacityScreen } from './CapacityScreen'
+import { PlatformScreen } from './PlatformScreen'
 
 /**
  * The admin surface.
@@ -59,7 +60,12 @@ export function AdminApp({ slug }: { slug: string }) {
           </p>
         </div>
 
-        <AdminNav slug={slug} section={section} onNavigate={setSection} />
+        <AdminNav
+          slug={slug}
+          section={section}
+          onNavigate={setSection}
+          isSystem={membership.isSystem === true}
+        />
 
         <div className="admin-rail-foot">
           <Button
@@ -81,6 +87,8 @@ export function AdminApp({ slug }: { slug: string }) {
           <NotificationsScreen slug={slug} canWrite={canWrite} />
         ) : section === 'capacity' ? (
           <CapacityScreen slug={slug} />
+        ) : section === 'platform' ? (
+          <PlatformScreen />
         ) : (
           <ControlsScreen slug={slug} canWrite={canWrite} />
         )}
@@ -97,6 +105,7 @@ const SECTIONS = [
   { id: 'agents', label: 'Agents' },
   { id: 'notifications', label: 'Notifications' },
   { id: 'capacity', label: 'Capacity' },
+  { id: 'platform', label: 'Platform' },
 ] as const
 
 type Section = (typeof SECTIONS)[number]['id']
@@ -139,14 +148,17 @@ function AdminNav({
   slug,
   section,
   onNavigate,
+  isSystem,
 }: {
   slug: string
   section: Section
   onNavigate: (next: Section) => void
+  /** Only the instance's own tenant supervises the instance. */
+  isSystem: boolean
 }) {
   return (
     <nav aria-label="Sections" className="admin-nav">
-      {SECTIONS.map((entry) => {
+      {SECTIONS.filter((entry) => entry.id !== 'platform' || isSystem).map((entry) => {
         const current = entry.id === section
         return (
           <a

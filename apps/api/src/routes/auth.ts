@@ -294,6 +294,8 @@ const routes: FastifyPluginAsyncZod = async (app) => {
                 slug: z.string(),
                 name: z.string(),
                 role: z.string(),
+                /** The instance's own tenant, which supervises the platform. */
+                isSystem: z.boolean(),
               }),
             ),
           }),
@@ -308,6 +310,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
           slug: schema.tenants.slug,
           name: schema.tenants.name,
           role: schema.memberships.role,
+          isSystem: schema.tenants.isSystem,
         })
         .from(schema.memberships)
         .innerJoin(schema.tenants, eq(schema.tenants.id, schema.memberships.tenantId))

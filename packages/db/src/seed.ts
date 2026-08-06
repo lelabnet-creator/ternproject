@@ -410,6 +410,29 @@ async function main() {
       { maintenanceId: maintenance.id, controlId: controlIds.get('cache-eu-west')! },
     ])
 
+    console.warn('→ creating the system tenant')
+    // The instance's own tenant. Flagged rather than named, so a customer
+    // signing up as "system" cannot inherit the platform by typing.
+    const [systemTenant] = await db
+      .insert(s.tenants)
+      .values({
+        slug: 'system',
+        name: 'Platform',
+        visibility: 'private',
+        isSystem: true,
+        retentionMode: 'live',
+      })
+      .onConflictDoNothing()
+      .returning()
+
+    if (systemTenant) {
+      await db.insert(s.memberships).values({
+        userId: admin.id,
+        tenantId: systemTenant.id,
+        role: 'admin',
+      })
+    }
+
     console.warn('→ creating an ingest API key')
     const apiKey = `tern_${generateToken(24)}`
     await db.insert(s.apiKeys).values({

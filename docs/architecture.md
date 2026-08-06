@@ -117,6 +117,22 @@ protocol cannot drift:
   API endpoints, so an agent cannot tell the difference. See
   [data exchange](./data-exchange.md#the-proxy).
 
+## The platform surface
+
+One tenant may carry `is_system`. Its admins reach `/app/system/platform` and
+`/api/v1/system/*`, which report load per tenant and whether the shared
+machinery is keeping up — the aggregates, the notification queue, mail, agents
+reporting.
+
+A flag rather than a reserved slug: a magic string would let a customer signing
+up as `system` inherit the instance by typing. Non-members get **404**, not 403;
+probing the path should not reveal that the surface exists.
+
+It is deliberately supervision only. No incidents, no subscribers, no
+measurements — an operator able to read every customer's incident history has an
+access level nobody agreed to, and an integration test asserts the response
+shape so that does not drift.
+
 ## Where the frontend state lives
 
 TanStack Query owns everything fetched. There is no client-side store and no

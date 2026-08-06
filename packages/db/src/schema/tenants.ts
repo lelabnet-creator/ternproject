@@ -14,6 +14,19 @@ export const tenants = pgTable(
     name: text().notNull(),
     visibility: tenantVisibility().notNull().default('private'),
 
+    /**
+     * Marks the tenant whose admins operate the instance itself.
+     *
+     * A flag rather than a reserved slug: a magic string in the code means a
+     * customer signing up as "system" would inherit the whole platform, and
+     * that is not a mistake anyone should be able to make by typing.
+     *
+     * Its members see load and health across every tenant. They do not gain
+     * write access to other tenants' data — supervision is not administration,
+     * and the audit trail would not survive conflating them.
+     */
+    isSystem: boolean().notNull().default(false),
+
     // Display mode. `live` hides the period selector entirely; `historical`
     // unlocks the long-window charts.
     retentionMode: retentionMode().notNull().default('historical'),

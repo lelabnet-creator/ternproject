@@ -87,7 +87,13 @@ export const adminApi = {
   me: () =>
     request<{
       user: { id: string; email: string; name: string; mfaEnabled: boolean }
-      memberships: { tenantId: string; slug: string; name: string; role: string }[]
+      memberships: {
+        tenantId: string
+        slug: string
+        name: string
+        role: string
+        isSystem: boolean
+      }[]
     }>('GET', '/api/v1/auth/me'),
 
   login: (email: string, password: string) =>
@@ -152,6 +158,50 @@ export const adminApi = {
   ) => request<{ ok: boolean; reordered: number }>('PATCH', `/api/v1/${slug}/layout`, body),
 
   agents: (slug: string) => request<Agent[]>('GET', `/api/v1/${slug}/agents`),
+
+  systemOverview: () =>
+    request<{
+      instance: {
+        tenants: number
+        controls: number
+        agents: number
+        activeAgents: number
+        pointsLastHour: number
+        pointsLastDay: number
+        checksBytes: number | null
+      }
+      tenants: {
+        id: string
+        slug: string
+        name: string
+        isSystem: boolean
+        visibility: string
+        retentionMode: string
+        retentionDays: number
+        controls: number
+        agents: number
+        pointsLastHour: number
+        pointsPerMinute: number
+        lastPointAt: string | null
+      }[]
+    }>('GET', '/api/v1/system/overview'),
+
+  systemHealth: () =>
+    request<{
+      checks: { id: string; label: string; state: 'ok' | 'warn' | 'fail'; detail: string }[]
+      limits: {
+        ingestRateLimitPerMinute: number
+        dbPoolMax: number
+        authRateLimitPerMinute: number
+      }
+      uptimeS: number
+    }>('GET', '/api/v1/system/health'),
+
+  systemLoad: (hours = 24) =>
+    request<{ buckets: { ts: string; points: number }[] }>(
+      'GET',
+      `/api/v1/system/load?hours=${hours}`,
+    ),
 
   assignment: (slug: string, controlId: string) =>
     request<{
