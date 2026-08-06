@@ -13,6 +13,18 @@ use tern_agent::transport::{Client, PairRequest};
 struct Cli {
     #[command(subcommand)]
     command: Command,
+
+    /// error, warn, info, debug, trace. Overrides RUST_LOG.
+    #[arg(long, global = true, env = "TERN_LOG")]
+    log_level: Option<String>,
+
+    /// One JSON object per line, for a log collector rather than a person.
+    #[arg(long, global = true, env = "TERN_LOG_JSON")]
+    log_json: bool,
+
+    /// Append logs here as well as to stderr.
+    #[arg(long, global = true, env = "TERN_LOG_FILE")]
+    log_file: Option<PathBuf>,
 }
 
 #[derive(Subcommand)]
@@ -46,6 +58,29 @@ enum Command {
         #[arg(long)]
         no_refresh: bool,
     },
+    /// Check everything that stops an agent reporting: config, server, key,
+    /// DNS, clock, ICMP permission, and the offline queue.
+    Doctor {
+        #[arg(long)]
+        config: Option<PathBuf>,
+        #[arg(long)]
+        queue: Option<PathBuf>,
+    },
+
+    /// What this agent is: its probes, and what is waiting to be sent.
+    Status {
+        #[arg(long)]
+        config: Option<PathBuf>,
+        #[arg(long)]
+        queue: Option<PathBuf>,
+    },
+
+    /// Discard the buffered points. They are lost, not sent.
+    QueueClear {
+        #[arg(long)]
+        queue: Option<PathBuf>,
+    },
+
     /// Evaluate a probe file against a recorded observation, printing the verdict.
     Test {
         /// JSON file holding `{ "assertions": [...], "observation": {...} }`.
@@ -56,13 +91,10 @@ enum Command {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
-        )
-        .init();
+    let cli = Cli::parse();
+    init_logging(&cli)?;
 
-    match Cli::parse().command {
+    match cli.command {
         Command::Pair {
             server,
             pin,
@@ -206,6 +238,54 @@ async fn main() -> Result<()> {
             tern_agent::runner::run(config, queue_path).await
         }
 
+        Command::Doctor { config, queue } => {
+            let config_path = config.unwrap_or_else(default_path);
+            let queue_path = queue.unwrap_or_else(|| config_path.with_extension("queue.json"));
+
+            let report = tern_agent::doctor::run(&config_path, &queue_path).await;
+            report.print();
+
+            // Non-zero when something is actually broken, so this drops into a
+            // monitoring check or a post-install step unchanged.
+            if report.has_failure() {
+                std::process::exit(1)
+            }
+            Ok(())
+        }
+
+        Command::Status { config, queue } => {
+            let config_path = config.unwrap_or_else(default_path);
+            let queue_path = queue.unwrap_or_else(|| config_path.with_extension("queue.json"));
+            let config = Config::load(&config_path)?;
+            let pending = tern_agent::runner::Queue::open(&queue_path);
+
+            println!("server      {}", config.server);
+            println!("config      {}", config_path.display());
+            println!("interval    {}s", config.interval_s);
+            println!("queued      {} point(s)", pending.len());
+            println!("probes      {}", config.probes.len());
+            for entry in &config.probes {
+                println!(
+                    "  {:<24} {:<6} every {}s{}",
+                    entry.control_key,
+                    entry.probe.kind(),
+                    config.interval_for(entry),
+                    if entry.managed { "" } else { "  (local)" }
+                );
+            }
+            Ok(())
+        }
+
+        Command::QueueClear { queue } => {
+            let queue_path = queue.unwrap_or_else(|| default_path().with_extension("queue.json"));
+            let discarded = tern_agent::runner::Queue::open(&queue_path).discard();
+            println!(
+                "Discarded {discarded} buffered point(s) from {}",
+                queue_path.display()
+            );
+            Ok(())
+        }
+
         Command::Test { probe } => {
             #[derive(serde::Deserialize)]
             struct Input {
@@ -229,6 +309,59 @@ async fn main() -> Result<()> {
             }
         }
     }
+}
+
+/// stderr always; a file as well when asked; JSON when a collector is reading.
+fn init_logging(cli: &Cli) -> Result<()> {
+    use tracing_subscriber::prelude::*;
+
+    let filter = match &cli.log_level {
+        Some(level) => tracing_subscriber::EnvFilter::new(level.clone()),
+        None => tracing_subscriber::EnvFilter::try_from_default_env()
+            .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
+    };
+
+    let file_layer = match &cli.log_file {
+        Some(path) => {
+            if let Some(parent) = path.parent() {
+                if !parent.as_os_str().is_empty() {
+                    std::fs::create_dir_all(parent).ok();
+                }
+            }
+            // Appended, never truncated: a restart that erased the log of why it
+            // restarted would be its own kind of defect.
+            let file = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(path)
+                .with_context(|| format!("could not open {}", path.display()))?;
+            Some(file)
+        }
+        None => None,
+    };
+
+    let registry = tracing_subscriber::registry().with(filter);
+
+    match (cli.log_json, file_layer) {
+        (true, Some(file)) => registry
+            .with(tracing_subscriber::fmt::layer().json())
+            .with(tracing_subscriber::fmt::layer().json().with_writer(file))
+            .init(),
+        (true, None) => registry
+            .with(tracing_subscriber::fmt::layer().json())
+            .init(),
+        (false, Some(file)) => registry
+            .with(tracing_subscriber::fmt::layer())
+            .with(
+                tracing_subscriber::fmt::layer()
+                    .with_ansi(false)
+                    .with_writer(file),
+            )
+            .init(),
+        (false, None) => registry.with(tracing_subscriber::fmt::layer()).init(),
+    }
+
+    Ok(())
 }
 
 fn hostname() -> Option<String> {

@@ -77,7 +77,18 @@ owner-only permissions, and runs the probes in it on a schedule.
 tern-agent pair --server https://status.example.com --pin 4K7Q-92XB   # writes agent.toml (0600)
 tern-agent run  --config agent.toml --once                            # every probe once, then exit
 tern-agent run  --config agent.toml                                   # the scheduled loop
+tern-agent doctor                                                     # why is it not reporting?
+tern-agent status                                                     # probes, interval, queue depth
+tern-agent queue-clear                                                # discard what is buffered
 ```
+
+Pairing hands the agent its probes: the server knows what the tenant monitors, so there is no
+config to copy onto the host. It asks again on every start, so a control added in the admin is
+picked up after a restart — while a probe you added to the file by hand is left alone.
+
+`--log-level`, `--log-json` and `--log-file` apply to every command (also as `TERN_LOG`,
+`TERN_LOG_JSON`, `TERN_LOG_FILE`). `doctor` exits non-zero when something is actually broken, so it
+drops into a post-install step or a monitoring check unchanged.
 
 Probes are declarative — `http`, `tcp`, `ping`, `dns`, `cert` — and are evaluated by the same
 assertion engine the server uses, held to the shared fixtures in `schemas/conformance/`. Two things

@@ -5,6 +5,7 @@
 //! rather than through the CLI.
 
 pub mod config;
+pub mod doctor;
 pub mod probe;
 pub mod probe_transport;
 pub mod runner;

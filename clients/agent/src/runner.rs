@@ -93,6 +93,17 @@ impl Queue {
         self.dropped
     }
 
+    /// Throws away what is buffered, and says how much.
+    ///
+    /// Offered because the alternative an operator reaches for is deleting the
+    /// file, which races with a running agent that is about to rewrite it.
+    pub fn discard(&mut self) -> usize {
+        let count = self.points.len();
+        self.points.clear();
+        self.persist();
+        count
+    }
+
     fn persist(&self) {
         if let Ok(body) = serde_json::to_string(&self.points) {
             // Best effort: a read-only disk must not stop the agent measuring.
