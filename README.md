@@ -29,11 +29,16 @@ going.
 - **No copy-pasting secrets.** Agents pair with a short-lived PIN code; read-only mobile access is
   granted by QR code.
 
-## Status
+## Documentation
 
-Early development — the initial implementation is in progress. See
-[`CONTEXT.md`](./CONTEXT.md) for where things stand and [`BACKLOG.md`](./BACKLOG.md) for what is
-deliberately out of scope for now.
+[`docs/`](./docs/) — [architecture](./docs/architecture.md), the
+[data model](./docs/data-model.md), [data exchange](./docs/data-exchange.md), the
+[probe specification](./docs/probes.md), [operations](./docs/operations.md) and the
+[security model](./docs/security.md). Written for a developer changing TERN and a systems
+administrator running it.
+
+[`BACKLOG.md`](./BACKLOG.md) records what is deliberately out of scope, and the open defects, with
+reasoning.
 
 ## Quick start
 
