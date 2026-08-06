@@ -8,6 +8,7 @@ import { accentById, applyAccent } from '../../lib/accents'
 import { ScriptTabs } from '../../features/control-editor/ScriptTabs'
 import { PreviewStep } from '../../features/control-editor/PreviewStep'
 import * as Icons from 'lucide-react'
+import { CHIPS } from '../../lib/accents'
 import { DEFAULT_WIDGET, resolveOptions, widgetById } from '../../charts/registry'
 import type { CheckStatusValue } from '@tern/shared/status'
 import { api } from '../../lib/api'
@@ -353,18 +354,20 @@ function ControlCard({
         >
           <Spec
             icon={control.kind === 'push' ? 'ArrowUpFromLine' : 'Radar'}
+            chip={control.kind === 'push' ? 'deep' : 'rose'}
             label={control.kind === 'push' ? 'pushed' : `${control.kind} probe`}
           />
-          <Spec icon={widget.icon} label={widget.label} />
+          <Spec icon={widget.icon} chip={widget.chip} label={widget.label} />
         </div>
       </div>
     </Card>
   )
 }
 
-/** One fact about a control: an icon, and the word it stands for. */
-function Spec({ icon, label }: { icon: string; label: string }) {
+/** One fact about a control: a coloured chip, an icon, and the word it stands for. */
+function Spec({ icon, chip, label }: { icon: string; chip: keyof typeof CHIPS; label: string }) {
   const Icon = (Icons as unknown as Record<string, React.ComponentType<{ size?: number }>>)[icon]
+  const colour = CHIPS[chip]!
 
   return (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--space-2)' }}>
@@ -377,8 +380,11 @@ function Spec({ icon, label }: { icon: string; label: string }) {
           width: 22,
           height: 22,
           borderRadius: 'var(--radius-sm)',
-          background: 'var(--color-accent-soft)',
-          color: 'var(--color-accent-ink)',
+          // The colour lives in the chip, and the glyph is measured against it
+          // rather than against the card — a filled chip is legible in either
+          // theme without a second set of values.
+          background: colour.fill,
+          color: colour.fg,
           flexShrink: 0,
         }}
       >

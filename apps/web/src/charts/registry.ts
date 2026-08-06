@@ -135,6 +135,8 @@ export interface WidgetDefinition {
    * starts being read as a state.
    */
   icon: string
+  /** Which chip colour the editor and the controls list draw it in. */
+  chip: 'rose' | 'amber' | 'mint' | 'blue' | 'deep'
   /** One sentence: the question this widget answers. Shown in the gallery. */
   purpose: string
   accepts: DataKind[]
@@ -298,6 +300,7 @@ export const WIDGETS: readonly WidgetDefinition[] = [
   {
     id: 'uptime-ribbon',
     icon: 'AlignJustify',
+    chip: 'blue',
     label: 'Uptime ribbon',
     purpose: 'Which days were bad, at a glance.',
     accepts: ['status'],
@@ -329,6 +332,7 @@ export const WIDGETS: readonly WidgetDefinition[] = [
   {
     id: 'status-swimlane',
     icon: 'GanttChart',
+    chip: 'deep',
     label: 'Status timeline',
     purpose: 'When exactly it was down, to the minute.',
     accepts: ['status'],
@@ -359,6 +363,7 @@ export const WIDGETS: readonly WidgetDefinition[] = [
   {
     id: 'availability-calendar',
     icon: 'CalendarDays',
+    chip: 'rose',
     label: 'Availability calendar',
     purpose: 'Whether there is a pattern — a bad weekday, a bad week of the month.',
     accepts: ['status'],
@@ -377,6 +382,7 @@ export const WIDGETS: readonly WidgetDefinition[] = [
   {
     id: 'latency-band',
     icon: 'AreaChart',
+    chip: 'blue',
     label: 'Response time band',
     purpose: 'Whether it is slow, and for how many people.',
     accepts: ['status', 'numeric'],
@@ -408,6 +414,7 @@ export const WIDGETS: readonly WidgetDefinition[] = [
   {
     id: 'value-bullet',
     icon: 'Gauge',
+    chip: 'mint',
     label: 'Value against limits',
     purpose: 'A measurement, and how close it is to the line that matters.',
     accepts: ['numeric'],
@@ -436,6 +443,7 @@ export const WIDGETS: readonly WidgetDefinition[] = [
   {
     id: 'live-sparkline',
     icon: 'Activity',
+    chip: 'amber',
     label: 'Live stream',
     purpose: 'What is happening right now, for a tenant keeping no history.',
     accepts: ['status', 'numeric'],
@@ -463,6 +471,7 @@ export const WIDGETS: readonly WidgetDefinition[] = [
   {
     id: 'stat-tile',
     icon: 'Hash',
+    chip: 'mint',
     label: 'Single number',
     purpose: 'One figure, large. Sometimes the right answer is not a chart.',
     accepts: ['status', 'numeric'],

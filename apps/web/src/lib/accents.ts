@@ -77,6 +77,21 @@ export const ACCENTS: Accent[] = [
     separation: 22.5,
   },
   {
+    id: 'mint',
+    label: 'Mint',
+    // From the chip palette, and the only one of the five that clears the floor
+    // as an accent: 19.3 from `degraded` amber, its nearest status.
+    light: '#0f8f68',
+    lightInk: '#0f8f68',
+    lightSoft: '#dcf6ec',
+    lightFg: '#ffffff',
+    dark: '#4ed2a6',
+    darkInk: '#7ee0c0',
+    darkSoft: '#123c31',
+    darkFg: '#06251b',
+    separation: 19.3,
+  },
+  {
     id: 'magenta',
     label: 'Magenta',
     light: '#c026d3',
@@ -90,6 +105,38 @@ export const ACCENTS: Accent[] = [
     separation: 22.7,
   },
 ]
+
+/**
+ * The chip colours for a control's specs.
+ *
+ * A chosen palette rather than a single tint, and the trade is deliberate:
+ * measured against the status colours, only the mint clears the ΔE 15 floor
+ * (19.3). The rose sits 10.0 from `partial` orange, the amber 9.3 from
+ * `degraded`, the blue 9.7 from `maintenance`, the deep navy 12.4 from
+ * `unknown`.
+ *
+ * What makes that acceptable *here* and nowhere else: these appear on the
+ * Controls list, which shows no statuses at all, in a footer strip, at 22px,
+ * with the word always beside the icon. They are labels for "which chart" and
+ * "how it is fed" — never for a service's state. Do not reuse this palette on a
+ * surface where a status is also drawn.
+ *
+ * Each chip carries its own foreground, measured: navy on amber 8.5:1, navy on
+ * mint 6.5:1, white on rose 3.9:1 and on blue 4.0:1 — above the 3:1 floor for a
+ * graphic, which is what these are.
+ */
+export interface ChipColour {
+  fill: string
+  fg: string
+}
+
+export const CHIPS: Record<string, ChipColour> = {
+  rose: { fill: '#e4486b', fg: '#ffffff' },
+  amber: { fill: '#f9d276', fg: '#17384b' },
+  mint: { fill: '#4ed2a6', fg: '#17384b' },
+  blue: { fill: '#3288b0', fg: '#ffffff' },
+  deep: { fill: '#17384b', fg: '#ffffff' },
+}
 
 export const DEFAULT_ACCENT = ACCENTS[1]!
 

@@ -175,6 +175,9 @@ export function FleetScreen({ slug, canWrite }: { slug: string; canWrite: boolea
  */
 function PairPanel({ slug, onDone }: { slug: string; onDone: () => void }) {
   const pair = useMutation({ mutationFn: () => adminApi.createPairingCode(slug) })
+  // This instance's own address: the installer is served by the same origin the
+  // browser is already talking to.
+  const origin = window.location.origin
 
   return (
     <Card>
@@ -190,10 +193,47 @@ function PairPanel({ slug, onDone }: { slug: string; onDone: () => void }) {
               color: 'var(--color-fg-subtle)',
             }}
           >
-            Run this on the machine to monitor. It receives its key <em>and</em> the probes it is
-            meant to run — there is no config to copy across.
+            Run this on the machine to monitor. It fetches the agent from this instance, installs
+            it, and pairs — the agent receives its key <em>and</em> the probes it is meant to run,
+            so there is no config to copy across.
           </p>
-          <CodeBlock label="on the machine being monitored">{pair.data.pairCommand}</CodeBlock>
+
+          <CodeBlock label="Linux or macOS">
+            {`curl -fsSL ${origin}/install.sh | sh -s -- --pin ${pair.data.pin}`}
+          </CodeBlock>
+
+          <div style={{ height: 'var(--space-2)' }} />
+
+          <CodeBlock label="Windows, in PowerShell">
+            {/* A param script, so it is invoked as a script block — `| iex`
+                would run it with no arguments and never see the PIN. */}
+            {`& ([scriptblock]::Create((irm ${origin}/install.ps1))) -Pin ${pair.data.pin}`}
+          </CodeBlock>
+
+          <details style={{ marginTop: 'var(--space-3)' }}>
+            <summary
+              style={{
+                cursor: 'pointer',
+                fontSize: 'var(--text-sm)',
+                color: 'var(--color-fg-muted)',
+              }}
+            >
+              {/* Piping a URL into a shell deserves a way out of it. */}
+              Rather not pipe a URL into a shell?
+            </summary>
+            <p
+              className="measure"
+              style={{
+                margin: 'var(--space-2) 0',
+                fontSize: 'var(--text-sm)',
+                color: 'var(--color-fg-subtle)',
+              }}
+            >
+              Open <code>{origin}/install.sh</code> and read it first — it is short and does nothing
+              clever. Or download the binary yourself and pair by hand:
+            </p>
+            <CodeBlock label="by hand">{pair.data.pairCommand}</CodeBlock>
+          </details>
           <p
             className="tabular"
             style={{

@@ -361,14 +361,45 @@ function LayoutPreview({
       </p>
 
       <div
-        style={{
-          border: '1px solid var(--color-border)',
-          borderRadius: 'var(--radius-md)',
-          overflow: 'hidden',
-          background: 'var(--color-surface)',
-          maxWidth: width === 'phone' ? 420 : undefined,
-        }}
+        style={
+          width === 'phone'
+            ? {
+                // A handset shell, so the phone case reads as a phone rather
+                // than as a narrow browser. Drawn rather than imaged: an image
+                // of a device would need updating every time hardware changes,
+                // and would not follow the theme.
+                width: 'fit-content',
+                padding: 12,
+                borderRadius: 44,
+                background: 'var(--color-fg)',
+                boxShadow: 'var(--shadow-card)',
+                position: 'relative',
+              }
+            : {
+                border: '1px solid var(--color-border)',
+                borderRadius: 'var(--radius-md)',
+                overflow: 'hidden',
+                background: 'var(--color-surface)',
+              }
+        }
       >
+        {width === 'phone' && (
+          // The island, purely so the top of the frame is not a blank bar.
+          <span
+            aria-hidden="true"
+            style={{
+              position: 'absolute',
+              top: 22,
+              left: '50%',
+              transform: 'translateX(-50%)',
+              width: 86,
+              height: 22,
+              borderRadius: 999,
+              background: 'var(--color-fg)',
+              zIndex: 1,
+            }}
+          />
+        )}
         <iframe
           // Keyed by the draft: changing the density or the order remounts the
           // frame, which is the whole point of it being here.
@@ -387,8 +418,11 @@ function LayoutPreview({
           style={{
             display: 'block',
             width: width === 'phone' ? 390 : '100%',
-            height: 520,
+            height: width === 'phone' ? 700 : 520,
             border: 0,
+            // The screen's own radius, inside the shell's.
+            borderRadius: width === 'phone' ? 32 : 0,
+            background: 'var(--color-bg)',
           }}
         />
       </div>
