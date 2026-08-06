@@ -4,6 +4,9 @@ import { adminApi, ApiError, type Control } from '../../lib/adminApi'
 import { Banner, Button, Card, CodeBlock, EmptyState, Field, Input } from '../../components/ui'
 import { TernWordmark } from '../../components/brand/TernMark'
 import { ThemePicker } from '../../components/ThemePicker'
+import { SponsorButton } from '../../components/SponsorButton'
+import { SiteFooter } from '../../components/SiteFooter'
+import { SetupWizard } from '../../features/onboarding/SetupWizard'
 import { accentById, applyAccent } from '../../lib/accents'
 import { ScriptTabs } from '../../features/control-editor/ScriptTabs'
 import { PreviewStep } from '../../features/control-editor/PreviewStep'
@@ -47,6 +50,16 @@ export function AdminApp({ slug }: { slug: string }) {
     retry: false,
   })
   const signedIn = !me.isError && !me.isPending
+
+  // Fetched here as well as in the Controls screen, on the same query key: the
+  // first-run wizard needs to know whether this tenant has anything in it yet,
+  // and React Query serves both from one request.
+  const controls = useQuery({
+    queryKey: ['controls', slug],
+    queryFn: () => adminApi.controls(slug),
+    enabled: signedIn,
+    retry: false,
+  })
   const branding = signedIn
     ? (summary.data?.tenant.branding as Record<string, unknown> | undefined)
     : undefined
@@ -69,6 +82,33 @@ export function AdminApp({ slug }: { slug: string }) {
   }
 
   const canWrite = membership.role === 'admin'
+
+  /*
+   * A tenant nobody has configured gets the wizard instead of the shell.
+   *
+   * Two conditions, and both are needed. The marker alone would put the wizard
+   * in front of every tenant that predates it; an empty control list alone
+   * would bring it back every time somebody deleted their last control, which
+   * is precisely when they least want to be walked through the basics.
+   *
+   * Only for an admin: a viewer cannot save any of the answers, so offering the
+   * questions would be a dead end.
+   */
+  const needsSetup =
+    canWrite &&
+    !branding?.setupCompletedAt &&
+    controls.data !== undefined &&
+    controls.data.length === 0
+
+  if (needsSetup) {
+    return (
+      <SetupWizard
+        slug={slug}
+        tenantName={membership.name}
+        onFinished={() => void summary.refetch()}
+      />
+    )
+  }
 
   return (
     <div className="admin-shell">
@@ -102,6 +142,11 @@ export function AdminApp({ slug }: { slug: string }) {
 
         <div className="admin-rail-foot" style={{ display: 'grid', gap: 'var(--space-3)' }}>
           <ThemePicker />
+          {/* At the foot of the rail rather than on a screen: it is the one
+              spot an operator passes every session and never has to read. */}
+          <div style={{ display: 'flex', justifyContent: 'center' }}>
+            <SponsorButton />
+          </div>
           <Button
             onClick={() => {
               void adminApi.logout().then(() => window.location.reload())
@@ -909,6 +954,7 @@ function LoginScreen({ onSignedIn }: { onSignedIn: () => void }) {
   const [password, setPassword] = useState('')
   const [code, setCode] = useState('')
   const [needsMfa, setNeedsMfa] = useState(false)
+  const [recovering, setRecovering] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const signIn = useMutation({
@@ -926,6 +972,8 @@ function LoginScreen({ onSignedIn }: { onSignedIn: () => void }) {
     },
     onError: (err) => setError(err instanceof ApiError ? err.message : String(err)),
   })
+
+  if (recovering) return <RecoverScreen onBack={() => setRecovering(false)} />
 
   return (
     /*
@@ -995,8 +1043,143 @@ function LoginScreen({ onSignedIn }: { onSignedIn: () => void }) {
             <Button type="submit" variant="primary" busy={signIn.isPending}>
               {needsMfa ? 'Verify' : 'Sign in'}
             </Button>
+
+            {/* Offered only on the password step. Beside a TOTP prompt it would
+                be answering the wrong question — a lost authenticator is a
+                recovery code, not a password reset. */}
+            {!needsMfa && (
+              <button
+                type="button"
+                onClick={() => setRecovering(true)}
+                style={{
+                  border: 0,
+                  background: 'none',
+                  padding: 0,
+                  minHeight: 44,
+                  color: 'var(--color-accent-ink)',
+                  fontFamily: 'inherit',
+                  fontSize: 'var(--text-sm)',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                }}
+              >
+                Forgotten your password?
+              </button>
+            )}
           </form>
         </Card>
+
+        <SiteFooter compact />
+      </div>
+    </main>
+  )
+}
+
+/**
+ * Asking for a reset link.
+ *
+ * It reports success for every address, because the API does. Saying "no such
+ * account" here would hand out a list of who has one, which is the same oracle
+ * the sign-in form goes out of its way to avoid — and this form needs no
+ * password to ask.
+ */
+function RecoverScreen({ onBack }: { onBack: () => void }) {
+  const [email, setEmail] = useState('')
+  const [error, setError] = useState<string | null>(null)
+
+  const ask = useMutation({
+    mutationFn: () => adminApi.forgotPassword(email.trim()),
+    onError: (err) => setError(err instanceof ApiError ? err.message : String(err)),
+  })
+
+  return (
+    <main className="landing">
+      <div className="landing-image" role="img" aria-label="A tern over the sea" />
+
+      <div className="landing-panel">
+        <Card style={{ width: 'min(26rem, 100%)' }}>
+          <div style={{ textAlign: 'center', marginBottom: 'var(--space-5)' }}>
+            <TernWordmark size={34} />
+            <h1
+              style={{
+                margin: 'var(--space-3) 0 0',
+                fontSize: 'var(--text-xl)',
+                color: 'var(--color-fg)',
+              }}
+            >
+              Reset your password
+            </h1>
+          </div>
+
+          {ask.isSuccess ? (
+            <div style={{ display: 'grid', gap: 'var(--space-4)' }}>
+              <Banner tone="operational">
+                If that address has an account, a link is on its way.
+              </Banner>
+              <p
+                style={{
+                  margin: 0,
+                  fontSize: 'var(--text-sm)',
+                  color: 'var(--color-fg-subtle)',
+                  lineHeight: 1.6,
+                }}
+              >
+                The link works once and expires in 30 minutes. Nothing has changed on the account
+                until you use it.
+              </p>
+              <Button onClick={onBack}>Back to sign in</Button>
+            </div>
+          ) : (
+            <form
+              onSubmit={(event) => {
+                event.preventDefault()
+                setError(null)
+                ask.mutate()
+              }}
+              style={{ display: 'grid', gap: 'var(--space-4)' }}
+            >
+              {error && <Banner tone="down">{error}</Banner>}
+
+              <Field label="Email" hint="The address you sign in with.">
+                <Input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  autoComplete="username"
+                  autoFocus
+                />
+              </Field>
+
+              <Button
+                type="submit"
+                variant="primary"
+                busy={ask.isPending}
+                disabled={email.trim() === ''}
+              >
+                Send the link
+              </Button>
+
+              <button
+                type="button"
+                onClick={onBack}
+                style={{
+                  border: 0,
+                  background: 'none',
+                  padding: 0,
+                  minHeight: 44,
+                  color: 'var(--color-fg-subtle)',
+                  fontFamily: 'inherit',
+                  fontSize: 'var(--text-sm)',
+                  cursor: 'pointer',
+                }}
+              >
+                Back to sign in
+              </button>
+            </form>
+          )}
+        </Card>
+
+        <SiteFooter compact />
       </div>
     </main>
   )
