@@ -45,6 +45,10 @@ const routes: FastifyPluginAsyncZod = async (app) => {
               description: z.string().nullable(),
               groupId: z.string().nullable(),
               kind: z.string(),
+              /* The probe spec. Returned so the editor can reopen a control on
+                 the target it is actually checking, rather than on a blank form
+                 that would overwrite it on save. */
+              config: z.record(z.string(), z.unknown()),
               isPublic: z.boolean(),
               enabled: z.boolean(),
               expectedIntervalS: z.number().nullable(),
@@ -75,6 +79,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
         description: r.description,
         groupId: r.groupId,
         kind: r.kind,
+        config: r.config,
         isPublic: r.isPublic,
         enabled: r.enabled,
         expectedIntervalS: r.expectedIntervalS,

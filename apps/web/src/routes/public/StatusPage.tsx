@@ -328,15 +328,24 @@ function Header({ name, slug }: { name: string; slug: string }) {
       {/* The mark, then the tenant's name, with a rule between them. The order
           is the sentence it makes: this page runs on TERN, and it belongs to
           Acme. The mark links home to the page picker, which is what a logo in
-          a header is expected to do — and it is drawn at 24px, below the name's
-          weight, so the customer's name still reads first. */}
+          a header is expected to do.
+
+          28 and not 24: 24 is the floor of the logo system, where TernMark
+          drops the eye and thickens the stroke to compensate — the mark stops
+          reading as a bird and turns into a comma beside the name. 28 is the
+          first step where the eye comes back.
+
+          And not the 34 the admin and landing headers use: the wordmark's text
+          is 0.85 × its size, so 34 would set `tern` at 29px against a 24px
+          (--text-xl) tenant name and put the platform above the customer. At 28
+          it lands just under, and the name still reads first. */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', minWidth: 0 }}>
         <a
           href="/"
           aria-label="TERN"
           style={{ display: 'inline-flex', color: 'inherit', textDecoration: 'none' }}
         >
-          <TernWordmark size={24} />
+          <TernWordmark size={28} />
         </a>
         <span aria-hidden="true" style={{ color: 'var(--color-border)' }}>
           /

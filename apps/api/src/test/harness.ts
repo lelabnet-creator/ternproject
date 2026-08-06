@@ -28,9 +28,7 @@ export interface TestFixture {
 
 let counter = 0
 
-export async function createFixture(
-  options: { visibility?: 'public' | 'private' } = {},
-): Promise<TestFixture> {
+export async function createFixture(): Promise<TestFixture> {
   const app = await buildApp()
   await app.ready()
 
@@ -42,7 +40,6 @@ export async function createFixture(
     .values({
       slug,
       name: `Test ${slug}`,
-      visibility: options.visibility ?? 'public',
     })
     .returning()
   if (!tenant) throw new Error('failed to create test tenant')

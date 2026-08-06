@@ -74,7 +74,6 @@ describe('platform supervision', () => {
           'retentionDays',
           'retentionMode',
           'slug',
-          'visibility',
         ].sort(),
       )
     } finally {

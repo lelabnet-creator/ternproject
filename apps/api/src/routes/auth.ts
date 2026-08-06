@@ -21,6 +21,7 @@ import {
   verifyTotp,
 } from '../services/totp.js'
 import { audit } from '../services/audit.js'
+import { userMailFor } from '../services/tenant-mail.js'
 
 /**
  * How long a reset link lives.
@@ -341,6 +342,11 @@ const routes: FastifyPluginAsyncZod = async (app) => {
           await sendEmail(
             user.email,
             renderPasswordReset(user.locale, resetUrl, RESET_TTL_MS / 60_000),
+            // Through the tenant's own sender when it has one. Without this the
+            // recovery mail goes out over the instance's environment SMTP,
+            // which on an installation configured through the first-run wizard
+            // is not set at all — and the failure is swallowed just below.
+            { tenantMail: await userMailFor(app, user.id) },
           )
         } catch (error) {
           // A mail server that is down must not turn into a 500 here: the

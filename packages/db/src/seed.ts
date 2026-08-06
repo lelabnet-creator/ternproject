@@ -183,7 +183,6 @@ async function main() {
       .values({
         slug: 'acme',
         name: 'Acme Corp',
-        visibility: 'public',
         retentionMode: 'historical',
         retentionDays: 90,
         rawRetentionHours: 168,
@@ -418,7 +417,6 @@ async function main() {
       .values({
         slug: 'system',
         name: 'Platform',
-        visibility: 'private',
         isSystem: true,
         retentionMode: 'live',
       })

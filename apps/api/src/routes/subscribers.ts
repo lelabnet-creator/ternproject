@@ -11,6 +11,7 @@ import {
 } from '@tern/shared'
 import { config } from '../config.js'
 import { audit } from '../services/audit.js'
+import { tenantMailFor } from '../services/tenant-mail.js'
 import { sendEmail, sendWebhook } from '../services/transports.js'
 
 /**
@@ -131,11 +132,18 @@ const routes: FastifyPluginAsyncZod = async (app) => {
       }
 
       if (req.body.channel === 'email') {
-        await sendEmail(address, {
-          subject: `Confirm your ${tenant.slug} status notifications`,
-          text: `Confirm your subscription: ${confirmUrl}\n\nIf you did not request this, ignore this message — nothing further will be sent.`,
-          html: `<p>Confirm your subscription:</p><p><a href="${confirmUrl}">${confirmUrl}</a></p><p>If you did not request this, ignore this message — nothing further will be sent.</p>`,
-        }).catch((error: unknown) => {
+        await sendEmail(
+          address,
+          {
+            subject: `Confirm your ${tenant.slug} status notifications`,
+            text: `Confirm your subscription: ${confirmUrl}\n\nIf you did not request this, ignore this message — nothing further will be sent.`,
+            html: `<p>Confirm your subscription:</p><p><a href="${confirmUrl}">${confirmUrl}</a></p><p>If you did not request this, ignore this message — nothing further will be sent.</p>`,
+          },
+          // The same sender the notifications themselves use. A confirmation
+          // arriving from a different address than everything that follows is
+          // the shape of a phishing mail.
+          { tenantMail: await tenantMailFor(app, tenant.id) },
+        ).catch((error: unknown) => {
           // A failed confirmation email must not reveal, by returning an error,
           // that this address was new.
           app.log.warn({ err: error }, 'failed to send confirmation email')

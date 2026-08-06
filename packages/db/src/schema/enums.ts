@@ -5,9 +5,6 @@ import { pgEnum } from 'drizzle-orm/pg-core'
  * once and shared by the API, the web app and the probe conformance fixtures.
  */
 
-/** Whether a tenant's status page is readable without authentication. */
-export const tenantVisibility = pgEnum('tenant_visibility', ['public', 'private'])
-
 /**
  * `live` keeps a short raw window and no rollups; `historical` keeps a
  * configurable history backed by continuous aggregates. This single choice is

@@ -48,6 +48,55 @@ const componentSchema = z.object({
 
 const routes: FastifyPluginAsyncZod = async (app) => {
   /**
+   * Which status page this instance serves, if the answer is unambiguous.
+   *
+   * An instance carries one status page: nothing in the API creates a tenant,
+   * so the only one that exists is the one provisioning made. The root of the
+   * web app asks this so it can go straight there instead of asking a visitor
+   * to type a name they were never given.
+   *
+   * Two cases are excluded:
+   *
+   * - The system tenant is not a status page, it is the instance's own
+   *   supervision scope.
+   * - More than one tenant means the answer is not unambiguous — a database
+   *   seeded or migrated into several keeps the picker rather than having one
+   *   of them silently win.
+   *
+   * No authentication, and nothing to protect: a status page is readable by
+   * whoever has its address, so naming the only one this instance serves
+   * discloses nothing that `/s/<slug>` does not already serve.
+   */
+  app.get(
+    '/public/instance.json',
+    {
+      schema: {
+        response: {
+          200: z.object({
+            tenant: z
+              .object({
+                slug: z.string(),
+                name: z.string(),
+              })
+              .nullable(),
+          }),
+        },
+      },
+    },
+    async () => {
+      // Two rows are enough to tell "exactly one" from "several", and it keeps
+      // an instance that somehow holds many from reading them all.
+      const rows = await app.db
+        .select({ slug: schema.tenants.slug, name: schema.tenants.name })
+        .from(schema.tenants)
+        .where(eq(schema.tenants.isSystem, false))
+        .limit(2)
+
+      return { tenant: rows.length === 1 ? rows[0]! : null }
+    },
+  )
+
+  /**
    * Everything the public page needs in one request.
    *
    * One round trip rather than five: the page is often loaded during an

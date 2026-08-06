@@ -189,18 +189,31 @@
 /* ── Dark theme ──────────────────────────────────────────────────────────── */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme='light']) {
-    /* The dark surfaces are the brand ink and two steps up from it, rather
-       than a generic slate that merely resembled it. */
-    --color-bg: #0d2a3f;
-    --color-surface: #163a52;
-    --color-surface-raised: #1d475f;
+    /*
+     * Night blue: one hue (219°), four rungs of lightness.
+     *
+     * The previous ladder took the brand ink (#0d2a3f) as the page background
+     * and stepped up from it. Two things were wrong with that. Its hue sits
+     * around 205°, which carries enough green to read as petrol or teal rather
+     * than blue. And it was too light to be a background — #1d475f as the
+     * raised surface put the brightest thing on the page behind the content,
+     * so the card fought the text instead of holding it.
+     *
+     * The mark keeps the brand ink. A logo colour and a page background are
+     * different jobs: the first has to be recognisable at 24px on anything,
+     * the second has to disappear.
+     */
+    --color-bg: #0b1323;
+    --color-surface: #1a2841;
+    --color-surface-raised: #243553;
     --color-fg: #f8fafc;
     --color-fg-muted: #cbd5e1;
     --color-fg-subtle: #94a3b8;
-    --color-border: #2e4c63;
-    /* 3.33:1 on the card — an input's edge is a meaningful boundary, and the
-       previous #4a6b85 measured 2.12:1. */
-    --color-border-strong: #6b8ba6;
+    --color-border: #2a3a5c;
+    /* 5.4:1 on the card — an input's edge is a meaningful boundary. It gained
+       over the 3.33:1 it measured before purely because the surface behind it
+       got darker. */
+    --color-border-strong: #768fb2;
     /* Re-stepped for the dark surface, not lightened from the light value.
        Worst pair here is 21.8 ΔE, against `--status-unknown`. */
     --color-accent: var(--accent-dark, #8b5cf6);
@@ -245,14 +258,14 @@
 
 /* The toggle must win over the media query in both directions. */
 [data-theme='dark'] {
-  --color-bg: #0d2a3f;
-  --color-surface: #163a52;
-  --color-surface-raised: #1d475f;
+  --color-bg: #0b1323;
+  --color-surface: #1a2841;
+  --color-surface-raised: #243553;
   --color-fg: #f8fafc;
   --color-fg-muted: #cbd5e1;
   --color-fg-subtle: #94a3b8;
-  --color-border: #2e4c63;
-  --color-border-strong: #6b8ba6;
+  --color-border: #2a3a5c;
+  --color-border-strong: #768fb2;
   --color-accent: var(--accent-dark, #8b5cf6);
   --color-accent-fg: var(--accent-dark-fg, #1a0b2e);
   --color-accent-ink: var(--accent-dark-ink, #b8a3ff);
@@ -412,6 +425,12 @@ a.tern-target {
 .admin-nav-item {
   display: inline-flex;
   align-items: center;
+  /* The icon and the label are two flex children with nothing between them
+     otherwise, so a 17px glyph ends up touching its first letter — "Controls"
+     read as one smudged word. Half a step of the spacing scale is the usual
+     icon-to-label distance and enough to separate them without loosening the
+     row. */
+  gap: var(--space-2);
   min-height: 44px;
   padding: 0 var(--space-4);
   border-radius: var(--radius-sm);
@@ -459,12 +478,17 @@ a.tern-target {
     overflow-y: auto;
   }
 
+  /* Centred in the rail, both of them. On a 16rem column the mark and the
+     tenant's name are the header of the whole surface rather than the start of
+     a line of text, and left-aligning them left a ragged edge against the
+     centred controls at the foot. */
   .admin-brand {
     display: block;
+    text-align: center;
   }
 
   .admin-tenant {
-    text-align: left;
+    text-align: center;
     margin-top: var(--space-2);
   }
 
@@ -488,6 +512,10 @@ a.tern-target {
 
   .admin-rail-foot {
     margin-top: auto;
+    /* Stretched, not hugging the left: `align-self: flex-start` sized this to
+       its widest child, so the theme picker, the sponsor button and sign-out
+       sat in a left-packed column inside a full-width rail. */
+    align-self: stretch;
   }
 
   .admin-main {
@@ -581,6 +609,33 @@ a.tern-target {
 }
 
 /* A row of small facts: label above value, wrapping into the space it has. */
+/*
+ * The widget editor: the gallery and the live preview on the left, the selected
+ * widget's options in a column beside them.
+ *
+ * One column until there is width for two. The options are a sidebar, not a
+ * second page — reading them below a gallery of nine cards meant scrolling past
+ * everything to change a setting and scrolling back to see what it did.
+ */
+.preview-split {
+  display: grid;
+  gap: var(--space-4);
+  align-items: start;
+}
+
+@media (min-width: 64rem) {
+  .preview-split.has-options {
+    grid-template-columns: minmax(0, 1fr) 20rem;
+  }
+
+  .preview-split > .preview-aside {
+    /* Follows the gallery down: the point of moving it here is to keep it in
+       view while a choice is being made. */
+    position: sticky;
+    top: var(--space-4);
+  }
+}
+
 .facts {
   display: grid;
   gap: var(--space-3);

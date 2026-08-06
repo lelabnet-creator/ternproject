@@ -1,10 +1,15 @@
 import { boolean, index, integer, jsonb, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core'
-import { pageLayout, retentionMode, tenantVisibility } from './enums.js'
+import { pageLayout, retentionMode } from './enums.js'
 
 /**
  * A tenant is one customer and one status page. Every other business table
  * carries `tenant_id`, and the API resolves the current tenant once per request
  * so isolation is enforced in one place rather than remembered at each query.
+ *
+ * A status page is readable by anyone who has its address. This edition has no
+ * public/private distinction — the page is public, full stop. Gating it behind
+ * authentication, and the IP allowlist that softened that gate, belong to the
+ * hosted edition.
  */
 export const tenants = pgTable(
   'tenants',
@@ -12,7 +17,6 @@ export const tenants = pgTable(
     id: uuid().primaryKey().defaultRandom(),
     slug: text().notNull().unique(),
     name: text().notNull(),
-    visibility: tenantVisibility().notNull().default('private'),
 
     /**
      * Marks the tenant whose admins operate the instance itself.
@@ -111,26 +115,8 @@ export const tenants = pgTable(
     createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index('tenants_visibility_idx').on(t.visibility)],
-)
-
-/**
- * CIDR ranges allowed to read a private tenant's page without logging in.
- * Complements QR viewer access for internal pages reachable from the corporate
- * network.
- */
-export const ipAllowlist = pgTable(
-  'ip_allowlist',
-  {
-    id: uuid().primaryKey().defaultRandom(),
-    tenantId: uuid()
-      .notNull()
-      .references(() => tenants.id, { onDelete: 'cascade' }),
-    cidr: text().notNull(),
-    label: text(),
-    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
-  },
-  (t) => [index('ip_allowlist_tenant_idx').on(t.tenantId)],
+  // No secondary index: `slug` is already unique, which is the only lookup this
+  // table gets.
 )
 
 /** Custom domains pointed at the instance by CNAME, verified by TXT record. */

@@ -7,6 +7,7 @@ import { ThemePicker } from '../../components/ThemePicker'
 import { SponsorButton } from '../../components/SponsorButton'
 import { SiteFooter } from '../../components/SiteFooter'
 import { SetupWizard } from '../../features/onboarding/SetupWizard'
+import { FirstRunSetup } from '../../features/onboarding/FirstRunSetup'
 import { accentById, applyAccent } from '../../lib/accents'
 import { ScriptTabs } from '../../features/control-editor/ScriptTabs'
 import { PreviewStep } from '../../features/control-editor/PreviewStep'
@@ -51,6 +52,19 @@ export function AdminApp({ slug }: { slug: string }) {
   })
   const signedIn = !me.isError && !me.isPending
 
+  /*
+   * Asked only when there is no session, and only then because the answer
+   * decides which of two screens a stranger sees: a sign-in form, or the
+   * first-run setup. On an instance that has been running for a year this
+   * query never fires.
+   */
+  const setupState = useQuery({
+    queryKey: ['setup-state'],
+    queryFn: adminApi.setupState,
+    enabled: me.isError,
+    retry: false,
+  })
+
   // Fetched here as well as in the Controls screen, on the same query key: the
   // first-run wizard needs to know whether this tenant has anything in it yet,
   // and React Query serves both from one request.
@@ -70,7 +84,39 @@ export function AdminApp({ slug }: { slug: string }) {
   }, [accentId])
 
   if (me.isPending) return <Centered>Loading…</Centered>
-  if (me.isError) return <LoginScreen onSignedIn={() => void me.refetch()} />
+
+  if (me.isError) {
+    // Waiting on the answer rather than guessing: drawing the sign-in form and
+    // swapping it for the setup screen a moment later shows a password field to
+    // someone who has no password, which is the confusion this replaces.
+    if (setupState.isPending) return <Centered>Loading…</Centered>
+
+    if (setupState.data?.needsSetup) {
+      return (
+        <FirstRunSetup
+          tenant={setupState.data.tenant}
+          onReady={(createdSlug) => {
+            /*
+             * The address in the bar named a page; setup may have created a
+             * different one. That happens whenever this screen was reached at
+             * `/app/<old-slug>` — a bookmark, or a tab left open across a
+             * reset — and leaving it would point every later request at a page
+             * that does not exist, which surfaces as a bare "Not found" inside
+             * the next wizard.
+             */
+            if (createdSlug && createdSlug !== slug) {
+              window.location.replace(`/app/${encodeURIComponent(createdSlug)}`)
+              return
+            }
+            void setupState.refetch()
+            void me.refetch()
+          }}
+        />
+      )
+    }
+
+    return <LoginScreen onSignedIn={() => void me.refetch()} />
+  }
 
   const membership = me.data.memberships.find((m) => m.slug === slug)
   if (!membership) {
@@ -140,13 +186,14 @@ export function AdminApp({ slug }: { slug: string }) {
           isSystem={membership.isSystem === true}
         />
 
-        <div className="admin-rail-foot" style={{ display: 'grid', gap: 'var(--space-3)' }}>
+        <div
+          className="admin-rail-foot"
+          style={{ display: 'grid', gap: 'var(--space-3)', justifyItems: 'center' }}
+        >
           <ThemePicker />
           {/* At the foot of the rail rather than on a screen: it is the one
               spot an operator passes every session and never has to read. */}
-          <div style={{ display: 'flex', justifyContent: 'center' }}>
-            <SponsorButton />
-          </div>
+          <SponsorButton />
           <Button
             onClick={() => {
               void adminApi.logout().then(() => window.location.reload())
@@ -154,6 +201,22 @@ export function AdminApp({ slug }: { slug: string }) {
           >
             Sign out
           </Button>
+
+          {/* Under sign-out, and deliberately the quietest thing in the rail:
+              nobody navigates by it, but it is the first thing anyone is asked
+              for when reporting that something is wrong. */}
+          <p
+            className="tabular"
+            style={{
+              margin: 0,
+              fontSize: 'var(--text-xs)',
+              color: 'var(--color-fg-subtle)',
+            }}
+          >
+            v{__TERN_VERSION__}
+            <span aria-hidden="true"> · </span>
+            <span title="Build">{__TERN_BUILD__}</span>
+          </p>
         </div>
       </aside>
 
@@ -564,6 +627,67 @@ function Tag({ children, tone }: { children: React.ReactNode; tone?: 'down' }) {
 
 const STEPS = ['Definition', 'Preview', 'Simulate', 'Script'] as const
 
+/** Matches `Input`'s styling — a `<select>` is a different element and inherits none of it. */
+const SELECT_STYLE: React.CSSProperties = {
+  background: 'var(--color-bg)',
+  color: 'var(--color-fg)',
+  border: '1px solid var(--color-border-strong)',
+  borderRadius: 'var(--radius-sm)',
+  padding: 'var(--space-2) var(--space-3)',
+  fontSize: 'var(--text-base)',
+  fontFamily: 'inherit',
+  minHeight: 44,
+  width: '100%',
+}
+
+/** The kinds a control can be, in the order the picker offers them. */
+const CONTROL_KINDS = [
+  { id: 'push', label: 'Push', hint: 'Your script or CI sends the measurement to TERN.' },
+  { id: 'http', label: 'HTTP', hint: 'Request a URL and read the response.' },
+  { id: 'tcp', label: 'TCP', hint: 'Open a socket to a host and port.' },
+  { id: 'ping', label: 'Ping', hint: 'ICMP echo to a host.' },
+  { id: 'dns', label: 'DNS', hint: 'Resolve a name and check the answer.' },
+  { id: 'cert', label: 'TLS certificate', hint: 'Read the certificate and its expiry.' },
+] as const
+
+const KIND_HINT: Record<string, string> = Object.fromEntries(
+  CONTROL_KINDS.map((k) => [k.id, k.hint]),
+)
+
+/**
+ * The probe spec for what the form currently describes.
+ *
+ * Only the fields belonging to the chosen kind are emitted: the API validates
+ * against a discriminated union, and a leftover `url` on a ping probe is a
+ * rejected save with a message about a field the operator cannot see.
+ */
+function probeConfig(form: {
+  kind: string
+  url: string
+  method: string
+  host: string
+  port: number
+  dnsName: string
+  recordType: string
+}): Record<string, unknown> {
+  switch (form.kind) {
+    case 'http':
+      return { url: form.url.trim(), method: form.method }
+    case 'tcp':
+      return { host: form.host.trim(), port: form.port }
+    case 'ping':
+      return { host: form.host.trim() }
+    case 'dns':
+      return { name: form.dnsName.trim(), recordType: form.recordType }
+    case 'cert':
+      return { host: form.host.trim(), port: form.port }
+    default:
+      // `push` carries no probe. An empty object rather than the previous spec,
+      // so switching a control to push actually stops it being probed.
+      return {}
+  }
+}
+
 function ControlEditor({
   slug,
   control,
@@ -579,10 +703,27 @@ function ControlEditor({
   const retentionMode = summary.data?.tenant.retentionMode ?? 'historical'
 
   const [step, setStep] = useState(0)
+  /*
+   * A control says what is checked, how, and from where — and until this form
+   * carried those, everything it created was a `push` control: a row waiting for
+   * something outside TERN to send it a measurement. The probe kinds existed in
+   * the API and in the agent all along, reachable only by hand.
+   */
+  const probe = (control?.config ?? {}) as Record<string, unknown>
   const [form, setForm] = useState({
     key: control?.key ?? '',
     name: control?.name ?? '',
     description: control?.description ?? '',
+    kind: control?.kind ?? 'push',
+    // One field per target shape rather than one shared "target": switching
+    // between HTTP and ping should not silently reinterpret a URL as a hostname.
+    url: typeof probe.url === 'string' ? probe.url : '',
+    method: typeof probe.method === 'string' ? probe.method : 'GET',
+    host: typeof probe.host === 'string' ? probe.host : '',
+    port: typeof probe.port === 'number' ? probe.port : 443,
+    dnsName: typeof probe.name === 'string' ? probe.name : '',
+    recordType: typeof probe.recordType === 'string' ? probe.recordType : 'A',
+    expectedIntervalS: control?.expectedIntervalS ?? 60,
     degradedThresholdMs: control?.degradedThresholdMs ?? 500,
     downThresholdMs: control?.downThresholdMs ?? 3000,
     isPublic: control?.isPublic ?? true,
@@ -600,6 +741,12 @@ function ControlEditor({
         key: form.key.trim(),
         name: form.name.trim(),
         description: form.description.trim() || undefined,
+        kind: form.kind,
+        config: probeConfig(form),
+        // Two meanings, one column, and both are "how often to expect a point":
+        // the interval a probe runs at, and the silence after which a pushed
+        // control goes unknown.
+        expectedIntervalS: form.kind === 'push' ? null : form.expectedIntervalS,
         degradedThresholdMs: form.degradedThresholdMs,
         downThresholdMs: form.downThresholdMs,
         isPublic: form.isPublic,
@@ -616,9 +763,7 @@ function ControlEditor({
         ...body,
         description: body.description ?? null,
         groupId: null,
-        kind: 'push',
         enabled: true,
-        expectedIntervalS: null,
         valueUnit: null,
         valueLabel: null,
         slaTarget: null,
@@ -643,7 +788,10 @@ function ControlEditor({
         <h1 style={{ margin: 0, fontSize: 'var(--text-xl)' }}>
           {control ? control.name : 'New control'}
         </h1>
-        <Button onClick={onDone}>Back</Button>
+        {/* "Back to controls", not "Back": the step footer below has its own
+            Back, which means the previous step. Two buttons a screen apart with
+            the same word and different destinations is a coin toss. */}
+        <Button onClick={onDone}>Back to controls</Button>
       </div>
 
       {/* A step indicator, and steps past the first stay locked until the
@@ -717,46 +865,204 @@ function ControlEditor({
               />
             </Field>
 
-            <div style={{ display: 'grid', gap: 'var(--space-4)', gridTemplateColumns: '1fr 1fr' }}>
-              <Field label="Degraded above (ms)">
-                <Input
-                  type="number"
-                  value={form.degradedThresholdMs}
-                  onChange={(e) =>
-                    setForm({ ...form, degradedThresholdMs: Number(e.target.value) })
-                  }
-                />
-              </Field>
-              <Field label="Down above (ms)">
-                <Input
-                  type="number"
-                  value={form.downThresholdMs}
-                  onChange={(e) => setForm({ ...form, downThresholdMs: Number(e.target.value) })}
-                />
-              </Field>
-            </div>
-
-            <Field label="Visibility" hint="Internal controls never appear on the public page.">
+            {/*
+             * What is checked, and where the check points.
+             *
+             * A control with no probe is a `push` control: TERN waits to be
+             * told. Anything else is a job somebody runs — this instance
+             * itself, or an agent placed where this instance cannot reach.
+             */}
+            <Field label="What to check" hint={KIND_HINT[form.kind] ?? ''}>
               <select
-                value={form.isPublic ? 'public' : 'internal'}
-                onChange={(e) => setForm({ ...form, isPublic: e.target.value === 'public' })}
-                style={{
-                  background: 'var(--color-bg)',
-                  color: 'var(--color-fg)',
-                  border: '1px solid var(--color-border-strong)',
-                  borderRadius: 'var(--radius-sm)',
-                  padding: 'var(--space-2) var(--space-3)',
-                  fontSize: 'var(--text-base)',
-                  fontFamily: 'inherit',
-                  minHeight: 44,
-                }}
+                value={form.kind}
+                onChange={(e) => setForm({ ...form, kind: e.target.value })}
+                style={SELECT_STYLE}
               >
-                <option value="public">Public</option>
-                <option value="internal">Internal</option>
+                {CONTROL_KINDS.map((k) => (
+                  <option key={k.id} value={k.id}>
+                    {k.label}
+                  </option>
+                ))}
               </select>
             </Field>
 
-            <div>
+            {form.kind === 'http' && (
+              <div
+                style={{ display: 'grid', gap: 'var(--space-4)', gridTemplateColumns: '3fr 1fr' }}
+              >
+                <Field label="URL" hint="Where the request goes. https:// or http://.">
+                  <Input
+                    value={form.url}
+                    onChange={(e) => setForm({ ...form, url: e.target.value })}
+                    placeholder="https://example.com/health"
+                  />
+                </Field>
+                <Field label="Method">
+                  <select
+                    value={form.method}
+                    onChange={(e) => setForm({ ...form, method: e.target.value })}
+                    style={SELECT_STYLE}
+                  >
+                    {['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE'].map((m) => (
+                      <option key={m} value={m}>
+                        {m}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+              </div>
+            )}
+
+            {(form.kind === 'tcp' || form.kind === 'cert') && (
+              <div
+                style={{ display: 'grid', gap: 'var(--space-4)', gridTemplateColumns: '3fr 1fr' }}
+              >
+                <Field label="Host" hint="A hostname or an address. No scheme.">
+                  <Input
+                    value={form.host}
+                    onChange={(e) => setForm({ ...form, host: e.target.value })}
+                    placeholder="example.com"
+                  />
+                </Field>
+                <Field label="Port">
+                  <Input
+                    type="number"
+                    value={form.port}
+                    onChange={(e) => setForm({ ...form, port: Number(e.target.value) })}
+                  />
+                </Field>
+              </div>
+            )}
+
+            {form.kind === 'ping' && (
+              <Field label="Host" hint="A hostname or an address. ICMP must be allowed to it.">
+                <Input
+                  value={form.host}
+                  onChange={(e) => setForm({ ...form, host: e.target.value })}
+                  placeholder="example.com"
+                />
+              </Field>
+            )}
+
+            {form.kind === 'dns' && (
+              <div
+                style={{ display: 'grid', gap: 'var(--space-4)', gridTemplateColumns: '3fr 1fr' }}
+              >
+                <Field label="Name" hint="The record to resolve.">
+                  <Input
+                    value={form.dnsName}
+                    onChange={(e) => setForm({ ...form, dnsName: e.target.value })}
+                    placeholder="example.com"
+                  />
+                </Field>
+                <Field label="Type">
+                  <select
+                    value={form.recordType}
+                    onChange={(e) => setForm({ ...form, recordType: e.target.value })}
+                    style={SELECT_STYLE}
+                  >
+                    {['A', 'AAAA', 'CNAME', 'MX', 'TXT', 'NS'].map((t) => (
+                      <option key={t} value={t}>
+                        {t}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+              </div>
+            )}
+
+            {form.kind !== 'push' && (
+              <div
+                style={{ display: 'grid', gap: 'var(--space-4)', gridTemplateColumns: '1fr 2fr' }}
+              >
+                <Field label="Every (seconds)" hint="How often the check runs.">
+                  <Input
+                    type="number"
+                    value={form.expectedIntervalS}
+                    onChange={(e) =>
+                      setForm({ ...form, expectedIntervalS: Number(e.target.value) })
+                    }
+                  />
+                </Field>
+                <Field
+                  label="Runs from"
+                  hint="Pair an agent to check from inside a network this server cannot reach."
+                >
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      minHeight: 44,
+                      fontSize: 'var(--text-sm)',
+                      color: 'var(--color-fg-muted)',
+                    }}
+                  >
+                    This server, until an agent covers this control
+                  </div>
+                </Field>
+              </div>
+            )}
+
+            {/*
+             * Latency thresholds are folded away, and the defaults are the
+             * answer for almost everyone. Naming a control is a decision; the
+             * millisecond at which it counts as degraded is a tuning exercise,
+             * and putting the two on one screen made the second look as
+             * required as the first.
+             *
+             * `<details>` rather than a toggle we own: it opens without state,
+             * is keyboard-operable, and its contents stay findable by the
+             * browser's own in-page search when closed.
+             */}
+            <details>
+              <summary
+                style={{
+                  cursor: 'pointer',
+                  fontSize: 'var(--text-sm)',
+                  color: 'var(--color-fg-muted)',
+                }}
+              >
+                Advanced
+              </summary>
+
+              <div
+                style={{
+                  display: 'grid',
+                  gap: 'var(--space-4)',
+                  gridTemplateColumns: '1fr 1fr',
+                  marginTop: 'var(--space-3)',
+                }}
+              >
+                <Field
+                  label="Degraded above (ms)"
+                  hint="A push carrying a slower latency than this is shown degraded."
+                >
+                  <Input
+                    type="number"
+                    value={form.degradedThresholdMs}
+                    onChange={(e) =>
+                      setForm({ ...form, degradedThresholdMs: Number(e.target.value) })
+                    }
+                  />
+                </Field>
+                <Field label="Down above (ms)" hint="Must be above the degraded threshold.">
+                  <Input
+                    type="number"
+                    value={form.downThresholdMs}
+                    onChange={(e) => setForm({ ...form, downThresholdMs: Number(e.target.value) })}
+                  />
+                </Field>
+              </div>
+            </details>
+
+            {/*
+             * No visibility control here. A control is on the page or it is not
+             * worth creating, and this edition has no public/private
+             * distinction to hang it from. `form.isPublic` is still submitted
+             * so that editing a control which auto-registration created as
+             * internal does not quietly publish it on the next save.
+             */}
+            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
               <Button
                 variant="primary"
                 busy={save.isPending}
@@ -782,6 +1088,40 @@ function ControlEditor({
       )}
       {step === 2 && saved && <SimulateStep slug={slug} control={saved} />}
       {step === 3 && saved && <ScriptTabs slug={slug} controlId={saved.id} />}
+
+      {/*
+       * The way onward, for every step after the first.
+       *
+       * Step one ends on "Create and continue" and the rest ended on nothing —
+       * the numbered tabs above were the only way forward, which asks the
+       * reader to notice that a row they took for a progress indicator is
+       * actually the navigation. A sequence that names its steps should carry
+       * you through them.
+       *
+       * "Back" is the step behind, not the way out; leaving is the button at
+       * the top, where it was before and still is.
+       */}
+      {step > 0 && saved && (
+        <div
+          style={{
+            display: 'flex',
+            gap: 'var(--space-2)',
+            justifyContent: 'flex-end',
+            marginTop: 'var(--space-4)',
+          }}
+        >
+          <Button onClick={() => setStep(step - 1)}>Back</Button>
+          {step < STEPS.length - 1 ? (
+            <Button variant="primary" onClick={() => setStep(step + 1)}>
+              Continue
+            </Button>
+          ) : (
+            <Button variant="primary" onClick={onDone}>
+              Done
+            </Button>
+          )}
+        </div>
+      )}
     </section>
   )
 }

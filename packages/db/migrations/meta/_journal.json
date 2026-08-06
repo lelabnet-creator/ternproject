@@ -78,6 +78,13 @@
       "when": 1786029228864,
       "tag": "0010_adorable_annihilus",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1786040790671,
+      "tag": "0011_drop_page_visibility",
+      "breakpoints": true
     }
   ]
 }

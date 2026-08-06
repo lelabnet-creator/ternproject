@@ -1,12 +1,39 @@
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
+
+/**
+ * What the admin prints under "sign out".
+ *
+ * Baked at build time rather than fetched: it describes the bundle the browser
+ * is running, and a version served by the API would keep saying the new number
+ * while a cached shell served the old one — the exact case someone reads this
+ * line to diagnose.
+ *
+ * CI passes TERN_VERSION and TERN_REVISION; a local build falls back to the
+ * package version and "dev", which is the honest answer for a bundle built from
+ * a working tree.
+ */
+const pkg = JSON.parse(
+  readFileSync(fileURLToPath(new URL('./package.json', import.meta.url)), 'utf8'),
+) as { version: string }
+
+const VERSION = process.env.TERN_VERSION?.trim() || pkg.version
+// Short hash: the full forty characters say nothing more to a human, and this
+// sits in a 16rem rail.
+const BUILD = process.env.TERN_REVISION?.trim().slice(0, 7) || 'dev'
 
 function apiTarget(): string {
   return process.env.VITE_API_URL ?? 'http://localhost:3011'
 }
 
 export default defineConfig({
+  define: {
+    __TERN_VERSION__: JSON.stringify(VERSION),
+    __TERN_BUILD__: JSON.stringify(BUILD),
+  },
   plugins: [
     react(),
     VitePWA({

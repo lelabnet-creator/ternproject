@@ -102,136 +102,181 @@ export function PreviewStep({
         </Banner>
       )}
 
-      {/* ── Gallery ─────────────────────────────────────────────────────── */}
-      <section>
-        <h2 style={{ margin: '0 0 var(--space-3)', fontSize: 'var(--text-base)' }}>
-          Choose a visualisation
-        </h2>
+      <div className={`preview-split${widget.options.length > 0 ? ' has-options' : ''}`}>
+        <div style={{ display: 'grid', gap: 'var(--space-4)', minWidth: 0 }}>
+          {/* ── Gallery ─────────────────────────────────────────────────────── */}
+          <section>
+            <h2 style={{ margin: '0 0 var(--space-3)', fontSize: 'var(--text-base)' }}>
+              Choose a visualisation
+            </h2>
 
-        <div
-          style={{
-            display: 'grid',
-            gap: 'var(--space-3)',
-            gridTemplateColumns: 'repeat(auto-fill, minmax(18rem, 1fr))',
-          }}
-        >
-          {offered.map(({ widget: definition, unavailable }) => {
-            const selected = definition.id === selectedId
-            const preview = definition.mockSeries(seed, resolveOptions(definition, {}))
+            <div
+              style={{
+                display: 'grid',
+                gap: 'var(--space-3)',
+                gridTemplateColumns: 'repeat(auto-fill, minmax(18rem, 1fr))',
+              }}
+            >
+              {offered.map(({ widget: definition, unavailable }) => {
+                const selected = definition.id === selectedId
+                const preview = definition.mockSeries(seed, resolveOptions(definition, {}))
 
-            return (
-              <button
-                key={definition.id}
-                type="button"
-                onClick={() => !unavailable && choose(definition)}
-                disabled={Boolean(unavailable)}
-                aria-pressed={selected}
-                style={{
-                  textAlign: 'left',
-                  display: 'block',
-                  width: '100%',
-                  height: 'auto',
-                  padding: 'var(--space-3)',
-                  background: selected ? 'var(--color-surface-raised)' : 'var(--color-surface)',
-                  border: `1px solid ${selected ? 'var(--color-accent)' : 'var(--color-border)'}`,
-                  borderRadius: 'var(--radius-md)',
-                  cursor: unavailable ? 'not-allowed' : 'pointer',
-                  opacity: unavailable ? 0.55 : 1,
-                  fontFamily: 'inherit',
-                  color: 'var(--color-fg)',
-                }}
-              >
-                <div style={{ fontWeight: 600, fontSize: 'var(--text-sm)' }}>
-                  {definition.label}
-                </div>
-                <div
-                  style={{
-                    fontSize: 'var(--text-xs)',
-                    color: 'var(--color-fg-subtle)',
-                    margin: 'var(--space-1) 0 var(--space-3)',
-                  }}
-                >
-                  {definition.purpose}
-                </div>
-
-                {/* Rendered with its own sample data. One chooses on what one
-                    sees, not on a name. */}
-                <div style={{ pointerEvents: 'none' }}>
-                  <definition.Component
-                    label={control.name}
-                    locale="en"
-                    timeZone="UTC"
-                    options={resolveOptions(definition, {})}
-                    series={preview}
-                    unit={control.valueUnit}
-                    valueLabel={control.valueLabel}
-                    warnAt={Number(resolveOptions(definition, {}).warnAt ?? 0) || null}
-                    limitAt={Number(resolveOptions(definition, {}).limitAt ?? 0) || null}
-                  />
-                </div>
-
-                {unavailable && (
-                  <div
+                return (
+                  <button
+                    key={definition.id}
+                    type="button"
+                    onClick={() => !unavailable && choose(definition)}
+                    disabled={Boolean(unavailable)}
+                    aria-pressed={selected}
                     style={{
-                      marginTop: 'var(--space-2)',
-                      fontSize: 'var(--text-xs)',
-                      color: 'var(--status-degraded)',
-                      fontWeight: 600,
+                      textAlign: 'left',
+                      display: 'block',
+                      width: '100%',
+                      height: 'auto',
+                      padding: 'var(--space-3)',
+                      background: selected ? 'var(--color-surface-raised)' : 'var(--color-surface)',
+                      border: `1px solid ${selected ? 'var(--color-accent)' : 'var(--color-border)'}`,
+                      borderRadius: 'var(--radius-md)',
+                      cursor: unavailable ? 'not-allowed' : 'pointer',
+                      opacity: unavailable ? 0.55 : 1,
+                      fontFamily: 'inherit',
+                      color: 'var(--color-fg)',
                     }}
                   >
-                    {unavailable}
-                  </div>
-                )}
-              </button>
-            )
-          })}
-        </div>
-      </section>
+                    <div style={{ fontWeight: 600, fontSize: 'var(--text-sm)' }}>
+                      {definition.label}
+                    </div>
+                    <div
+                      style={{
+                        fontSize: 'var(--text-xs)',
+                        color: 'var(--color-fg-subtle)',
+                        margin: 'var(--space-1) 0 var(--space-3)',
+                      }}
+                    >
+                      {definition.purpose}
+                    </div>
 
-      {/* ── Options ─────────────────────────────────────────────────────── */}
-      {widget.options.length > 0 && (
-        <Card>
-          <h2 style={{ margin: '0 0 var(--space-3)', fontSize: 'var(--text-base)' }}>Options</h2>
-          <div style={{ display: 'grid', gap: 'var(--space-3)', gridTemplateColumns: '1fr 1fr' }}>
-            {widget.options.map((option) => (
-              <Field key={option.key} label={option.label}>
-                {option.type === 'select' ? (
-                  <select
-                    value={String(options[option.key] ?? option.default)}
-                    onChange={(e) => changeOption(option.key, e.target.value)}
-                    style={selectStyle}
+                    {/* Rendered with its own sample data. One chooses on what one
+                    sees, not on a name. */}
+                    <div style={{ pointerEvents: 'none' }}>
+                      <definition.Component
+                        label={control.name}
+                        locale="en"
+                        timeZone="UTC"
+                        options={resolveOptions(definition, {})}
+                        series={preview}
+                        unit={control.valueUnit}
+                        valueLabel={control.valueLabel}
+                        warnAt={Number(resolveOptions(definition, {}).warnAt ?? 0) || null}
+                        limitAt={Number(resolveOptions(definition, {}).limitAt ?? 0) || null}
+                      />
+                    </div>
+
+                    {unavailable && (
+                      <div
+                        style={{
+                          marginTop: 'var(--space-2)',
+                          fontSize: 'var(--text-xs)',
+                          color: 'var(--status-degraded)',
+                          fontWeight: 600,
+                        }}
+                      >
+                        {unavailable}
+                      </div>
+                    )}
+                  </button>
+                )
+              })}
+            </div>
+          </section>
+
+          {/* ── The chosen widget, drawn ────────────────────────────────────── */}
+          <Card>
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 'var(--space-2)',
+                marginBottom: 'var(--space-3)',
+              }}
+            >
+              <h2 style={{ margin: 0, fontSize: 'var(--text-base)' }}>
+                {t('chart.widgetPreview')}
+              </h2>
+
+              {/*
+               * The payload contract, folded into the picture it describes.
+               *
+               * It used to be a third card below everything, which put "what
+               * this widget is fed" a screen away from the widget being fed.
+               * It is reference material — read once while writing the push,
+               * never again — so it opens on demand, next to the thing it is
+               * about.
+               */}
+              <details style={{ position: 'relative' }}>
+                <summary
+                  aria-label="What this widget is fed"
+                  title="What this widget is fed"
+                  style={{
+                    cursor: 'pointer',
+                    listStyle: 'none',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    width: 28,
+                    height: 28,
+                    borderRadius: 'var(--radius-full)',
+                    border: '1px solid var(--color-border-strong)',
+                    color: 'var(--color-fg-muted)',
+                    fontSize: 'var(--text-sm)',
+                    fontWeight: 600,
+                  }}
+                >
+                  i
+                </summary>
+
+                <div
+                  style={{
+                    /* Over the card rather than inside its flow: opening a
+                       reference panel should not push the chart down the page. */
+                    position: 'absolute',
+                    right: 0,
+                    zIndex: 'var(--z-sticky)',
+                    marginTop: 'var(--space-2)',
+                    width: 'min(38rem, 80vw)',
+                    maxHeight: '60vh',
+                    overflowY: 'auto',
+                    background: 'var(--color-surface-raised)',
+                    border: '1px solid var(--color-border-strong)',
+                    borderRadius: 'var(--radius-md)',
+                    boxShadow: 'var(--shadow-sheet)',
+                    padding: 'var(--space-4)',
+                  }}
+                >
+                  <h3 style={{ margin: '0 0 var(--space-2)', fontSize: 'var(--text-sm)' }}>
+                    What this widget is fed
+                  </h3>
+                  <p
+                    style={{
+                      margin: '0 0 var(--space-3)',
+                      fontSize: 'var(--text-sm)',
+                      color: 'var(--color-fg-subtle)',
+                    }}
                   >
-                    {option.choices?.map((choice) => (
-                      <option key={choice.value} value={choice.value}>
-                        {choice.label}
-                      </option>
-                    ))}
-                  </select>
-                ) : option.type === 'text' ? (
-                  <input
-                    type="text"
-                    value={String(options[option.key] ?? option.default)}
-                    onChange={(e) => changeOption(option.key, e.target.value)}
-                    style={selectStyle}
-                  />
-                ) : (
-                  <input
-                    type="number"
-                    value={Number(options[option.key] ?? option.default)}
-                    min={option.min}
-                    max={option.max}
-                    onChange={(e) => changeOption(option.key, Number(e.target.value))}
-                    style={selectStyle}
-                  />
-                )}
-              </Field>
-            ))}
-          </div>
+                    Every script generated in the next step pushes exactly this shape. Choosing a
+                    widget chooses the payload — they cannot disagree.
+                  </p>
 
-          <div style={{ marginTop: 'var(--space-4)' }}>
-            <h3 style={{ margin: '0 0 var(--space-2)', fontSize: 'var(--text-sm)' }}>
-              {t('chart.widgetPreview')}
-            </h3>
+                  <CodeBlock label="POST /api/v1/ingest">
+                    {JSON.stringify(widget.mockPayload(control.key), null, 2)}
+                  </CodeBlock>
+
+                  <FieldContract widget={widget} unit={control.valueUnit} />
+                </div>
+              </details>
+            </div>
+
             <widget.Component
               label={control.name}
               locale="en"
@@ -243,32 +288,55 @@ export function PreviewStep({
               warnAt={Number(options.warnAt ?? 0) || null}
               limitAt={Number(options.limitAt ?? 0) || null}
             />
-          </div>
-        </Card>
-      )}
+          </Card>
+        </div>
 
-      {/* ── Payload ─────────────────────────────────────────────────────── */}
-      <Card>
-        <h2 style={{ margin: '0 0 var(--space-2)', fontSize: 'var(--text-base)' }}>
-          What this widget is fed
-        </h2>
-        <p
-          style={{
-            margin: '0 0 var(--space-3)',
-            fontSize: 'var(--text-sm)',
-            color: 'var(--color-fg-subtle)',
-          }}
-        >
-          Every script generated in the next step pushes exactly this shape. Choosing a widget
-          chooses the payload — they cannot disagree.
-        </p>
-
-        <CodeBlock label="POST /api/v1/ingest">
-          {JSON.stringify(widget.mockPayload(control.key), null, 2)}
-        </CodeBlock>
-
-        <FieldContract widget={widget} unit={control.valueUnit} />
-      </Card>
+        {/* ── Options, beside the picture they change ──────────────────── */}
+        {widget.options.length > 0 && (
+          <aside className="preview-aside">
+            <Card>
+              <h2 style={{ margin: '0 0 var(--space-3)', fontSize: 'var(--text-base)' }}>
+                Options
+              </h2>
+              <div style={{ display: 'grid', gap: 'var(--space-3)' }}>
+                {widget.options.map((option) => (
+                  <Field key={option.key} label={option.label}>
+                    {option.type === 'select' ? (
+                      <select
+                        value={String(options[option.key] ?? option.default)}
+                        onChange={(e) => changeOption(option.key, e.target.value)}
+                        style={selectStyle}
+                      >
+                        {option.choices?.map((choice) => (
+                          <option key={choice.value} value={choice.value}>
+                            {choice.label}
+                          </option>
+                        ))}
+                      </select>
+                    ) : option.type === 'text' ? (
+                      <input
+                        type="text"
+                        value={String(options[option.key] ?? option.default)}
+                        onChange={(e) => changeOption(option.key, e.target.value)}
+                        style={selectStyle}
+                      />
+                    ) : (
+                      <input
+                        type="number"
+                        value={Number(options[option.key] ?? option.default)}
+                        min={option.min}
+                        max={option.max}
+                        onChange={(e) => changeOption(option.key, Number(e.target.value))}
+                        style={selectStyle}
+                      />
+                    )}
+                  </Field>
+                ))}
+              </div>
+            </Card>
+          </aside>
+        )}
+      </div>
     </div>
   )
 }

@@ -125,31 +125,6 @@ function GeneralPanel({ slug, canWrite }: { slug: string; canWrite: boolean }) {
       </Card>
 
       <Card>
-        <h2 style={{ margin: '0 0 var(--space-3)', fontSize: 'var(--text-base)' }}>Visibility</h2>
-        <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
-          {(
-            [
-              ['public', 'Public', 'Anyone with the link can read it.'],
-              [
-                'private',
-                'Private',
-                'Members and viewer devices only. Others get a 404, not a 403.',
-              ],
-            ] as const
-          ).map(([id, label, why]) => (
-            <Choice
-              key={id}
-              selected={value.visibility === id}
-              disabled={!canWrite}
-              label={label}
-              hint={why}
-              onSelect={() => set('visibility', id)}
-            />
-          ))}
-        </div>
-      </Card>
-
-      <Card>
         <h2 style={{ margin: '0 0 var(--space-2)', fontSize: 'var(--text-base)' }}>Accent</h2>
         <p
           className="measure"

@@ -5,6 +5,31 @@ For whoever has to keep this running.
 ## Installing
 
 ```bash
+./scripts/setup.sh
+```
+
+Asks for the tenant, the administrator and the SMTP server, writes `.env`,
+builds the image and starts `docker-compose.prod.yml`. The container's
+entrypoint settles `APP_SECRET`, applies the migrations and creates the tenant
+before the server binds — all three idempotent, so a restart repeats none of
+them.
+
+`APP_SECRET` is the one value that must survive. Supplied in the environment it
+is used as given; left empty it is generated once into `/var/lib/tern` on the
+`tern-data` volume and reused on every later boot. It encrypts TOTP secrets,
+probe auth headers and subscriber addresses — a fresh one does not fail, it
+silently makes all of them unreadable. Back that volume up with the database.
+
+The production stack runs under its own compose project name (`tern-prod`),
+because `docker-compose.yml` already claims `tern` — two files sharing a
+project name means the second one recreates the first one's containers.
+
+Its database publishes no host port. That is both one less exposure and one
+less collision on a machine that already runs PostgreSQL.
+
+### From source, for development
+
+```bash
 corepack enable
 pnpm install
 cp .env.example .env          # then: openssl rand -hex 32  → APP_SECRET
@@ -64,8 +89,8 @@ The API serves the built web app and the API. `/health` answers
 TERN**. If the API is down, the staleness sweep does not run, so a status page
 left up by a dead API shows the last state it knew rather than going unknown.
 
-Behind a reverse proxy, forward the real client IP: rate limits, the audit log
-and IP allowlists all key on it.
+Behind a reverse proxy, forward the real client IP: rate limits and the audit
+log both key on it.
 
 The API serves more than `/api`. Route these to it too, or the SPA's catch-all
 will answer them with HTML — and `curl … /install.sh | sh` then pipes a web page

@@ -3,6 +3,10 @@ name: CI
 on:
   push:
     branches: [main]
+    # Without this, a `v*` tag does not start the workflow at all — and the two
+    # jobs gated on `refs/tags/v` below could never run, however correct their
+    # condition looked.
+    tags: ['v*']
   pull_request:
   workflow_dispatch:
 
@@ -301,6 +305,59 @@ jobs:
           files: artifacts/*
           generate_release_notes: true
           draft: false
+
+  image:
+    name: Image
+    # Tags only, like the release. Publishing from every push to main would mean
+    # a `latest` that moves under people who deployed it this morning.
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: node
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # Writes to GHCR under the repository's own namespace, with the token
+      # Actions already provides — no personal access token to mint or rotate.
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # arm64 is emulated, which makes that half of the build slow (the pnpm
+      # install and the native argon2 binding, mostly). It is the price of
+      # publishing something an Apple Silicon Mac, a Graviton instance or a Pi
+      # can actually pull.
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          # v1.4.2 publishes 1.4.2 and 1.4 — so a deployment can follow patch
+          # releases without following minor ones.
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable=${{ !contains(github.ref_name, '-') }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            TERN_VERSION=${{ github.ref_name }}
+            TERN_REVISION=${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
   secrets:
     name: Secret scan

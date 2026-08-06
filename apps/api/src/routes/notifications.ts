@@ -12,6 +12,7 @@ import {
 } from '@tern/shared'
 import { config } from '../config.js'
 import { audit } from '../services/audit.js'
+import { tenantMailFor } from '../services/tenant-mail.js'
 import { sendEmail, sendWebhook } from '../services/transports.js'
 
 /**
@@ -169,27 +170,11 @@ const routes: FastifyPluginAsyncZod = async (app) => {
       },
     },
     async (req) => {
-      const [tenant] = await app.db
-        .select()
-        .from(schema.tenants)
-        .where(eq(schema.tenants.id, req.tenant!.id))
-        .limit(1)
-
       // Through the tenant's own sender when it has one: a test that always
       // used the instance's mail would pass while the override was broken.
-      const tenantMail = tenant?.smtp
-        ? {
-            tenantId: tenant.id,
-            host: tenant.smtp.host,
-            port: tenant.smtp.port,
-            secure: tenant.smtp.secure,
-            user: tenant.smtp.user,
-            password: tenant.smtpPasswordEnc
-              ? decryptSecret(tenant.smtpPasswordEnc, config.APP_SECRET)
-              : undefined,
-            from: tenant.smtp.from,
-          }
-        : null
+      // Shared with password recovery and double opt-in, so the test proves the
+      // thing it claims to prove.
+      const tenantMail = await tenantMailFor(app, req.tenant!.id)
 
       try {
         await sendEmail(

@@ -26,7 +26,6 @@ export interface RequestActor {
 export interface TenantContext {
   id: string
   slug: string
-  visibility: 'public' | 'private'
   retentionMode: 'live' | 'historical'
   retentionDays: number
   rawRetentionHours: number
@@ -130,7 +129,6 @@ const plugin: FastifyPluginAsync = async (app) => {
     req.tenant = {
       id: tenant.id,
       slug: tenant.slug,
-      visibility: tenant.visibility,
       retentionMode: tenant.retentionMode,
       retentionDays: tenant.retentionDays,
       rawRetentionHours: tenant.rawRetentionHours,
@@ -138,13 +136,10 @@ const plugin: FastifyPluginAsync = async (app) => {
       defaultTimezone: tenant.defaultTimezone,
     }
 
+    // A status page is readable by whoever has its address. There is no gate
+    // here: `anonymous` is a role with public-read permissions, and every
+    // endpoint that needs more asks for it through `requirePermission`.
     req.role = await resolveRole(app, req, tenant.id)
-
-    if (req.role === 'anonymous' && tenant.visibility === 'private') {
-      const allowed = await ipIsAllowed(app, tenant.id, req.ip)
-      if (!allowed) throw app.httpErrors.notFound('Not found')
-      req.role = 'visitor'
-    }
   })
 
   app.decorate('requirePermission', (permission: Permission) => async (req: FastifyRequest) => {
@@ -185,26 +180,10 @@ async function resolveRole(
     if (membership) return membership.role
   }
 
-  // No membership: `anonymous` regardless of visibility. Whether that is enough
-  // is the caller's decision — a public tenant grants anonymous read, a private
-  // one falls back to the IP allowlist and otherwise 404s.
+  // No membership: `anonymous`, which grants public read and nothing more.
+  // What that is enough for is each endpoint's decision, expressed as the
+  // permission it requires.
   return 'anonymous'
-}
-
-async function ipIsAllowed(app: FastifyInstance, tenantId: string, ip: string): Promise<boolean> {
-  // Containment is delegated to PostgreSQL's inet operators rather than
-  // reimplemented: CIDR matching across IPv4, IPv6 and IPv4-mapped addresses is
-  // a well-known source of subtle, security-relevant bugs.
-  //
-  // A malformed client address must not throw — an unparseable IP is simply not
-  // on the list.
-  const [row] = await app.sql<{ ok: boolean | null }[]>`
-    SELECT bool_or(inet(${ip}) <<= inet(cidr)) AS ok
-      FROM ip_allowlist
-     WHERE tenant_id = ${tenantId}::uuid
-  `.catch(() => [{ ok: false }])
-
-  return row?.ok === true
 }
 
 export default fp(plugin, { name: 'context', dependencies: ['db'] })
