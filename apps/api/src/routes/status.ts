@@ -42,6 +42,8 @@ const componentSchema = z.object({
   valueUnit: z.string().nullable(),
   valueLabel: z.string().nullable(),
   slaTarget: z.number().nullable(),
+  widget: z.string(),
+  widgetOptions: z.record(z.string(), z.unknown()),
 })
 
 const routes: FastifyPluginAsyncZod = async (app) => {
@@ -68,6 +70,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
               retentionDays: z.number(),
               defaultLocale: z.string(),
               defaultTimezone: z.string(),
+              layout: z.enum(['list', 'grid', 'compact']),
               branding: z.record(z.string(), z.unknown()),
             }),
             overall: z.object({
@@ -223,6 +226,8 @@ const routes: FastifyPluginAsyncZod = async (app) => {
           valueUnit: control.valueUnit,
           valueLabel: control.valueLabel,
           slaTarget: control.slaTarget,
+          widget: control.widget,
+          widgetOptions: control.widgetOptions,
         }
       })
 
@@ -260,6 +265,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
           retentionDays: tenantRow.retentionDays,
           defaultLocale: tenantRow.defaultLocale,
           defaultTimezone: tenantRow.defaultTimezone,
+          layout: tenantRow.layout,
           branding: tenantRow.branding,
         },
         overall: {

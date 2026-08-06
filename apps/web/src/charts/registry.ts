@@ -1,5 +1,8 @@
 import type { ComponentType } from 'react'
-import { createRng, generateMockSeries, type CheckStatusValue, type MockPoint } from '@tern/shared'
+// Narrow imports, not the barrel: `@tern/shared` re-exports server-only crypto
+// and would drag a native module into the browser bundle.
+import { createRng, generateMockSeries, type MockPoint } from '@tern/shared/mock'
+import type { CheckStatusValue } from '@tern/shared/status'
 import { UptimeRibbon } from './UptimeRibbon'
 import { StatusSwimlane } from './StatusSwimlane'
 import { AvailabilityCalendar } from './AvailabilityCalendar'

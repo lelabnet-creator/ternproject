@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import type { CheckStatusValue } from '@tern/shared'
+import type { CheckStatusValue } from '@tern/shared/status'
 import { statusColor } from '../lib/status'
 import { ChartTooltip, useActiveMark } from './primitives/Tooltip'
 import { useResizeObserver } from './primitives/useResizeObserver'

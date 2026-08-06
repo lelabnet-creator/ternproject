@@ -84,11 +84,18 @@ export function LatencyBand({
 
   const axisFormat = useMemo(() => timeFormat('%d %b'), [])
 
+  // The empty state lives INSIDE the measured container, never in place of it.
+  // Returning early skips the ref, so width is never measured, so the guard
+  // never releases — the chart shows "no data" forever even when it has data.
   if (!geometry) {
     return (
-      <p style={{ fontSize: 'var(--text-sm)', color: 'var(--color-fg-subtle)' }}>
-        {t('page.noData')}
-      </p>
+      <figure style={{ margin: 0 }}>
+        <div ref={ref} style={{ width: '100%', minHeight: height }}>
+          <p style={{ fontSize: 'var(--text-sm)', color: 'var(--color-fg-subtle)', margin: 0 }}>
+            {t('page.noData')}
+          </p>
+        </div>
+      </figure>
     )
   }
 

@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { TernWordmark } from '../../components/brand/TernMark'
-import { UptimeRibbon, type UptimeDay } from '../../charts/UptimeRibbon'
+import { type UptimeDay } from '../../charts/UptimeRibbon'
+import { resolveOptions, widgetById } from '../../charts/registry'
 import { SystemPulse } from '../../charts/SystemPulse'
 import { api, type StatusComponent, type StatusSummary } from '../../lib/api'
 import { STATUS_PRESENTATION } from '../../lib/status'
@@ -110,7 +111,6 @@ export function StatusPage({ slug }: { slug: string }) {
                 key={component.id}
                 component={component}
                 days={uptime.data?.days.filter((d) => d.controlId === component.id) ?? []}
-                windowDays={data.tenant.retentionMode === 'live' ? 1 : 90}
                 showRibbon={data.tenant.retentionMode === 'historical'}
                 locale={locale}
                 timeZone={timeZone}
@@ -128,14 +128,12 @@ export function StatusPage({ slug }: { slug: string }) {
 function ComponentCard({
   component,
   days,
-  windowDays,
   showRibbon,
   locale,
   timeZone,
 }: {
   component: StatusComponent
   days: UptimeDay[]
-  windowDays: number
   showRibbon: boolean
   locale: string
   timeZone: string
@@ -143,6 +141,9 @@ function ComponentCard({
   const { t } = useTranslation()
   const presentation = STATUS_PRESENTATION[component.status]
   const Icon = presentation.icon
+
+  const Widget = widgetById(component.widget)
+  const widgetOptions = resolveOptions(Widget, component.widgetOptions)
 
   return (
     <article
@@ -218,12 +219,18 @@ function ComponentCard({
               {t('page.noDataHint')}
             </p>
           ) : (
-            <UptimeRibbon
-              days={days}
-              windowDays={windowDays}
+            // Rendered through the registry, so the page shows whatever the
+            // editor's gallery promised rather than a hard-coded ribbon.
+            <Widget.Component
+              label={component.name}
               locale={locale}
               timeZone={timeZone}
-              label={component.name}
+              options={widgetOptions}
+              series={daysToSeries(days)}
+              unit={component.valueUnit}
+              valueLabel={component.valueLabel}
+              warnAt={Number(widgetOptions.warnAt ?? 0) || null}
+              limitAt={Number(widgetOptions.limitAt ?? 0) || null}
             />
           )}
         </div>
@@ -364,6 +371,23 @@ function PageSkeleton() {
       ))}
     </div>
   )
+}
+
+/**
+ * Turns the API's per-day rollups into the point shape widgets take.
+ *
+ * One adapter here rather than a second data path per widget: the registry's
+ * components are written once and fed identically whether the source is a real
+ * aggregate or an editor preview.
+ */
+function daysToSeries(days: UptimeDay[]) {
+  return days.map((day) => ({
+    ts: new Date(`${day.day}T12:00:00Z`),
+    status: day.worstStatus,
+    latencyMs: null,
+    value: day.uptimePct,
+    message: null,
+  }))
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────

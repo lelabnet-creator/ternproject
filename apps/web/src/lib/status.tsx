@@ -1,5 +1,5 @@
 import { AlertTriangle, CheckCircle2, CircleHelp, MinusCircle, Wrench, XCircle } from 'lucide-react'
-import type { CheckStatusValue } from '@tern/shared'
+import type { CheckStatusValue } from '@tern/shared/status'
 
 /**
  * How each status is presented.

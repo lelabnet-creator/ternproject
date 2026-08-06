@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next'
-import type { CheckStatusValue } from '@tern/shared'
+import type { CheckStatusValue } from '@tern/shared/status'
 import { STATUS_PRESENTATION } from '../lib/status'
 
 /**

@@ -2,7 +2,7 @@ import { useMemo } from 'react'
 import { line, curveMonotoneX } from 'd3-shape'
 import { scaleLinear } from 'd3-scale'
 import { useTranslation } from 'react-i18next'
-import type { CheckStatusValue } from '@tern/shared'
+import type { CheckStatusValue } from '@tern/shared/status'
 import { statusColor } from '../lib/status'
 import { useResizeObserver } from './primitives/useResizeObserver'
 
@@ -58,11 +58,18 @@ export function LiveSparkline({
     return { path, x, latest: numeric[numeric.length - 1] ?? 0 }
   }, [points, width, height])
 
+  // The empty state lives INSIDE the measured container, never in place of it.
+  // Returning early skips the ref, so width is never measured, so the guard
+  // never releases — the chart shows "no data" forever even when it has data.
   if (!geometry) {
     return (
-      <p style={{ fontSize: 'var(--text-sm)', color: 'var(--color-fg-subtle)' }}>
-        {t('page.noData')}
-      </p>
+      <figure style={{ margin: 0 }}>
+        <div ref={ref} style={{ width: '100%', minHeight: height }}>
+          <p style={{ fontSize: 'var(--text-sm)', color: 'var(--color-fg-subtle)', margin: 0 }}>
+            {t('page.noData')}
+          </p>
+        </div>
+      </figure>
     )
   }
 

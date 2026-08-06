@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import { arc } from 'd3-shape'
 import { useTranslation } from 'react-i18next'
-import type { CheckStatusValue } from '@tern/shared'
+import type { CheckStatusValue } from '@tern/shared/status'
 import { STATUS_PRESENTATION, statusColor } from '../lib/status'
 
 export interface PulseGroup {

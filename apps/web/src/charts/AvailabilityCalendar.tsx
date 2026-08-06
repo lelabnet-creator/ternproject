@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import { timeFormat } from 'd3-time-format'
 import { useTranslation } from 'react-i18next'
-import type { CheckStatusValue } from '@tern/shared'
+import type { CheckStatusValue } from '@tern/shared/status'
 import { statusSoft, statusColor } from '../lib/status'
 import { ChartTooltip, useActiveMark } from './primitives/Tooltip'
 import { useResizeObserver } from './primitives/useResizeObserver'
@@ -54,9 +54,13 @@ export function AvailabilityCalendar({
 
   if (days.length === 0) {
     return (
-      <p style={{ fontSize: 'var(--text-sm)', color: 'var(--color-fg-subtle)' }}>
-        {t('page.noData')}
-      </p>
+      <figure style={{ margin: 0 }}>
+        <div ref={ref} style={{ width: '100%' }}>
+          <p style={{ fontSize: 'var(--text-sm)', color: 'var(--color-fg-subtle)', margin: 0 }}>
+            {t('page.noData')}
+          </p>
+        </div>
+      </figure>
     )
   }
 

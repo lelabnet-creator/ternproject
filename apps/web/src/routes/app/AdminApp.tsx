@@ -3,8 +3,9 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { adminApi, ApiError, type Control } from '../../lib/adminApi'
 import { Banner, Button, Card, CodeBlock, EmptyState, Field, Input } from '../../components/ui'
 import { TernWordmark } from '../../components/brand/TernMark'
-import { UptimeRibbon } from '../../charts/UptimeRibbon'
 import { ScriptTabs } from '../../features/control-editor/ScriptTabs'
+import { PreviewStep } from '../../features/control-editor/PreviewStep'
+import { DEFAULT_WIDGET } from '../../charts/registry'
 import { api } from '../../lib/api'
 
 /**
@@ -174,6 +175,11 @@ function ControlEditor({
   control: Control | null
   onDone: () => void
 }) {
+  // The tenant's retention mode decides which widgets can be fed at all. Read
+  // from the public summary, which admins can see and which is already cached.
+  const summary = useQuery({ queryKey: ['summary', slug], queryFn: () => api.summary(slug) })
+  const retentionMode = summary.data?.tenant.retentionMode ?? 'historical'
+
   const [step, setStep] = useState(0)
   const [form, setForm] = useState({
     key: control?.key ?? '',
@@ -183,9 +189,11 @@ function ControlEditor({
     downThresholdMs: control?.downThresholdMs ?? 3000,
     isPublic: control?.isPublic ?? true,
   })
-  const [saved, setSaved] = useState<{ id: string; key: string } | null>(
-    control ? { id: control.id, key: control.key } : null,
-  )
+  // The whole control, not just its id: the preview needs its key for a stable
+  // sample seed, its unit to decide which widgets apply, and its current widget
+  // so the gallery opens on the existing choice.
+  const [savedControl, setSavedControl] = useState<Control | null>(control)
+  const saved = savedControl
   const [error, setError] = useState<string | null>(null)
 
   const save = useMutation({
@@ -198,14 +206,31 @@ function ControlEditor({
         downThresholdMs: form.downThresholdMs,
         isPublic: form.isPublic,
       }
-      if (saved) {
-        await adminApi.updateControl(slug, saved.id, body)
-        return saved
+      if (savedControl) {
+        await adminApi.updateControl(slug, savedControl.id, body)
+        return { ...savedControl, ...body, description: body.description ?? null }
       }
-      return adminApi.createControl(slug, body)
+      const created = await adminApi.createControl(slug, body)
+      // Compose the control locally rather than refetching: the API returned
+      // the id, and everything else is what was just submitted.
+      return {
+        ...created,
+        ...body,
+        description: body.description ?? null,
+        groupId: null,
+        kind: 'push',
+        enabled: true,
+        expectedIntervalS: null,
+        valueUnit: null,
+        valueLabel: null,
+        slaTarget: null,
+        widget: DEFAULT_WIDGET,
+        widgetOptions: {},
+        position: 0,
+      } satisfies Control
     },
     onSuccess: (result) => {
-      setSaved(result)
+      setSavedControl(result)
       setError(null)
       setStep(1)
     },
@@ -347,39 +372,19 @@ function ControlEditor({
         </Card>
       )}
 
-      {step === 1 && saved && <PreviewStep slug={slug} controlId={saved.id} name={form.name} />}
+      {step === 1 && savedControl && (
+        <PreviewStep
+          slug={slug}
+          control={savedControl}
+          retentionMode={retentionMode}
+          onSaved={(widget, widgetOptions) =>
+            setSavedControl({ ...savedControl, widget, widgetOptions })
+          }
+        />
+      )}
       {step === 2 && saved && <SimulateStep slug={slug} controlId={saved.id} />}
       {step === 3 && saved && <ScriptTabs slug={slug} controlId={saved.id} />}
     </section>
-  )
-}
-
-function PreviewStep({ slug, controlId, name }: { slug: string; controlId: string; name: string }) {
-  const uptime = useQuery({
-    queryKey: ['uptime', slug, '90d'],
-    queryFn: () => api.uptime(slug, '90d'),
-  })
-
-  const days = uptime.data?.days.filter((d) => d.controlId === controlId) ?? []
-
-  return (
-    <Card>
-      <h2 style={{ marginTop: 0, fontSize: 'var(--text-base)' }}>How it will look</h2>
-      {days.length === 0 ? (
-        <EmptyState
-          title="No data yet"
-          hint="Nothing has been pushed to this control. Generate simulation data in the next step to see the widget with a history."
-        />
-      ) : (
-        <UptimeRibbon
-          days={days}
-          windowDays={90}
-          locale="en"
-          timeZone="UTC"
-          label={name || 'Control'}
-        />
-      )}
-    </Card>
   )
 }
 

@@ -6,7 +6,13 @@
   "license": "AGPL-3.0-or-later",
   "main": "./src/index.ts",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./mock": "./src/mock.ts",
+    "./status": "./src/status.ts",
+    "./probe": "./src/probe.ts",
+    "./probe-runner": "./src/probe-runner.ts",
+    "./templates": "./src/templates.ts",
+    "./crypto": "./src/crypto.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

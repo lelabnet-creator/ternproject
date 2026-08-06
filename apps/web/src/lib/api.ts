@@ -1,4 +1,4 @@
-import type { CheckStatusValue } from '@tern/shared'
+import type { CheckStatusValue } from '@tern/shared/status'
 
 /**
  * Typed client for the public API.
@@ -21,6 +21,8 @@ export interface StatusComponent {
   valueUnit: string | null
   valueLabel: string | null
   slaTarget: number | null
+  widget: string
+  widgetOptions: Record<string, unknown>
 }
 
 export interface StatusGroup {
@@ -39,6 +41,7 @@ export interface StatusSummary {
     retentionDays: number
     defaultLocale: string
     defaultTimezone: string
+    layout: 'list' | 'grid' | 'compact'
     branding: Record<string, unknown>
   }
   overall: { status: CheckStatusValue; affectedCount: number }

@@ -48,6 +48,8 @@ export interface Control {
   valueUnit: string | null
   valueLabel: string | null
   slaTarget: number | null
+  widget: string
+  widgetOptions: Record<string, unknown>
   position: number
 }
 

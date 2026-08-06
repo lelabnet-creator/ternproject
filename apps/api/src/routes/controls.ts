@@ -42,6 +42,8 @@ const routes: FastifyPluginAsyncZod = async (app) => {
               valueUnit: z.string().nullable(),
               valueLabel: z.string().nullable(),
               slaTarget: z.number().nullable(),
+              widget: z.string(),
+              widgetOptions: z.record(z.string(), z.unknown()),
               position: z.number(),
             }),
           ),
@@ -70,6 +72,8 @@ const routes: FastifyPluginAsyncZod = async (app) => {
         valueUnit: r.valueUnit,
         valueLabel: r.valueLabel,
         slaTarget: r.slaTarget,
+        widget: r.widget,
+        widgetOptions: r.widgetOptions,
         position: r.position,
       }))
     },
@@ -94,6 +98,9 @@ const routes: FastifyPluginAsyncZod = async (app) => {
     valueUnit: z.string().max(30).nullable().optional(),
     valueLabel: z.string().max(60).nullable().optional(),
     slaTarget: z.number().int().min(0).max(10_000).nullable().optional(),
+    /** Resolved against the web app's widget registry; unknown ids fall back. */
+    widget: z.string().max(60).optional(),
+    widgetOptions: z.record(z.string(), z.unknown()).optional(),
     isPublic: z.boolean().default(true),
     position: z.number().int().min(0).default(0),
   })
