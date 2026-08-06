@@ -5,7 +5,14 @@
   "properties": {
     "status": {
       "type": "string",
-      "enum": ["operational", "degraded", "partial", "down", "maintenance", "unknown"]
+      "enum": [
+        "operational",
+        "degraded",
+        "partial",
+        "down",
+        "maintenance",
+        "unknown"
+      ]
     },
     "latencyMs": {
       "anyOf": [
@@ -52,13 +59,21 @@
           },
           "severity": {
             "type": "string",
-            "enum": ["degraded", "down"]
+            "enum": [
+              "degraded",
+              "down"
+            ]
           },
           "detail": {
             "type": "string"
           }
         },
-        "required": ["type", "passed", "severity", "detail"]
+        "required": [
+          "type",
+          "passed",
+          "severity",
+          "detail"
+        ]
       }
     },
     "debug": {
@@ -69,5 +84,11 @@
       "additionalProperties": {}
     }
   },
-  "required": ["status", "latencyMs", "value", "message", "assertions"]
+  "required": [
+    "status",
+    "latencyMs",
+    "value",
+    "message",
+    "assertions"
+  ]
 }

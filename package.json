@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "TERN — multi-tenant IT service status pages, live or historized.",
+  "description": "TERN \u2014 multi-tenant IT service status pages, live or historized.",
   "license": "AGPL-3.0-or-later",
   "repository": {
     "type": "git",
@@ -20,7 +20,7 @@
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "typecheck": "turbo run typecheck",
+    "typecheck": "pnpm -r exec tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
     "db:migrate": "pnpm -F @tern/db migrate",

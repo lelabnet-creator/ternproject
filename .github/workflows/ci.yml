@@ -1,0 +1,179 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# A new push supersedes an in-flight run on the same ref. Reviewing a result
+# that describes an older commit is worse than waiting for the current one.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  node:
+    name: TypeScript
+    runs-on: ubuntu-latest
+
+    services:
+      # The integration suite runs against a real PostgreSQL with TimescaleDB.
+      # The behaviour under test is partly enforced by SQL — hypertables,
+      # continuous aggregates, inet containment — and a stubbed store would only
+      # prove it agrees with itself.
+      db:
+        image: timescale/timescaledb-ha:pg16
+        env:
+          POSTGRES_USER: tern
+          POSTGRES_PASSWORD: tern
+          POSTGRES_DB: tern
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U tern -d tern"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+      mailhog:
+        image: mailhog/mailhog:v1.0.1
+        ports:
+          - 1025:1025
+          - 8025:8025
+
+    env:
+      DATABASE_URL: postgres://tern:tern@127.0.0.1:5433/tern
+      # A CI-only value. The real one is generated per deployment and never
+      # shared — see SECURITY.md.
+      APP_SECRET: ci-only-not-a-real-secret-000000000000
+      SMTP_HOST: 127.0.0.1
+      SMTP_PORT: 1025
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Format
+        run: pnpm format:check
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Migrate
+        run: pnpm db:migrate
+
+      # Ruby, PHP and Lua are installed so the template syntax checks actually
+      # run rather than skipping. A generated script that does not parse is a
+      # defect the substring assertions cannot see — it has happened once
+      # already.
+      - name: Install script interpreters
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends lua5.4 php-cli
+
+      - name: Test
+        run: pnpm test
+
+      - name: Check the generated schema is current
+        run: |
+          pnpm gen:schema
+          # The Zod schema is the source of truth and the JSON Schema is
+          # generated from it. If they have drifted, the Rust agent is being
+          # held to a contract nobody updated.
+          git diff --exit-code schemas/ || {
+            echo "::error::schemas/ is stale — run 'pnpm gen:schema' and commit the result"
+            exit 1
+          }
+
+  rust:
+    name: Rust agent
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: clients/agent
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: clients/agent
+
+      - name: Format
+        run: cargo fmt --check
+
+      - name: Clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+      # The conformance fixtures are the contract between this agent and the
+      # TypeScript evaluator. Both suites replaying them is the only evidence
+      # that two independent implementations of the probe spec agree.
+      - name: Test and conformance
+        run: cargo test
+
+  cross-build:
+    name: Cross-compile
+    runs-on: ubuntu-latest
+    # Only on main: building five targets on every pull request costs minutes
+    # nobody is waiting for, and a broken cross-build never reaches a release
+    # without passing here first.
+    if: github.ref == 'refs/heads/main'
+    needs: rust
+
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - x86_64-unknown-linux-musl
+          - aarch64-unknown-linux-musl
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: clients/agent
+
+      - name: Install cross
+        run: cargo install cross --locked --version 0.2.5
+
+      - name: Build ${{ matrix.target }}
+        working-directory: clients/agent
+        run: cross build --release --target ${{ matrix.target }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tern-agent-${{ matrix.target }}
+          path: clients/agent/target/${{ matrix.target }}/release/tern-agent
+          if-no-files-found: error
+
+  secrets:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # gitleaks needs history to scan commits, not just the tree.
+          fetch-depth: 0
+
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

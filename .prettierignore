@@ -8,4 +8,8 @@ build/
 .turbo/
 clients/agent/target/
 clients/examples/
+# Generated from the Zod schema by `pnpm gen:schema`. Formatting them here
+# guarantees the CI staleness check fails on every run: Prettier rewrites the
+# file, the generator writes it back, and the diff never settles.
+schemas/*.json
 *.svg
