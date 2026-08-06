@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { adminApi, ApiError, type Agent } from '../../lib/adminApi'
 import { AgentGalaxy, freshnessOf } from '../../charts/AgentGalaxy'
-import { Banner, Button, Card, EmptyState, Field, Input } from '../../components/ui'
+import { Banner, Button, Card, CodeBlock, EmptyState, Field, Input } from '../../components/ui'
 
 /**
  * The fleet.
@@ -23,6 +23,7 @@ export function FleetScreen({ slug, canWrite }: { slug: string; canWrite: boolea
   })
 
   const [selected, setSelected] = useState<string | null>(null)
+  const [pairing, setPairing] = useState(false)
 
   if (agents.isPending) return <p style={{ paddingTop: 'var(--space-6)' }}>Loading the fleet…</p>
   if (agents.isError) return <Banner tone="down">Could not load the agents.</Banner>
@@ -33,14 +34,33 @@ export function FleetScreen({ slug, canWrite }: { slug: string; canWrite: boolea
 
   return (
     <section style={{ paddingTop: 'var(--space-6)', display: 'grid', gap: 'var(--space-5)' }}>
-      <div>
-        <h1 style={{ margin: 0, fontSize: 'var(--text-xl)' }}>Agents</h1>
-        <p style={{ margin: 'var(--space-1) 0 0', color: 'var(--color-fg-subtle)' }}>
-          {live.length} active
-          {agents.data.length > live.length && `, ${agents.data.length - live.length} revoked`}
-          {quiet.length > 0 && ` · ${quiet.length} not reporting`}
-        </p>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'flex-start',
+          justifyContent: 'space-between',
+          gap: 'var(--space-3)',
+          flexWrap: 'wrap',
+        }}
+      >
+        <div>
+          <h1 style={{ margin: 0, fontSize: 'var(--text-xl)' }}>Agents</h1>
+          <p style={{ margin: 'var(--space-1) 0 0', color: 'var(--color-fg-subtle)' }}>
+            {live.length} active
+            {agents.data.length > live.length && `, ${agents.data.length - live.length} revoked`}
+            {quiet.length > 0 && ` · ${quiet.length} not reporting`}
+          </p>
+        </div>
+        {/* Adding an agent starts here, where the fleet is — not buried in a
+            control's Script step, which is where it used to be the only way. */}
+        {canWrite && (
+          <Button variant="primary" onClick={() => setPairing((v) => !v)}>
+            {pairing ? 'Cancel' : 'Add an agent'}
+          </Button>
+        )}
       </div>
+
+      {pairing && <PairPanel slug={slug} onDone={() => setPairing(false)} />}
 
       {agents.data.length === 0 ? (
         <EmptyState
@@ -77,6 +97,76 @@ export function FleetScreen({ slug, canWrite }: { slug: string; canWrite: boolea
         </div>
       )}
     </section>
+  )
+}
+
+/**
+ * A PIN, and the command it goes in.
+ *
+ * Minted on the button rather than delivered with the page: a pairing code is a
+ * short-lived credential, and one arriving with every page view would sit in a
+ * cache and in the back button, unused and valid.
+ */
+function PairPanel({ slug, onDone }: { slug: string; onDone: () => void }) {
+  const pair = useMutation({ mutationFn: () => adminApi.createPairingCode(slug) })
+
+  return (
+    <Card>
+      <h2 style={{ margin: '0 0 var(--space-2)', fontSize: 'var(--text-base)' }}>Add an agent</h2>
+
+      {pair.data ? (
+        <>
+          <p
+            className="measure"
+            style={{
+              margin: '0 0 var(--space-3)',
+              fontSize: 'var(--text-sm)',
+              color: 'var(--color-fg-subtle)',
+            }}
+          >
+            Run this on the machine to monitor. It receives its key <em>and</em> the probes it is
+            meant to run — there is no config to copy across.
+          </p>
+          <CodeBlock label="on the machine being monitored">{pair.data.pairCommand}</CodeBlock>
+          <p
+            className="tabular"
+            style={{
+              margin: 'var(--space-2) 0 0',
+              fontSize: 'var(--text-xs)',
+              color: 'var(--color-fg-subtle)',
+            }}
+          >
+            Single use, expires at {new Date(pair.data.expiresAt).toLocaleTimeString()}.
+          </p>
+          <div style={{ display: 'flex', gap: 'var(--space-2)', marginTop: 'var(--space-3)' }}>
+            <Button onClick={() => pair.mutate()}>Another PIN</Button>
+            <Button onClick={onDone}>Done</Button>
+          </div>
+        </>
+      ) : (
+        <>
+          <p
+            className="measure"
+            style={{
+              margin: '0 0 var(--space-3)',
+              fontSize: 'var(--text-sm)',
+              color: 'var(--color-fg-subtle)',
+            }}
+          >
+            Pairing exchanges a short PIN for a long-lived key, so no credential is ever copied by
+            hand onto a host.
+          </p>
+          <Button variant="primary" busy={pair.isPending} onClick={() => pair.mutate()}>
+            Generate a PIN
+          </Button>
+          {pair.isError && (
+            <div style={{ marginTop: 'var(--space-2)' }}>
+              <Banner tone="down">Could not generate a pairing code.</Banner>
+            </div>
+          )}
+        </>
+      )}
+    </Card>
   )
 }
 

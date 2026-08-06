@@ -581,3 +581,18 @@ a.tern-target {
   gap: var(--space-3);
   grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
 }
+
+/* Cards that fill the width they are given, and wrap rather than shrink past
+   readability. `auto-fill` not `auto-fit`: with three cards on a wide screen,
+   auto-fit would stretch them to a third of 1400px each, which is a card the
+   width of a paragraph. */
+.card-grid {
+  display: grid;
+  gap: var(--space-3);
+  grid-template-columns: repeat(auto-fill, minmax(19rem, 1fr));
+  align-items: stretch;
+}
+
+.card-grid > * {
+  height: 100%;
+}

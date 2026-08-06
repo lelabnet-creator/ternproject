@@ -2,6 +2,7 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { I18nextProvider } from 'react-i18next'
+import { applyStoredTheme } from './components/ThemePicker'
 import { initI18n, resolveLocale } from './i18n'
 import { AdminApp } from './routes/app/AdminApp'
 import { StatusPage } from './routes/public/StatusPage'
@@ -14,6 +15,10 @@ import './styles/tokens.css'
  * public page and the admin, and a router would be more machinery than routes.
  * It goes in when nested routes actually appear.
  */
+// Before anything renders: a page that appears in the wrong theme and corrects
+// itself in front of the reader is worse than one that took a moment longer.
+applyStoredTheme()
+
 const i18n = initI18n(resolveLocale('en'))
 
 const queryClient = new QueryClient({

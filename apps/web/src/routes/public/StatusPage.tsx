@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { TernWordmark } from '../../components/brand/TernMark'
+import { ThemePicker } from '../../components/ThemePicker'
 import { type UptimeDay } from '../../charts/UptimeRibbon'
 import { resolveOptions, widgetById } from '../../charts/registry'
 import { SystemPulse } from '../../charts/SystemPulse'
@@ -301,36 +302,9 @@ function Footer() {
 }
 
 function ThemeToggle() {
-  const { t } = useTranslation()
-  const [theme, setTheme] = useState<'light' | 'dark' | null>(null)
-
-  useEffect(() => {
-    if (theme) document.documentElement.dataset.theme = theme
-  }, [theme])
-
-  return (
-    <button
-      type="button"
-      aria-label={t('theme.toggle')}
-      onClick={() =>
-        setTheme((current) => {
-          if (current) return current === 'dark' ? 'light' : 'dark'
-          // First press flips away from whatever the system is showing.
-          return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'light' : 'dark'
-        })
-      }
-      style={{
-        background: 'none',
-        border: '1px solid var(--color-border)',
-        borderRadius: 'var(--radius-sm)',
-        color: 'var(--color-fg-muted)',
-        padding: '0 var(--space-3)',
-        fontSize: 'var(--text-sm)',
-      }}
-    >
-      {t('theme.toggle')}
-    </button>
-  )
+  // The same control as the admin's, so a reader's choice is one choice and it
+  // survives a reload — the previous toggle forgot it on every visit.
+  return <ThemePicker compact />
 }
 
 function Banner({ tone, children }: { tone: 'unknown'; children: React.ReactNode }) {

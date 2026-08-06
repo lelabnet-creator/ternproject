@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { adminApi, ApiError, type Control } from '../../lib/adminApi'
 import { Banner, Button, Card, CodeBlock, EmptyState, Field, Input } from '../../components/ui'
 import { TernWordmark } from '../../components/brand/TernMark'
+import { ThemePicker } from '../../components/ThemePicker'
 import { ScriptTabs } from '../../features/control-editor/ScriptTabs'
 import { PreviewStep } from '../../features/control-editor/PreviewStep'
 import { DEFAULT_WIDGET, resolveOptions, widgetById } from '../../charts/registry'
@@ -66,7 +67,8 @@ export function AdminApp({ slug }: { slug: string }) {
           isSystem={membership.isSystem === true}
         />
 
-        <div className="admin-rail-foot">
+        <div className="admin-rail-foot" style={{ display: 'grid', gap: 'var(--space-3)' }}>
+          <ThemePicker />
           <Button
             onClick={() => {
               void adminApi.logout().then(() => window.location.reload())
@@ -236,38 +238,116 @@ function ControlsScreen({ slug, canWrite }: { slug: string; canWrite: boolean })
           }
         />
       ) : (
-        <div style={{ display: 'grid', gap: 'var(--space-2)' }}>
+        /*
+         * A grid rather than a stack. Twenty controls in a single column on a
+         * 1440px display is one line of text per screen-inch and two empty
+         * thirds; a card can carry what the row could not — the widget, the
+         * probe kind, whether it is public — without any of them becoming a
+         * column that has to be maintained.
+         */
+        <div className="card-grid">
           {controls.data.map((control) => (
-            <Card key={control.id}>
-              <div
-                style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  gap: 'var(--space-3)',
-                  flexWrap: 'wrap',
-                  alignItems: 'center',
-                }}
-              >
-                <div style={{ minWidth: 0 }}>
-                  <strong>{control.name}</strong>
-                  <div
-                    className="tabular"
-                    style={{ fontSize: 'var(--text-xs)', color: 'var(--color-fg-subtle)' }}
-                  >
-                    {control.key} · {control.kind}
-                    {!control.isPublic && ' · internal'}
-                    {!control.enabled && ' · disabled'}
-                  </div>
-                </div>
-                {/* A visible button, not an action hidden behind hover — there
-                    is no hover on a phone. */}
-                {canWrite && <Button onClick={() => setEditing(control)}>Edit</Button>}
-              </div>
-            </Card>
+            <ControlCard
+              key={control.id}
+              control={control}
+              canWrite={canWrite}
+              onEdit={() => setEditing(control)}
+            />
           ))}
         </div>
       )}
     </section>
+  )
+}
+
+function ControlCard({
+  control,
+  canWrite,
+  onEdit,
+}: {
+  control: Control
+  canWrite: boolean
+  onEdit: () => void
+}) {
+  const widget = widgetById(control.widget)
+
+  return (
+    <Card>
+      <div style={{ display: 'grid', gap: 'var(--space-2)', height: '100%' }}>
+        <div style={{ display: 'flex', gap: 'var(--space-2)', alignItems: 'baseline' }}>
+          <strong style={{ flex: 1, minWidth: 0 }}>{control.name}</strong>
+          {/* State as a word, never as a colour alone — and only when it is not
+              the default, so the eye lands on the exceptions. */}
+          {!control.isPublic && <Tag>internal</Tag>}
+          {!control.enabled && <Tag tone="down">disabled</Tag>}
+        </div>
+
+        <code
+          className="tabular"
+          style={{ fontSize: 'var(--text-xs)', color: 'var(--color-fg-subtle)' }}
+        >
+          {control.key}
+        </code>
+
+        {control.description && (
+          <p
+            style={{
+              margin: 0,
+              fontSize: 'var(--text-sm)',
+              color: 'var(--color-fg-muted)',
+              display: '-webkit-box',
+              WebkitLineClamp: 2,
+              WebkitBoxOrient: 'vertical',
+              overflow: 'hidden',
+            }}
+          >
+            {control.description}
+          </p>
+        )}
+
+        <div
+          style={{
+            display: 'flex',
+            gap: 'var(--space-2)',
+            flexWrap: 'wrap',
+            fontSize: 'var(--text-xs)',
+            color: 'var(--color-fg-subtle)',
+            marginTop: 'auto',
+            paddingTop: 'var(--space-2)',
+          }}
+        >
+          <span>{control.kind === 'push' ? 'pushed' : `${control.kind} probe`}</span>
+          <span aria-hidden="true">·</span>
+          <span>{widget.label}</span>
+        </div>
+
+        {canWrite && (
+          <div>
+            {/* A visible button, not an action behind hover — there is no hover
+                on a phone. */}
+            <Button onClick={onEdit}>Edit</Button>
+          </div>
+        )}
+      </div>
+    </Card>
+  )
+}
+
+function Tag({ children, tone }: { children: React.ReactNode; tone?: 'down' }) {
+  return (
+    <span
+      style={{
+        flexShrink: 0,
+        padding: '0 var(--space-2)',
+        borderRadius: 'var(--radius-full)',
+        border: `1px solid ${tone === 'down' ? 'var(--status-down)' : 'var(--color-border-strong)'}`,
+        color: tone === 'down' ? 'var(--status-down)' : 'var(--color-fg-muted)',
+        fontSize: 'var(--text-xs)',
+        fontWeight: 600,
+      }}
+    >
+      {children}
+    </span>
   )
 }
 

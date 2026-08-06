@@ -185,6 +185,9 @@ export function LayoutScreen({ slug, canWrite }: { slug: string; canWrite: boole
         </div>
       </fieldset>
 
+      {/* ── Preview ─────────────────────────────────────────────────────── */}
+      <LayoutPreview slug={slug} density={density} order={order} />
+
       {/* ── Order ───────────────────────────────────────────────────────── */}
       <div>
         <h2 style={{ margin: '0 0 var(--space-2)', fontSize: 'var(--text-base)' }}>Order</h2>
@@ -249,6 +252,128 @@ export function LayoutScreen({ slug, canWrite }: { slug: string; canWrite: boole
           )}
         </div>
       )}
+    </section>
+  )
+}
+
+/**
+ * The public page as this arrangement will produce it.
+ *
+ * An iframe of the real page rather than a drawing of it: a mock-up is a second
+ * implementation of the layout, and the moment it drifts it starts lying about
+ * the thing it exists to predict. The cost is that it shows what is *saved*, so
+ * it is labelled that way and refreshes when a save lands.
+ *
+ * Two widths, because the density choice is precisely the thing that behaves
+ * differently on a phone — `grid` resolves to one column there, and an operator
+ * choosing it for a wall display should see that rather than discover it.
+ */
+function LayoutPreview({
+  slug,
+  density,
+  order,
+}: {
+  slug: string
+  density: PageLayout
+  order: Control[]
+}) {
+  const [width, setWidth] = useState<'desktop' | 'phone'>('desktop')
+  const [nonce, setNonce] = useState(0)
+
+  // Reload when the saved arrangement could have changed. `order` and `density`
+  // are the draft, so this fires on save — and on an edit, which is honest:
+  // the frame then visibly differs from the list above it.
+  useEffect(() => {
+    setNonce((n) => n + 1)
+  }, [density, order])
+
+  return (
+    <section>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 'var(--space-3)',
+          flexWrap: 'wrap',
+          marginBottom: 'var(--space-2)',
+        }}
+      >
+        <h2 style={{ margin: 0, fontSize: 'var(--text-base)' }}>Preview</h2>
+        <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
+          {(
+            [
+              ['desktop', 'Desktop'],
+              ['phone', 'Phone'],
+            ] as const
+          ).map(([id, label]) => (
+            <button
+              key={id}
+              type="button"
+              role="radio"
+              aria-checked={width === id}
+              onClick={() => setWidth(id)}
+              style={{
+                minHeight: 44,
+                padding: '0 var(--space-3)',
+                borderRadius: 'var(--radius-sm)',
+                border: `1px solid ${width === id ? 'var(--color-accent)' : 'var(--color-border)'}`,
+                background: width === id ? 'var(--color-accent-soft)' : 'transparent',
+                color: width === id ? 'var(--color-accent-ink)' : 'var(--color-fg-muted)',
+                fontFamily: 'inherit',
+                fontSize: 'var(--text-sm)',
+                fontWeight: 600,
+                cursor: 'pointer',
+              }}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <p
+        className="measure"
+        style={{
+          margin: '0 0 var(--space-3)',
+          fontSize: 'var(--text-sm)',
+          color: 'var(--color-fg-subtle)',
+        }}
+      >
+        The real page, not a drawing of it — so it cannot drift from what visitors get. It shows the{' '}
+        <strong>saved</strong> arrangement; save to see a change here.
+      </p>
+
+      <div
+        style={{
+          border: '1px solid var(--color-border)',
+          borderRadius: 'var(--radius-md)',
+          overflow: 'hidden',
+          background: 'var(--color-surface)',
+          maxWidth: width === 'phone' ? 420 : undefined,
+        }}
+      >
+        <iframe
+          key={nonce}
+          title="Public page preview"
+          src={`/s/${slug}?preview=1`}
+          /*
+           * Deliberately not sandboxed, and the reasoning is worth keeping.
+           * `allow-same-origin` alone blocks scripts, which leaves a blank
+           * frame — this is a React page. Adding `allow-scripts` beside it
+           * restores the page and, for same-origin content, removes the
+           * isolation again: the frame can reach its parent either way. A
+           * sandbox here would be theatre, so there is none. What is framed is
+           * our own page, on our own origin, with no user input in it.
+           */
+          style={{
+            display: 'block',
+            width: width === 'phone' ? 390 : '100%',
+            height: 520,
+            border: 0,
+          }}
+        />
+      </div>
     </section>
   )
 }
