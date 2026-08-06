@@ -1,9 +1,11 @@
-import { and, eq } from 'drizzle-orm'
+import { and, eq, isNull } from 'drizzle-orm'
 import { z } from 'zod'
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod'
 import { schema } from '@tern/db'
-import { hashPassword, verifyPassword } from '@tern/shared'
+import { generateToken, hashPassword, hashToken, verifyPassword } from '@tern/shared'
 import { config } from '../config.js'
+import { sendEmail } from '../services/transports.js'
+import { renderPasswordReset } from '../services/render.js'
 import {
   SESSION_COOKIE,
   createSession,
@@ -21,11 +23,21 @@ import {
 import { audit } from '../services/audit.js'
 
 /**
- * Local login with a TOTP second factor.
+ * How long a reset link lives.
+ *
+ * Thirty minutes: long enough to survive a mail server queue and someone
+ * reading it on another device, short enough that a link left in a mailbox is
+ * not a standing key to the account.
+ */
+const RESET_TTL_MS = 30 * 60 * 1000
+
+/**
+ * Local login with a TOTP second factor, and password recovery by email.
  *
  * The whole route file is rate-limited hard: these endpoints are the ones an
  * attacker actually reaches for, and a correct Argon2 verify is worth nothing
- * if it can be attempted ten thousand times a minute.
+ * if it can be attempted ten thousand times a minute. That limiter is also what
+ * keeps `/password/forgot` from being turned into a mail cannon.
  */
 const routes: FastifyPluginAsyncZod = async (app) => {
   await app.register(import('@fastify/rate-limit'), {
@@ -270,6 +282,154 @@ const routes: FastifyPluginAsyncZod = async (app) => {
       reply.clearCookie(SESSION_COOKIE, { path: '/' })
 
       await audit(app, { action: 'auth.password.changed', actorId: user.id, ip: req.ip })
+      return { ok: true }
+    },
+  )
+
+  /**
+   * Step one of a reset: ask for a link.
+   *
+   * Answers 202 for every address, always, whether or not an account exists.
+   * The whole point of the generic answer on `/login` is undone if this
+   * endpoint will happily confirm which addresses are registered — and this one
+   * needs no password at all, so it is the cheaper oracle of the two.
+   */
+  app.post(
+    '/password/forgot',
+    {
+      schema: {
+        body: z.object({ email: z.string().email() }),
+        response: { 202: z.object({ sent: z.boolean() }) },
+      },
+    },
+    async (req, reply) => {
+      const email = req.body.email.toLowerCase().trim()
+      const [user] = await app.db
+        .select()
+        .from(schema.users)
+        .where(eq(schema.users.email, email))
+        .limit(1)
+
+      // A disabled account is not a route back in. It is also not told apart
+      // from a missing one in the response.
+      if (user && !user.disabledAt) {
+        const token = generateToken(32)
+
+        // Any link already outstanding stops working. Two live links means a
+        // token stolen from an old mail survives the user asking again, which
+        // is exactly the case someone asks again *for*.
+        await app.db
+          .update(schema.passwordResetTokens)
+          .set({ usedAt: new Date() })
+          .where(
+            and(
+              eq(schema.passwordResetTokens.userId, user.id),
+              isNull(schema.passwordResetTokens.usedAt),
+            ),
+          )
+
+        await app.db.insert(schema.passwordResetTokens).values({
+          userId: user.id,
+          tokenHash: hashToken(token),
+          expiresAt: new Date(Date.now() + RESET_TTL_MS),
+          requestedIp: req.ip,
+        })
+
+        const resetUrl = `${config.PUBLIC_BASE_URL}/reset-password?token=${token}`
+
+        try {
+          await sendEmail(
+            user.email,
+            renderPasswordReset(user.locale, resetUrl, RESET_TTL_MS / 60_000),
+          )
+        } catch (error) {
+          // A mail server that is down must not turn into a 500 here: the
+          // difference between "sent" and "failed to send" is the same oracle
+          // this endpoint exists to avoid. It is logged, and the caller is told
+          // what every caller is told.
+          req.log.error({ err: error }, 'password reset mail failed')
+        }
+
+        await audit(app, { action: 'auth.password.reset_requested', actorId: user.id, ip: req.ip })
+      } else {
+        await audit(app, {
+          action: 'auth.password.reset_requested.unknown',
+          actorLabel: email,
+          ip: req.ip,
+        })
+      }
+
+      return reply.code(202).send({ sent: true })
+    },
+  )
+
+  /**
+   * Step two: redeem the link.
+   *
+   * It sets a password and nothing else. No session is issued, so a reset does
+   * not walk past the second factor — an account with TOTP still has to present
+   * a code at the next sign-in. Anything else would make a mailbox a bypass for
+   * MFA, which is the one thing MFA is there to prevent.
+   */
+  app.post(
+    '/password/reset',
+    {
+      schema: {
+        body: z.object({
+          token: z.string().min(1),
+          newPassword: z.string().min(12, 'Use at least 12 characters'),
+        }),
+        response: { 200: z.object({ ok: z.boolean() }) },
+      },
+    },
+    async (req) => {
+      const [row] = await app.db
+        .select()
+        .from(schema.passwordResetTokens)
+        .where(eq(schema.passwordResetTokens.tokenHash, hashToken(req.body.token)))
+        .limit(1)
+
+      // One message for expired, already used, and never existed. Which of the
+      // three it was is information the holder of a bad token has not earned.
+      if (!row || row.usedAt || row.expiresAt.getTime() <= Date.now()) {
+        await audit(app, { action: 'auth.password.reset_rejected', ip: req.ip })
+        throw app.httpErrors.badRequest('This link is no longer valid. Ask for a new one.')
+      }
+
+      const [user] = await app.db
+        .select()
+        .from(schema.users)
+        .where(eq(schema.users.id, row.userId))
+        .limit(1)
+      if (!user || user.disabledAt) {
+        throw app.httpErrors.badRequest('This link is no longer valid. Ask for a new one.')
+      }
+
+      // Marked used before the password is written, and scoped by `usedAt IS
+      // NULL`: two requests racing with the same token both read a live row,
+      // and only the one whose UPDATE matches gets to continue.
+      const claimed = await app.db
+        .update(schema.passwordResetTokens)
+        .set({ usedAt: new Date() })
+        .where(
+          and(eq(schema.passwordResetTokens.id, row.id), isNull(schema.passwordResetTokens.usedAt)),
+        )
+        .returning({ id: schema.passwordResetTokens.id })
+
+      if (claimed.length === 0) {
+        throw app.httpErrors.badRequest('This link is no longer valid. Ask for a new one.')
+      }
+
+      await app.db
+        .update(schema.users)
+        .set({ passwordHash: await hashPassword(req.body.newPassword) })
+        .where(eq(schema.users.id, user.id))
+
+      // Same reasoning as a deliberate password change: a reset is usually a
+      // response to losing control of the account, so every session goes.
+      await destroyUserSessions(app.db, user.id)
+
+      await audit(app, { action: 'auth.password.reset', actorId: user.id, ip: req.ip })
       return { ok: true }
     },
   )

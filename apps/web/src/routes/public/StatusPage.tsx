@@ -9,6 +9,9 @@ import { resolveOptions, widgetById } from '../../charts/registry'
 import { SystemPulse } from '../../charts/SystemPulse'
 import { api, type StatusComponent, type StatusSummary } from '../../lib/api'
 import { STATUS_PRESENTATION } from '../../lib/status'
+import { rememberPage } from '../../lib/recentPages'
+import { SponsorButton } from '../../components/SponsorButton'
+import { SiteFooter } from '../../components/SiteFooter'
 
 /**
  * The public status page.
@@ -46,6 +49,14 @@ export function StatusPage({ slug }: { slug: string }) {
     applyAccent(accentById(typeof accentId === 'string' ? accentId : undefined))
   }, [accentId])
 
+  // Remembered here rather than at the root, and only once a summary has come
+  // back: the root cannot tell whether a name exists, and a list built from
+  // what was typed there would be a list of guesses.
+  const tenantName = summary.data?.tenant.name
+  useEffect(() => {
+    if (tenantName) rememberPage(slug, tenantName)
+  }, [slug, tenantName])
+
   if (summary.isPending) return <PageSkeleton />
   if (summary.isError || !summary.data) {
     return (
@@ -74,78 +85,71 @@ export function StatusPage({ slug }: { slug: string }) {
         padding: 'var(--space-6) var(--space-4) var(--space-12)',
       }}
     >
-      <Header name={data.tenant.name} slug={slug} />
+      <div className="page-card">
+        <Header name={data.tenant.name} slug={slug} />
 
-      <Subscribe slug={slug} disclaimer={data.tenant.subscriberDisclaimer ?? null} />
+        <Subscribe slug={slug} disclaimer={data.tenant.subscriberDisclaimer ?? null} />
 
-      {!online && (
-        <Banner tone="unknown">
-          {t('page.offline', { when: formatTime(data.generatedAt, locale, timeZone) })}
-        </Banner>
-      )}
+        {!online && (
+          <Banner tone="unknown">
+            {t('page.offline', { when: formatTime(data.generatedAt, locale, timeZone) })}
+          </Banner>
+        )}
 
-      <section style={{ padding: 'var(--space-8) 0' }}>
-        <SystemPulse
-          overall={data.overall.status}
-          affectedCount={data.overall.affectedCount}
-          groups={topLevelGroups(data)}
-        />
-        <p
-          className="tabular"
-          style={{
-            textAlign: 'center',
-            fontSize: 'var(--text-xs)',
-            color: 'var(--color-fg-subtle)',
-            marginTop: 'var(--space-2)',
-          }}
-        >
-          {t('page.lastUpdated', { when: formatTime(data.generatedAt, locale, timeZone) })}
-        </p>
-      </section>
-
-      {groupTree(data, preview.order).map(({ group, components }) => (
-        <section
-          key={group?.id ?? 'ungrouped'}
-          style={{
-            marginBottom: 'var(--space-5)',
-            background: 'var(--color-surface)',
-            border: '1px solid var(--color-border)',
-            borderRadius: 'var(--radius-md)',
-            boxShadow: 'var(--shadow-card)',
-            padding: 'var(--space-4)',
-          }}
-        >
-          {group && (
-            <h2
-              style={{
-                fontSize: 'var(--text-sm)',
-                fontWeight: 600,
-                textTransform: 'uppercase',
-                letterSpacing: '0.06em',
-                color: 'var(--color-fg-subtle)',
-                margin: '0 0 var(--space-3)',
-              }}
-            >
-              {group.name}
-            </h2>
-          )}
-
-          <div style={layoutStyle(layout)}>
-            {components.map((component) => (
-              <ComponentCard
-                key={component.id}
-                component={component}
-                days={uptime.data?.days.filter((d) => d.controlId === component.id) ?? []}
-                showRibbon={data.tenant.retentionMode === 'historical'}
-                locale={locale}
-                timeZone={timeZone}
-                layout={layout}
-              />
-            ))}
-          </div>
+        <section style={{ padding: 'var(--space-8) 0' }}>
+          <SystemPulse
+            overall={data.overall.status}
+            affectedCount={data.overall.affectedCount}
+            groups={topLevelGroups(data)}
+          />
+          <p
+            className="tabular"
+            style={{
+              textAlign: 'center',
+              fontSize: 'var(--text-xs)',
+              color: 'var(--color-fg-subtle)',
+              marginTop: 'var(--space-2)',
+            }}
+          >
+            {t('page.lastUpdated', { when: formatTime(data.generatedAt, locale, timeZone) })}
+          </p>
         </section>
-      ))}
 
+        {groupTree(data, preview.order).map(({ group, components }) => (
+          <section key={group?.id ?? 'ungrouped'} className="page-group">
+            {group && (
+              <h2
+                style={{
+                  fontSize: 'var(--text-sm)',
+                  fontWeight: 600,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.06em',
+                  color: 'var(--color-fg-subtle)',
+                  margin: '0 0 var(--space-3)',
+                }}
+              >
+                {group.name}
+              </h2>
+            )}
+
+            <div style={layoutStyle(layout)}>
+              {components.map((component) => (
+                <ComponentCard
+                  key={component.id}
+                  component={component}
+                  days={uptime.data?.days.filter((d) => d.controlId === component.id) ?? []}
+                  showRibbon={data.tenant.retentionMode === 'historical'}
+                  locale={locale}
+                  timeZone={timeZone}
+                  layout={layout}
+                />
+              ))}
+            </div>
+          </section>
+        ))}
+      </div>
+
+      {/* Outside the card: this says who made the page, not what it reports. */}
       <Footer />
     </div>
   )
@@ -316,11 +320,49 @@ function Header({ name, slug }: { name: string; slug: string }) {
         alignItems: 'center',
         justifyContent: 'space-between',
         gap: 'var(--space-4)',
+        flexWrap: 'wrap',
         paddingBottom: 'var(--space-4)',
         borderBottom: '1px solid var(--color-border)',
       }}
     >
-      <h1 style={{ margin: 0, fontSize: 'var(--text-xl)', fontWeight: 600 }}>{name}</h1>
+      {/* The mark, then the tenant's name, with a rule between them. The order
+          is the sentence it makes: this page runs on TERN, and it belongs to
+          Acme. The mark links home to the page picker, which is what a logo in
+          a header is expected to do — and it is drawn at 24px, below the name's
+          weight, so the customer's name still reads first. */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', minWidth: 0 }}>
+        <a
+          href="/"
+          aria-label="TERN"
+          style={{ display: 'inline-flex', color: 'inherit', textDecoration: 'none' }}
+        >
+          <TernWordmark size={24} />
+        </a>
+        <span aria-hidden="true" style={{ color: 'var(--color-border)' }}>
+          /
+        </span>
+        <h1
+          style={{
+            margin: 0,
+            fontSize: 'var(--text-xl)',
+            fontWeight: 600,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {name}
+        </h1>
+      </div>
+
+      {/* Centred between the name and the controls, and it grows to take what
+          is left so it stays centred as the name changes length. It wraps to
+          its own line before it squeezes either neighbour — this is the one
+          thing in the header nobody came here to read. */}
+      <div style={{ flex: '1 1 12rem', display: 'flex', justifyContent: 'center' }}>
+        <SponsorButton />
+      </div>
+
       <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
         <AdminLink slug={slug} />
         <ThemeToggle />
@@ -543,22 +585,21 @@ function AdminLink({ slug }: { slug: string }) {
   )
 }
 
+/**
+ * The mark moved to the header, so what belongs here is the credit — who built
+ * this and where the code lives, in the same words as every other screen.
+ */
 function Footer() {
   return (
-    <footer
+    <div
       style={{
         marginTop: 'var(--space-12)',
         paddingTop: 'var(--space-4)',
         borderTop: '1px solid var(--color-border)',
-        display: 'flex',
-        justifyContent: 'center',
-        opacity: 0.6,
-        fontSize: 'var(--text-xs)',
       }}
     >
-      {/* Tenant branding owns the header; TERN steps back to a quiet credit. */}
-      <TernWordmark size={24} />
-    </footer>
+      <SiteFooter />
+    </div>
   )
 }
 
@@ -607,25 +648,30 @@ function Centered({ children }: { children: React.ReactNode }) {
 function PageSkeleton() {
   return (
     <div style={{ maxWidth: '72rem', margin: '0 auto', padding: 'var(--space-6) var(--space-4)' }}>
-      <div
-        style={{
-          height: 240,
-          borderRadius: 'var(--radius-md)',
-          background: 'var(--color-surface)',
-          marginBottom: 'var(--space-6)',
-        }}
-      />
-      {[0, 1, 2, 3].map((i) => (
+      {/* The same card the loaded page draws, so the arrival is a fill rather
+          than a rearrangement. The blocks inside are raised against it — on the
+          page's own surface they would be invisible. */}
+      <div className="page-card">
         <div
-          key={i}
           style={{
-            height: 96,
+            height: 240,
             borderRadius: 'var(--radius-md)',
-            background: 'var(--color-surface)',
-            marginBottom: 'var(--space-3)',
+            background: 'var(--color-surface-raised)',
+            marginBottom: 'var(--space-6)',
           }}
         />
-      ))}
+        {[0, 1, 2, 3].map((i) => (
+          <div
+            key={i}
+            style={{
+              height: 96,
+              borderRadius: 'var(--radius-md)',
+              background: 'var(--color-surface-raised)',
+              marginBottom: 'var(--space-3)',
+            }}
+          />
+        ))}
+      </div>
     </div>
   )
 }

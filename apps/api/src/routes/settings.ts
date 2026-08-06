@@ -152,6 +152,8 @@ const routes: FastifyPluginAsyncZod = async (app) => {
           subscriberDisclaimer: z.string().max(2000).nullable().optional(),
           accent: z.string().max(30).optional(),
           logoUrl: z.string().url().max(500).nullable().optional(),
+          /** Set once, by the first-run wizard, to stop it offering itself again. */
+          setupCompleted: z.boolean().optional(),
           sizingAssumptions: z
             .object({
               intervalS: z.number().int().min(5).max(86_400),
@@ -201,15 +203,32 @@ const routes: FastifyPluginAsyncZod = async (app) => {
         if (req.body[key] !== undefined) patch[key] = req.body[key]
       }
 
+      // Branding is one column holding several choices, so every one of them
+      // has to merge into the *same* object. Two separate spreads of
+      // `tenant.branding` meant a request carrying both a logo and an accent
+      // kept only the accent — the second assignment overwrote the first,
+      // starting from the stored value again.
+      const branding = { ...(tenant.branding ?? {}) }
+      let brandingTouched = false
+
       if (req.body.logoUrl !== undefined) {
-        patch.branding = { ...(tenant.branding ?? {}), logoUrl: req.body.logoUrl }
+        branding.logoUrl = req.body.logoUrl
+        brandingTouched = true
       }
 
       if (req.body.accent !== undefined) {
-        // Merged into branding rather than given a column: it is one of several
-        // presentation choices and they belong together.
-        patch.branding = { ...(tenant.branding ?? {}), accent: req.body.accent }
+        branding.accent = req.body.accent
+        brandingTouched = true
       }
+
+      if (req.body.setupCompleted) {
+        // A timestamp rather than a flag: "when was this tenant set up" is a
+        // question an operator asks, and `true` cannot answer it.
+        branding.setupCompletedAt = new Date().toISOString()
+        brandingTouched = true
+      }
+
+      if (brandingTouched) patch.branding = branding
 
       if (req.body.smtp !== undefined) {
         if (req.body.smtp === null) {
