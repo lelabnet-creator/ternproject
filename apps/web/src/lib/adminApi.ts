@@ -96,6 +96,12 @@ export const adminApi = {
   deleteControl: (slug: string, id: string) =>
     request<{ ok: boolean }>('DELETE', `/api/v1/${slug}/controls/${id}`),
 
+  series: (slug: string, id: string, days = 30) =>
+    request<{
+      synthetic: boolean
+      points: { ts: string; status: string; latencyMs: number | null; value: number | null }[]
+    }>('GET', `/api/v1/${slug}/controls/${id}/series?days=${days}`),
+
   simulate: (slug: string, id: string, body: Record<string, unknown>) =>
     request<{ inserted: number }>('POST', `/api/v1/${slug}/controls/${id}/simulate`, body),
 

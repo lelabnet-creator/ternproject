@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm'
+import { and, eq, gte } from 'drizzle-orm'
 import { z } from 'zod'
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod'
 import { schema } from '@tern/db'
@@ -16,6 +16,7 @@ import { config } from '../config.js'
 import { audit } from '../services/audit.js'
 import { runProbe } from '../services/probe-transport.js'
 import { purgeSyntheticChecks } from '../services/scheduler.js'
+import { downsample } from '../services/series.js'
 
 /**
  * Controls, and everything the indicator editor needs behind it.
@@ -372,6 +373,81 @@ const routes: FastifyPluginAsyncZod = async (app) => {
       })
 
       return { inserted: series.length }
+    },
+  )
+
+  /**
+   * This control's recent points, simulation included.
+   *
+   * The public uptime endpoint reads the continuous aggregates, which exclude
+   * synthetic rows by design — so it can never show what a simulation produced.
+   * The editor needs exactly that: the widget drawn on the data just generated,
+   * which is the only way to judge a chart before any real data exists.
+   */
+  app.get(
+    '/:slug/controls/:id/series',
+    {
+      onRequest: [app.requireTenant()],
+      preHandler: [app.requirePermission('control:write')],
+      schema: {
+        params: z.object({ slug: z.string(), id: z.string().uuid() }),
+        querystring: z.object({
+          days: z.coerce.number().int().min(1).max(90).default(30),
+          /** Bucketed down to this many points before leaving the server. */
+          points: z.coerce.number().int().min(10).max(2000).default(720),
+        }),
+        response: {
+          200: z.object({
+            synthetic: z.boolean(),
+            points: z.array(
+              z.object({
+                ts: z.string(),
+                status: z.string(),
+                latencyMs: z.number().nullable(),
+                value: z.number().nullable(),
+              }),
+            ),
+          }),
+        },
+      },
+    },
+    async (req) => {
+      const control = await loadControl(app, req.tenant!.id, req.params.id)
+      const from = new Date(Date.now() - req.query.days * 86_400_000)
+
+      const rows = await app.db
+        .select({
+          ts: schema.checks.ts,
+          status: schema.checks.status,
+          latencyMs: schema.checks.latencyMs,
+          value: schema.checks.value,
+          synthetic: schema.checks.synthetic,
+        })
+        .from(schema.checks)
+        .where(and(eq(schema.checks.controlId, control.id), gte(schema.checks.ts, from)))
+        .orderBy(schema.checks.ts)
+
+      const points = downsample(
+        rows.map((row) => ({
+          ts: row.ts,
+          status: row.status,
+          latencyMs: row.latencyMs,
+          value: row.value === null ? null : Number(row.value),
+        })),
+        req.query.points,
+      )
+
+      return {
+        // Said out loud so the editor can label the chart: a preview drawn on
+        // simulated data must never be mistaken for the real thing.
+        synthetic: rows.length > 0 && rows.every((row) => row.synthetic),
+        points: points.map((point) => ({
+          ts: point.ts.toISOString(),
+          status: point.status,
+          latencyMs: point.latencyMs,
+          value: point.value,
+        })),
+      }
     },
   )
 

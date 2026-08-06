@@ -5,7 +5,8 @@ import { Banner, Button, Card, CodeBlock, EmptyState, Field, Input } from '../..
 import { TernWordmark } from '../../components/brand/TernMark'
 import { ScriptTabs } from '../../features/control-editor/ScriptTabs'
 import { PreviewStep } from '../../features/control-editor/PreviewStep'
-import { DEFAULT_WIDGET } from '../../charts/registry'
+import { DEFAULT_WIDGET, resolveOptions, widgetById } from '../../charts/registry'
+import type { CheckStatusValue } from '@tern/shared/status'
 import { api } from '../../lib/api'
 import { LayoutScreen } from './LayoutScreen'
 
@@ -485,19 +486,33 @@ function ControlEditor({
           }
         />
       )}
-      {step === 2 && saved && <SimulateStep slug={slug} controlId={saved.id} />}
+      {step === 2 && saved && <SimulateStep slug={slug} control={saved} />}
       {step === 3 && saved && <ScriptTabs slug={slug} controlId={saved.id} />}
     </section>
   )
 }
 
-function SimulateStep({ slug, controlId }: { slug: string; controlId: string }) {
+function SimulateStep({ slug, control }: { slug: string; control: Control }) {
   const queryClient = useQueryClient()
   const [days, setDays] = useState(30)
   const [uptime, setUptime] = useState(0.995)
   const [result, setResult] = useState<string | null>(null)
 
-  const refresh = () => queryClient.invalidateQueries({ queryKey: ['uptime', slug] })
+  const controlId = control.id
+
+  // The point of the step: seeing the widget with data in it. Read back from
+  // the server rather than drawn from the generator's return value, so what is
+  // shown is what was actually stored — including the shape the aggregation
+  // gives it.
+  const series = useQuery({
+    queryKey: ['series', slug, controlId, days],
+    queryFn: () => adminApi.series(slug, controlId, days),
+  })
+
+  const refresh = async () => {
+    await queryClient.invalidateQueries({ queryKey: ['uptime', slug] })
+    await queryClient.invalidateQueries({ queryKey: ['series', slug, controlId] })
+  }
 
   const simulate = useMutation({
     mutationFn: () => adminApi.simulate(slug, controlId, { days, targetUptime: uptime }),
@@ -557,8 +572,77 @@ function SimulateStep({ slug, controlId }: { slug: string; controlId: string }) 
         </div>
 
         {result && <Banner tone="operational">{result}</Banner>}
+
+        {/* ── The widget, on this control's actual data ─────────────────── */}
+        <div>
+          <h3 style={{ margin: '0 0 var(--space-2)', fontSize: 'var(--text-sm)' }}>
+            {widgetById(control.widget).label}
+            {series.data?.synthetic && (
+              <span
+                style={{
+                  marginLeft: 'var(--space-2)',
+                  fontSize: 'var(--text-xs)',
+                  fontWeight: 600,
+                  color: 'var(--status-maintenance)',
+                }}
+              >
+                simulated data
+              </span>
+            )}
+          </h3>
+
+          {series.isPending ? (
+            <p style={{ color: 'var(--color-fg-subtle)', margin: 0 }}>Loading the series…</p>
+          ) : series.data && series.data.points.length > 0 ? (
+            <SimulatedWidget control={control} points={series.data.points} />
+          ) : (
+            <p style={{ color: 'var(--color-fg-subtle)', margin: 0 }}>
+              Nothing recorded yet. Generate a simulation and the widget will draw it.
+            </p>
+          )}
+        </div>
       </div>
     </Card>
+  )
+}
+
+/**
+ * The control's chosen widget, fed the series the server just returned.
+ *
+ * Rendered through the registry rather than a fixed chart, so this step answers
+ * the question it is actually asked: not "is there data" but "does the widget I
+ * picked look right with data in it".
+ */
+function SimulatedWidget({
+  control,
+  points,
+}: {
+  control: Control
+  points: { ts: string; status: string; latencyMs: number | null; value: number | null }[]
+}) {
+  const widget = widgetById(control.widget)
+  const options = resolveOptions(widget, control.widgetOptions)
+
+  const series = points.map((point) => ({
+    ts: new Date(point.ts),
+    status: point.status as CheckStatusValue,
+    latencyMs: point.latencyMs,
+    value: point.value,
+    message: null,
+  }))
+
+  return (
+    <widget.Component
+      label={control.name}
+      locale="en"
+      timeZone="UTC"
+      options={options}
+      series={series}
+      unit={control.valueUnit}
+      valueLabel={control.valueLabel}
+      warnAt={Number(options.warnAt ?? 0) || null}
+      limitAt={Number(options.limitAt ?? 0) || null}
+    />
   )
 }
 
