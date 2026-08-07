@@ -18,6 +18,7 @@ import { DEFAULT_WIDGET, resolveOptions, widgetById } from '../../charts/registr
 import type { CheckStatusValue } from '@tern/shared/status'
 import { api } from '../../lib/api'
 import { LayoutScreen } from './LayoutScreen'
+import { MaintenancesScreen } from './MaintenancesScreen'
 import { FleetScreen } from './FleetScreen'
 import { OptionsScreen } from './OptionsScreen'
 import { LogsScreen } from './LogsScreen'
@@ -222,7 +223,9 @@ export function AdminApp({ slug }: { slug: string }) {
       </aside>
 
       <main className="admin-main">
-        {section === 'layout' ? (
+        {section === 'maintenance' ? (
+          <MaintenancesScreen slug={slug} canWrite={canWrite} />
+        ) : section === 'layout' ? (
           <LayoutScreen slug={slug} canWrite={canWrite} />
         ) : section === 'agents' ? (
           <FleetScreen slug={slug} canWrite={canWrite} />
@@ -246,6 +249,7 @@ const SECTIONS = [
   // Icon *and* label, never the icon alone: an icon-only rail is a memory test,
   // and the words are what a screen reader reads out.
   { id: 'controls', label: 'Controls', icon: 'Activity' },
+  { id: 'maintenance', label: 'Maintenance', icon: 'CalendarClock' },
   { id: 'layout', label: 'Page layout', icon: 'LayoutGrid' },
   { id: 'agents', label: 'Agents', icon: 'Radar' },
   { id: 'logs', label: 'Logs', icon: 'ScrollText' },

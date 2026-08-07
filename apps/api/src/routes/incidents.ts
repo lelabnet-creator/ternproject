@@ -5,6 +5,7 @@ import { schema } from '@tern/db'
 import { incidentImpactSchema } from '@tern/shared'
 import { audit } from '../services/audit.js'
 import { enqueueEvent } from '../services/notify.js'
+import { assertControlsBelong } from '../services/tenant-guard.js'
 
 /**
  * Incident communication.
@@ -433,30 +434,6 @@ async function loadIncident(
     .limit(1)
   if (!incident) throw app.httpErrors.notFound('Unknown incident')
   return incident
-}
-
-/**
- * Rejects control ids that belong to another tenant.
- *
- * Without this an admin could attach a competitor's component to their own
- * incident by guessing a uuid — the impact row would be readable through the
- * public summary of that other tenant.
- */
-async function assertControlsBelong(
-  app: Parameters<FastifyPluginAsyncZod>[0],
-  tenantId: string,
-  controlIds: string[],
-) {
-  if (controlIds.length === 0) return
-  const unique = [...new Set(controlIds)]
-  const found = await app.db
-    .select({ id: schema.controls.id })
-    .from(schema.controls)
-    .where(and(eq(schema.controls.tenantId, tenantId), inArray(schema.controls.id, unique)))
-
-  if (found.length !== unique.length) {
-    throw app.httpErrors.badRequest('One or more controls do not belong to this tenant')
-  }
 }
 
 export default routes

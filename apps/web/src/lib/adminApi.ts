@@ -135,6 +135,41 @@ export interface ScriptBundle {
   agent: { config: string; pairCommand: string; runCommand: string }
 }
 
+export type MaintenanceStatus = 'scheduled' | 'in_progress' | 'completed' | 'cancelled'
+
+export interface Maintenance {
+  id: string
+  title: string
+  body: string | null
+  status: MaintenanceStatus
+  scheduledStart: string
+  scheduledEnd: string
+  actualStart: string | null
+  actualEnd: string | null
+  autoTransition: boolean
+  suppressAlerts: boolean
+  isPublic: boolean
+  /** Minutes before the window at which subscribers are reminded. */
+  remindersBeforeMin: number[]
+  /** Which of those marks have already gone out. */
+  remindersSentAt: number[]
+  controlIds: string[]
+  updates: { id: string; status: MaintenanceStatus; body: string; createdAt: string }[]
+}
+
+/** What a PATCH may carry. What the API accepts narrows as the window advances. */
+export interface MaintenancePatch {
+  title?: string
+  body?: string | null
+  scheduledStart?: string
+  scheduledEnd?: string
+  controlIds?: string[]
+  autoTransition?: boolean
+  suppressAlerts?: boolean
+  isPublic?: boolean
+  remindersBeforeMin?: number[]
+}
+
 export interface ProbeRunResult {
   status: string
   latencyMs: number | null
@@ -292,6 +327,49 @@ export const adminApi = {
     slug: string,
     body: { layout: 'list' | 'grid' | 'compact'; order: { controlId: string }[] },
   ) => request<{ ok: boolean; reordered: number }>('PATCH', `/api/v1/${slug}/layout`, body),
+
+  maintenances: (slug: string) => request<Maintenance[]>('GET', `/api/v1/${slug}/maintenances`),
+
+  scheduleMaintenance: (
+    slug: string,
+    body: {
+      title: string
+      body?: string
+      scheduledStart: string
+      scheduledEnd: string
+      controlIds?: string[]
+      autoTransition?: boolean
+      suppressAlerts?: boolean
+      isPublic?: boolean
+      remindersBeforeMin?: number[]
+      notify?: boolean
+    },
+  ) => request<{ id: string }>('POST', `/api/v1/${slug}/maintenances`, body),
+
+  updateMaintenance: (slug: string, id: string, body: MaintenancePatch) =>
+    request<{ ok: boolean }>('PATCH', `/api/v1/${slug}/maintenances/${id}`, body),
+
+  /** Also how the window is moved by hand when auto-transition is off. */
+  addMaintenanceUpdate: (
+    slug: string,
+    id: string,
+    body: { status: MaintenanceStatus; body: string; notify?: boolean },
+  ) =>
+    request<{ id: string; status: MaintenanceStatus }>(
+      'POST',
+      `/api/v1/${slug}/maintenances/${id}/updates`,
+      body,
+    ),
+
+  /**
+   * Cancels an announced window, deletes an unannounced one — the API decides
+   * which, and says which it did.
+   */
+  cancelMaintenance: (slug: string, id: string, notify = true) =>
+    request<{ deleted: boolean; cancelled: boolean }>(
+      'DELETE',
+      `/api/v1/${slug}/maintenances/${id}?notify=${notify}`,
+    ),
 
   agents: (slug: string) => request<Agent[]>('GET', `/api/v1/${slug}/agents`),
 
