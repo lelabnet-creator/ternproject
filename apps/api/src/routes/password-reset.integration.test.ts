@@ -2,6 +2,7 @@ import { and, desc, eq, isNull } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { schema } from '@tern/db'
 import { generateToken, hashToken } from '@tern/shared'
+import { PASSWORD_MIN_LENGTH } from '@tern/shared/password'
 import { createFixture, login, TEST_PASSWORD, type TestFixture } from '../test/harness.js'
 
 let fx: TestFixture
@@ -149,9 +150,12 @@ describe('redeeming a reset link', () => {
     expect(new Set(messages).size).toBe(1)
   })
 
-  it('rejects a password shorter than the floor', async () => {
+  it('rejects a password shorter than the floor, and accepts one exactly at it', async () => {
+    // Pinned to the constant and tested either side of it. The previous version
+    // passed a five-character password, which is refused by any floor at all —
+    // so it proved a floor existed without ever saying where.
     const token = await issueToken(fx.users.admin.id)
-    expect((await reset(token, 'short')).statusCode).toBe(400)
+    expect((await reset(token, 'x'.repeat(PASSWORD_MIN_LENGTH - 1))).statusCode).toBe(400)
 
     // And the token survives, so a rejected attempt does not cost the link.
     const [row] = await fx.app.db
@@ -161,5 +165,9 @@ describe('redeeming a reset link', () => {
       .orderBy(desc(schema.passwordResetTokens.createdAt))
       .limit(1)
     expect(row?.usedAt).toBeNull()
+
+    // The same link then works with a password exactly at the floor, which is
+    // what makes this a boundary rather than a direction.
+    expect((await reset(token, 'x'.repeat(PASSWORD_MIN_LENGTH))).statusCode).toBe(200)
   })
 })

@@ -42,6 +42,42 @@ const schema = z.object({
   PUBLIC_BASE_URL: z.string().url().default('http://localhost:5173'),
 
   /**
+   * Where the instance keeps state that is not in the database: today the local
+   * agent's `agent.toml` and its offline queue.
+   *
+   * `/var/lib/tern` is the volume `docker-compose.prod.yml` already mounts. In
+   * development that path is neither present nor writable, so it falls back to
+   * a directory beside the checkout — which is also why the default is computed
+   * rather than written as one string.
+   */
+  TERN_DATA_DIR: z
+    .string()
+    .default(process.env.NODE_ENV === 'production' ? '/var/lib/tern' : '.tern'),
+
+  /**
+   * Whether this instance runs its own agent.
+   *
+   * On by default: a fresh install that monitors nothing until somebody deploys
+   * an agent is a fresh install that looks broken. Turned off, the server still
+   * probes for itself through the `local-probes` job — what is lost is the
+   * agent's offline queue and its appearance in the fleet, not the monitoring.
+   */
+  TERN_LOCAL_AGENT: z
+    .string()
+    .default('true')
+    .transform((v) => v !== 'false' && v !== '0'),
+
+  /**
+   * The address written into the local agent's `agent.toml`.
+   *
+   * Empty means "the API on this machine", which is right when the API is run
+   * from source. The production stack runs the agent in its own container,
+   * where loopback is its own and reaches nothing — `docker-compose.prod.yml`
+   * sets this to the API's compose service name.
+   */
+  TERN_LOCAL_AGENT_SERVER: z.string().default(''),
+
+  /**
    * Proxy CIDRs whose X-Forwarded-For is believed. Empty by default: IP
    * allowlists are only as trustworthy as this list, and trusting a header
    * nobody sets is how they get bypassed.

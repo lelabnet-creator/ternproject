@@ -4,9 +4,10 @@ import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod'
 import { schema } from '@tern/db'
 import { generatePin, hashToken, normalisePin } from '@tern/shared'
 import { config } from '../config.js'
-import { authenticateApiKey, issueApiKey } from '../services/apikeys.js'
+import { authenticateApiKey, issueApiKey, touchAgent } from '../services/apikeys.js'
 import { assignmentsFor, jobsForAgent } from '../services/jobs.js'
 import { audit } from '../services/audit.js'
+import { LOCAL_AGENT_NAME } from '../services/local-agent.js'
 
 /**
  * PIN-based agent pairing.
@@ -203,6 +204,10 @@ const routes: FastifyPluginAsyncZod = async (app) => {
       const key = await authenticateApiKey(app, req, 'ingest')
       if (!key) throw app.httpErrors.unauthorized('Invalid or missing API key')
 
+      // An agent asking what to run is alive, even if it has nothing to push
+      // yet — which is exactly the state a freshly started one is in.
+      await touchAgent(app, key.id)
+
       const [tenant] = await app.db
         .select({ slug: schema.tenants.slug })
         .from(schema.tenants)
@@ -311,6 +316,8 @@ const routes: FastifyPluginAsyncZod = async (app) => {
                * without a second request per agent.
                */
               scopeControlIds: z.array(z.string()),
+              /** The instance's own agent, which cannot be revoked or deleted. */
+              isLocal: z.boolean(),
             }),
           ),
         },
@@ -356,6 +363,9 @@ const routes: FastifyPluginAsyncZod = async (app) => {
           jobCount: row.status === 'revoked' ? 0 : mine.length,
           controls: row.status === 'revoked' ? [] : mine,
           scopeControlIds: scope ?? [],
+          // Sent so the fleet screen can say why the delete button is missing,
+          // rather than offering one that answers 409.
+          isLocal: row.isLocal,
         }
       })
     },
@@ -442,7 +452,11 @@ const routes: FastifyPluginAsyncZod = async (app) => {
     },
     async (req) => {
       const owned = await app.db
-        .select({ id: schema.agents.id, apiKeyId: schema.agents.apiKeyId })
+        .select({
+          id: schema.agents.id,
+          apiKeyId: schema.agents.apiKeyId,
+          isLocal: schema.agents.isLocal,
+        })
         .from(schema.agents)
         .where(
           and(eq(schema.agents.tenantId, req.tenant!.id), inArray(schema.agents.id, req.body.ids)),
@@ -452,6 +466,16 @@ const routes: FastifyPluginAsyncZod = async (app) => {
       // through would otherwise leave part of the request applied.
       if (owned.length !== req.body.ids.length) {
         throw app.httpErrors.notFound('Unknown agent in the selection')
+      }
+
+      // Checked here rather than silently skipped. A selection of six that
+      // quietly acts on five is a bulk action whose result nobody can predict,
+      // and the whole request is refused for the same reason a foreign id
+      // refuses it: partial application is the failure mode worth avoiding.
+      if (owned.some((agent) => agent.isLocal)) {
+        throw app.httpErrors.conflict(
+          `${LOCAL_AGENT_NAME} belongs to this instance and cannot be revoked or deleted. Set TERN_LOCAL_AGENT=false to turn it off.`,
+        )
       }
 
       const keyIds = owned.map((a) => a.apiKeyId).filter((id): id is string => Boolean(id))
@@ -509,6 +533,14 @@ const routes: FastifyPluginAsyncZod = async (app) => {
         )
         .limit(1)
       if (!agent) throw app.httpErrors.notFound('Unknown agent')
+
+      // 409 rather than 403: this is not a permission the caller lacks — an
+      // admin has every permission there is — it is a state the object refuses.
+      if (agent.isLocal) {
+        throw app.httpErrors.conflict(
+          `${LOCAL_AGENT_NAME} belongs to this instance and cannot be revoked or deleted. Set TERN_LOCAL_AGENT=false to turn it off.`,
+        )
+      }
 
       await app.db
         .update(schema.agents)

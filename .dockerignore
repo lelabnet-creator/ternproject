@@ -22,11 +22,22 @@ node_modules
 docs
 schemas
 
-# The agent binaries `/install.sh` hands out live in `clients/agent/bin`, which
-# CI populates. They are deliberately not in the image: shipping cross-compiled
-# binaries would double its size, and `routes/download.ts` already answers with
-# a clear "build it or take one from the releases" when they are absent.
+# `clients/agent/bin` holds the binaries `/install.sh` hands out, which CI
+# populates. Most stay out of the image: shipping all five cross-compiled
+# targets for both tools would add about 39 MB for platforms the container can
+# neither run nor usually be asked for, and `routes/download.ts` answers with a
+# clear "build it or take one from the releases" when one is absent.
+#
+# The Linux ones are the exception, for two reasons that the rest do not share:
+# the `agent` service in docker-compose.prod.yml executes one of them, and Linux
+# is the host an operator is overwhelmingly installing an agent onto — leaving
+# it out is what made `/install.sh` answer with the SPA's catch-all HTML on a
+# published image, piping a web page into a shell.
 clients
+!clients/agent/bin/tern-agent-x86_64-unknown-linux-musl
+!clients/agent/bin/tern-agent-aarch64-unknown-linux-musl
+!clients/agent/bin/tern-proxy-x86_64-unknown-linux-musl
+!clients/agent/bin/tern-proxy-aarch64-unknown-linux-musl
 
 **/*.test.ts
 **/*.integration.test.ts

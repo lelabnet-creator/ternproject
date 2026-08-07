@@ -85,6 +85,20 @@
       "when": 1786040790671,
       "tag": "0011_drop_page_visibility",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1786090095021,
+      "tag": "0012_clumsy_hercules",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1786091990294,
+      "tag": "0013_left_serpent_society",
+      "breakpoints": true
     }
   ]
 }

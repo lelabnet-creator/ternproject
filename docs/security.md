@@ -7,13 +7,13 @@ Reporting a vulnerability: [`SECURITY.md`](../SECURITY.md).
 
 ## Identities
 
-| Identity      | Proves it with                 | Can do                                                      |
-| ------------- | ------------------------------ | ----------------------------------------------------------- |
-| User          | Password (Argon2id) + TOTP     | Whatever their role allows, in tenants they are a member of |
-| API key       | `Authorization: Bearer tern_…` | Push measurements, within its control scope                 |
-| Pairing code  | A short-lived PIN              | Exchange itself for exactly one API key                     |
-| Viewer device | A token from a QR code         | Read one tenant's status. Nothing else                      |
-| Receiver      | An opaque URL token            | Post to one inbound webhook endpoint                        |
+| Identity      | Proves it with                           | Can do                                                      |
+| ------------- | ---------------------------------------- | ----------------------------------------------------------- |
+| User          | Password (Argon2id) + TOTP, or a passkey | Whatever their role allows, in tenants they are a member of |
+| API key       | `Authorization: Bearer tern_…`           | Push measurements, within its control scope                 |
+| Pairing code  | A short-lived PIN                        | Exchange itself for exactly one API key                     |
+| Viewer device | A token from a QR code                   | Read one tenant's status. Nothing else                      |
+| Receiver      | An opaque URL token                      | Post to one inbound webhook endpoint                        |
 
 None of these can be used in place of another. An API key cannot read the admin;
 a session cannot ingest.
@@ -35,6 +35,37 @@ role for the people who actually run the incident.
 
 MFA is mandatory for admins. A session that has passed the password but not TOTP
 carries `mfa_satisfied = false` and can do nothing except complete MFA.
+
+## Passkeys
+
+A passkey is an **additional** way into an account, never a replacement for its
+password. `users.password_hash` stays mandatory, which is what keeps every
+account recoverable through a channel that does not depend on a physical device.
+
+A passkey sign-in issues a fully satisfied session even where the account has
+TOTP enabled. That is deliberate: the gesture is already two factors — the
+authenticator, plus the biometric or PIN it demands — and it is phishing
+resistant in a way a typed code is not. A magic link would **not** get this
+treatment, for the opposite reason: a mailbox is not a second factor.
+
+Three consequences worth knowing before deploying:
+
+- **Passkeys are bound to the hostname.** The RP ID comes from
+  `PUBLIC_BASE_URL`. Move an instance from `status.example.com` to
+  `status.example.net` and every registered passkey stops working there. This is
+  the guarantee, not a defect — it is what stops a lookalike domain replaying
+  one. The password and the emailed reset link are the way back in afterwards.
+- **They need a secure context.** https, or http on `localhost`. An instance
+  reached over plain http by IP will not offer them, and the interface hides the
+  button rather than showing one that throws.
+- **Nothing stored is secret.** A public key is public. A dump of
+  `webauthn_credentials` yields nothing replayable — unlike a password hash,
+  which at least invites cracking.
+
+The signature counter is stored and moved forward, and a _decrease_ from a
+non-zero counter is refused as a clone signal. It is not required to increase:
+synced passkeys commonly report a constant `0`, and a strict rule would reject
+every legitimate sign-in from one.
 
 ## What each stolen thing gets an attacker
 
@@ -58,6 +89,7 @@ and never in the same place.
 | Thing                   | How                                                                                                     |
 | ----------------------- | ------------------------------------------------------------------------------------------------------- |
 | Passwords               | Argon2id                                                                                                |
+| Passkey public keys     | Stored as-is, base64url. Public by design; a signature cannot be forged from one                        |
 | Session tokens          | SHA-256 of the token; the cookie holds the token                                                        |
 | API keys                | SHA-256, plus a 12-character prefix so a key can be _identified_ in a list without being usable         |
 | Pairing codes           | SHA-256                                                                                                 |

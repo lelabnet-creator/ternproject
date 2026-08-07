@@ -57,6 +57,17 @@ enum Command {
         /// Do not ask the server for the assignment; run the file as written.
         #[arg(long)]
         no_refresh: bool,
+        /// Wait for the config file to appear instead of failing when it is
+        /// absent.
+        ///
+        /// For an agent the server starts alongside itself: the process is up
+        /// before the instance has a page, and so before anything has written
+        /// its config. Deliberately not the default — for an agent somebody
+        /// installed on a host, a missing config is a typo in the path, and
+        /// waiting silently for a file that will never appear is the least
+        /// helpful thing it could do.
+        #[arg(long)]
+        wait_for_config: bool,
     },
     /// Check everything that stops an agent reporting: config, server, key,
     /// DNS, clock, ICMP permission, and the offline queue.
@@ -177,8 +188,21 @@ async fn main() -> Result<()> {
             queue,
             once,
             no_refresh,
+            wait_for_config,
         } => {
             let path = config.unwrap_or_else(default_path);
+
+            if wait_for_config && !path.exists() {
+                println!("Waiting for {} to appear…", path.display());
+                // Polled rather than watched: this waits minutes at most, on a
+                // file written once, and an inotify dependency to save a few
+                // seconds of latency is not a trade worth making.
+                while !path.exists() {
+                    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                }
+                println!("{} appeared — starting", path.display());
+            }
+
             let mut config = Config::load(&path)?;
 
             // An agent paired last month otherwise runs last month's probes.
@@ -235,7 +259,9 @@ async fn main() -> Result<()> {
             }
 
             let queue_path = queue.unwrap_or_else(|| path.with_extension("queue.json"));
-            tern_agent::runner::run(config, queue_path).await
+            // The runner keeps asking after this first fetch, so a control
+            // added in the admin starts being measured without a restart.
+            tern_agent::runner::run(config, path, queue_path, !no_refresh).await
         }
 
         Command::Doctor { config, queue } => {

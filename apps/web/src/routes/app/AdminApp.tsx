@@ -9,6 +9,7 @@ import { SiteFooter } from '../../components/SiteFooter'
 import { SetupWizard } from '../../features/onboarding/SetupWizard'
 import { FirstRunSetup } from '../../features/onboarding/FirstRunSetup'
 import { accentById, applyAccent } from '../../lib/accents'
+import { PasskeyCancelled, passkeysSupported, signInWithPasskey } from '../../lib/passkeys'
 import { ScriptTabs } from '../../features/control-editor/ScriptTabs'
 import { PreviewStep } from '../../features/control-editor/PreviewStep'
 import * as Icons from 'lucide-react'
@@ -1297,6 +1298,24 @@ function LoginScreen({ onSignedIn }: { onSignedIn: () => void }) {
   const [recovering, setRecovering] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  // Read once at first render: whether the browser can do WebAuthn at all does
+  // not change while somebody is looking at the form.
+  const [canUsePasskey] = useState(passkeysSupported)
+
+  const passkeySignIn = useMutation({
+    mutationFn: signInWithPasskey,
+    onSuccess: () => {
+      setError(null)
+      onSignedIn()
+    },
+    onError: (err) => {
+      // Dismissing the prompt is a decision, not a failure. Anything else is
+      // worth saying out loud.
+      if (err instanceof PasskeyCancelled) setError(null)
+      else setError(err instanceof Error ? err.message : String(err))
+    },
+  })
+
   const signIn = useMutation({
     mutationFn: async () => {
       if (needsMfa) {
@@ -1383,6 +1402,47 @@ function LoginScreen({ onSignedIn }: { onSignedIn: () => void }) {
             <Button type="submit" variant="primary" busy={signIn.isPending}>
               {needsMfa ? 'Verify' : 'Sign in'}
             </Button>
+
+            {/* Below the password rather than above it. A passkey is the better
+                way in for whoever has one, but the form has to open on the way
+                that works for everybody — including the person signing in from
+                a machine that is not theirs. It is hidden entirely, rather than
+                disabled, where the browser cannot do WebAuthn: an offer that
+                cannot be accepted is worse than no offer.
+
+                It is not shown beside the TOTP prompt either, where the account
+                is already half identified and a passkey would restart from
+                somebody else. */}
+            {!needsMfa && canUsePasskey && (
+              <>
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 'var(--space-3)',
+                    color: 'var(--color-fg-subtle)',
+                    fontSize: 'var(--text-xs)',
+                  }}
+                >
+                  <span style={{ flex: 1, height: 1, background: 'var(--color-border)' }} />
+                  or
+                  <span style={{ flex: 1, height: 1, background: 'var(--color-border)' }} />
+                </div>
+
+                <Button
+                  type="button"
+                  onClick={() => passkeySignIn.mutate()}
+                  busy={passkeySignIn.isPending}
+                >
+                  <Icons.KeyRound
+                    size={15}
+                    aria-hidden="true"
+                    style={{ marginRight: 'var(--space-2)' }}
+                  />
+                  Use a passkey
+                </Button>
+              </>
+            )}
 
             {/* Offered only on the password step. Beside a TOTP prompt it would
                 be answering the wrong question — a lost authenticator is a

@@ -340,7 +340,11 @@ function AgentRow({
           flexWrap: 'wrap',
         }}
       >
-        {canWrite && (
+        {/* The instance's own agent is not selectable, because the only two
+            bulk actions are revoke and delete and it accepts neither. Offering
+            a checkbox that poisons the whole selection with a 409 would be a
+            worse way to learn that. */}
+        {canWrite && !agent.isLocal && (
           <input
             type="checkbox"
             checked={picked}
@@ -350,6 +354,7 @@ function AgentRow({
             style={{ width: 20, height: 20, flexShrink: 0 }}
           />
         )}
+        {canWrite && agent.isLocal && <span style={{ width: 20, flexShrink: 0 }} />}
 
         <span
           aria-hidden="true"
@@ -372,6 +377,26 @@ function AgentRow({
           <strong style={{ textDecoration: revoked ? 'line-through' : undefined }}>
             {agent.name}
           </strong>
+          {/* Said on the row rather than only in a tooltip on a missing button:
+              "why can I not remove this one" is the question, and the answer is
+              what it is, not what it lacks. */}
+          {agent.isLocal && (
+            <span
+              title="Provisioned and run by this instance. Set TERN_LOCAL_AGENT=false to turn it off."
+              style={{
+                marginLeft: 'var(--space-2)',
+                padding: '1px var(--space-2)',
+                borderRadius: 'var(--radius-sm)',
+                border: '1px solid var(--color-border)',
+                color: 'var(--color-fg-subtle)',
+                fontSize: 'var(--text-xs)',
+                fontWeight: 600,
+                whiteSpace: 'nowrap',
+              }}
+            >
+              this instance
+            </span>
+          )}
           <div
             className="tabular"
             style={{ fontSize: 'var(--text-xs)', color: 'var(--color-fg-subtle)' }}
@@ -397,9 +422,14 @@ function AgentRow({
           {canWrite && !revoked && (
             <>
               <Button onClick={() => setEditing((v) => !v)}>{editing ? 'Cancel' : 'Rename'}</Button>
-              <Button variant="danger" onClick={() => setConfirming(true)}>
-                Revoke
-              </Button>
+              {/* Renaming stays available — it is a label, and an operator
+                  running several instances may well want to say which. Only
+                  revoking is refused. */}
+              {!agent.isLocal && (
+                <Button variant="danger" onClick={() => setConfirming(true)}>
+                  Revoke
+                </Button>
+              )}
             </>
           )}
         </div>

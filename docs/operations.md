@@ -66,6 +66,8 @@ than failing later on a request.
 | `SMTP_HOST`/`_PORT`/`_USER`/`_PASSWORD`/`_SECURE` | localhost:1025 | Mail. Shared by every tenant                                                                                                              |
 | `MAIL_FROM`                                       | —              | Envelope sender                                                                                                                           |
 | `LOG_LEVEL`                                       | info           |                                                                                                                                           |
+| `TERN_LOCAL_AGENT`                                | true           | Whether the instance runs `Agent-local-tern` for itself                                                                                   |
+| `TERN_DATA_DIR`                                   | /var/lib/tern  | That agent's `agent.toml` and offline queue. Relative paths resolve from the repository root                                              |
 
 ### Sizing
 
@@ -151,6 +153,53 @@ Two of its checks catch silent failures worth knowing about:
   out produces no error — it produces measurements that never appear.
 - **The config permissions.** `agent.toml` holds a live ingest key. 0644 in a
   directory somebody later archives is how it leaks.
+
+### `Agent-local-tern`
+
+Every instance runs one agent for itself. It is provisioned at first run — no
+PIN, no pairing, because the server issuing the invitation is the machine
+accepting it — and it appears in the fleet like any other, marked _this
+instance_.
+
+It cannot be revoked or deleted: the API answers 409 and the admin does not
+draw the button. Deleting it would leave `agent.toml` on disk holding a key for
+an agent the server had forgotten, and the next reconcile would make a second
+one. `TERN_LOCAL_AGENT=false` is how you turn it off; renaming it is allowed,
+since the name is only a label.
+
+**It runs as its own container.** `docker-compose.prod.yml` has an `agent`
+service: the same image, a different entrypoint, and `restart: unless-stopped`
+as its supervisor. Nothing in TERN supervises a process — the point of a
+separate one is that it keeps measuring and buffering while the API restarts,
+which a child of the API could not do.
+
+The API's only part is the record: it writes the row, the key and `agent.toml`
+as soon as a page exists. That file, on the shared `tern-data` volume, is the
+whole channel between the two containers. The agent container starts with
+`--wait-for-config` and waits for it to appear, so it is safe to start on a
+brand new instance where the setup wizard has not been run yet.
+
+Two things it will not do, neither of them a fault:
+
+- **Run without a binary.** `clients/agent/bin` is populated by CI on `main`. A
+  source build that has never run CI has none, the container says so and exits,
+  and the instance still monitors through the in-process `local-probes` job.
+- **Compete with the in-process prober.** Its key carries an empty scope, which
+  `local-probes` reads as the whole tenant, so that job stands down entirely
+  while the agent reports and takes the work back if it goes quiet for longer
+  than the staleness window.
+
+Its files live in `TERN_DATA_DIR` — `/var/lib/tern` in the production image,
+which is the volume already backed up with `APP_SECRET`. `agent.toml` holds a
+live ingest key and is written 0600.
+
+Running the API from source starts **no** agent process. `agent.toml` is still
+written, into `.tern/`, so running it by hand is one line:
+
+```sh
+./clients/agent/bin/tern-agent-x86_64-unknown-linux-musl run \
+    --config .tern/agent.toml --queue .tern/agent-queue.jsonl
+```
 
 ## What breaks first
 

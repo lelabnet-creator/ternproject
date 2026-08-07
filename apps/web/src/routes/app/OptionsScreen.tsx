@@ -7,6 +7,7 @@ import { Banner, Button, Card, Field, Input } from '../../components/ui'
 import { NotificationsPanels } from '../../features/settings/NotificationsPanels'
 import { CapacityPanel } from '../../features/settings/CapacityPanel'
 import { DangerPanel } from '../../features/settings/DangerPanel'
+import { PasskeysPanel } from '../../features/settings/PasskeysPanel'
 
 /**
  * Everything about a tenant that is a setting rather than a decision.
@@ -36,12 +37,17 @@ export function OptionsScreen({ slug, canWrite }: { slug: string; canWrite: bool
         onChange={setTab}
         tabs={[
           { id: 'general', label: 'General' },
+          { id: 'account', label: 'Account' },
           { id: 'notifications', label: 'Notifications' },
           { id: 'advanced', label: 'Advanced' },
           { id: 'danger', label: 'Danger' },
         ]}
       >
         {tab === 'general' && <GeneralPanel slug={slug} canWrite={canWrite} />}
+        {/* The one tab here that is about the reader rather than the page. It
+            takes no `slug`, and that is the point: these passkeys follow the
+            person across every tenant they administer. */}
+        {tab === 'account' && <PasskeysPanel />}
         {tab === 'notifications' && <NotificationsPanels slug={slug} canWrite={canWrite} />}
         {tab === 'advanced' && <CapacityPanel slug={slug} canWrite={canWrite} />}
         {tab === 'danger' && <DangerPanel slug={slug} canWrite={canWrite} />}

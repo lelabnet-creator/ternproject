@@ -37,3 +37,6 @@ clients/agent/target/
 
 # The prebuilt binaries are committed on purpose (see clients/agent/bin/README).
 !clients/agent/bin/
+
+# The local agent's working directory: agent.toml holds a live ingest key.
+.tern/

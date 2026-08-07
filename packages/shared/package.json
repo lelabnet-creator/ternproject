@@ -13,7 +13,8 @@
     "./probe-runner": "./src/probe-runner.ts",
     "./templates": "./src/templates.ts",
     "./sizing": "./src/sizing.ts",
-    "./crypto": "./src/crypto.ts"
+    "./crypto": "./src/crypto.ts",
+    "./password": "./src/password.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
