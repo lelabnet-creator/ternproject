@@ -23,6 +23,22 @@ import { sendEmail, sendWebhook } from '../services/transports.js'
  */
 
 const routes: FastifyPluginAsyncZod = async (app) => {
+  /*
+   * A form POST and a provider's one-click POST both arrive as
+   * `application/x-www-form-urlencoded`, which nothing else in this API speaks —
+   * without a parser Fastify answers 415 and the unsubscribe silently fails for
+   * exactly the two callers that matter.
+   *
+   * The body is discarded on purpose. RFC 8058 has the provider send
+   * `List-Unsubscribe=One-Click`, but the token is in the path and the action is
+   * the same either way, so there is nothing in the body worth trusting.
+   */
+  app.addContentTypeParser(
+    'application/x-www-form-urlencoded',
+    { parseAs: 'string', bodyLimit: 1024 },
+    (_req, _body, done) => done(null, {}),
+  )
+
   await app.register(import('@fastify/rate-limit'), {
     // Signing up writes a row and sends mail. Tighter than reading.
     max: config.SUBSCRIBE_RATE_LIMIT_MAX,
@@ -203,18 +219,41 @@ const routes: FastifyPluginAsyncZod = async (app) => {
   )
 
   /**
-   * Unsubscribing needs no session, no tenant slug and no confirmation step.
-   * Every extra hoop between a reader and the exit is a spam report.
+   * The address `List-Unsubscribe` points at, and the one in the message body.
+   *
+   * A GET may not unsubscribe anybody. Mail clients and security appliances
+   * prefetch links in mail, so a GET that deletes would unsubscribe readers who
+   * never clicked anything. It answers with a one-button page instead — one
+   * click, no session, no tenant slug, no typing, because every extra hoop
+   * between a reader and the exit is a spam report.
+   *
+   * Deliberately hand-written HTML rather than the SPA. This page is reached
+   * from a mail client, sometimes an old one, often with scripting disabled, and
+   * it has to work when everything else about the browser is hostile.
+   */
+  app.get(
+    '/unsubscribe/:token',
+    { schema: { params: z.object({ token: z.string().min(10) }) } },
+    async (req, reply) => {
+      return reply.type('text/html; charset=utf-8').send(confirmPage(req.params.token))
+    },
+  )
+
+  /**
+   * The actual unsubscribe.
+   *
+   * Reached three ways, and all three have to work: the button on the page
+   * above, a provider's one-click POST under RFC 8058, and any client that
+   * posts the `List-Unsubscribe` URL directly.
    */
   app.post(
     '/unsubscribe/:token',
     {
       schema: {
         params: z.object({ token: z.string().min(10) }),
-        response: { 200: z.object({ unsubscribed: z.boolean() }) },
       },
     },
-    async (req) => {
+    async (req, reply) => {
       // Accepts both forms: the derived `<id>.<token>` reference carried by every
       // notification, and the one-off token issued at signup.
       const subscriberId = parseUnsubscribeRef(req.params.token, config.APP_SECRET)
@@ -236,8 +275,17 @@ const routes: FastifyPluginAsyncZod = async (app) => {
         })
       }
 
-      // Always reports success. An unknown token answering differently would
-      // let someone probe which unsubscribe links are live.
+      /*
+       * Always reports success. An unknown token answering differently would let
+       * someone probe which unsubscribe links are live.
+       *
+       * A provider doing one-click wants a bare 200 and reads no body; a reader
+       * who pressed the button wants to be told it worked. The Accept header
+       * separates them, and neither is asked to understand the other's answer.
+       */
+      if (req.headers.accept?.includes('text/html')) {
+        return reply.type('text/html; charset=utf-8').send(donePage())
+      }
       return { unsubscribed: true }
     },
   )
@@ -279,6 +327,60 @@ const routes: FastifyPluginAsyncZod = async (app) => {
       }
     },
   )
+}
+
+/**
+ * The two pages a reader can land on, inlined.
+ *
+ * No stylesheet, no script, no image: this is opened from a mail client, and
+ * every external reference is one more thing that can be blocked between the
+ * reader and the button they came to press.
+ */
+function shell(title: string, body: string): string {
+  return `<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex">
+<title>${escapeHtml(title)}</title>
+<style>
+  body{font:16px/1.5 system-ui,sans-serif;margin:0;padding:2.5rem 1.25rem;color:#1f2328;background:#fff;display:flex;justify-content:center}
+  main{max-width:26rem}
+  h1{font-size:1.25rem;margin:0 0 .75rem}
+  p{margin:0 0 1.25rem;color:#57606a}
+  button{font:inherit;font-weight:600;padding:.7rem 1.25rem;border-radius:.375rem;border:0;background:#1f2328;color:#fff;cursor:pointer}
+  @media(prefers-color-scheme:dark){
+    body{color:#e6edf3;background:#0d1117}p{color:#9198a1}button{background:#e6edf3;color:#0d1117}
+  }
+</style>
+</head><body><main>${body}</main></body></html>`
+}
+
+function confirmPage(token: string): string {
+  return shell(
+    'Unsubscribe',
+    `<h1>Unsubscribe from these updates?</h1>
+<p>You will stop receiving status notifications at this address. You can subscribe again at any time from the status page.</p>
+<form method="post" action="/api/v1/unsubscribe/${encodeURIComponent(token)}">
+  <button type="submit">Unsubscribe</button>
+</form>`,
+  )
+}
+
+function donePage(): string {
+  return shell(
+    'Unsubscribed',
+    `<h1>Done — you are unsubscribed.</h1>
+<p>Nothing further will be sent to this address.</p>`,
+  )
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
 }
 
 export default routes

@@ -89,6 +89,18 @@ function transporter(): Transporter {
   return mailer
 }
 
+/**
+ * The one address a reader is sent to in order to leave.
+ *
+ * Shared so the header, the message body and the tests cannot drift apart —
+ * three places building the same URL is three places for one of them to keep
+ * pointing at the old path.
+ */
+export function unsubscribeUrlFor(subscriberId: string): string {
+  const ref = buildUnsubscribeRef(subscriberId, config.APP_SECRET)
+  return `${config.PUBLIC_BASE_URL}/api/v1/unsubscribe/${ref}`
+}
+
 export interface RenderedMessage {
   subject: string
   text: string
@@ -110,16 +122,24 @@ export async function sendEmail(
     subject: message.subject,
     text: message.text,
     html: message.html,
-    // List-Unsubscribe is NOT advertised here. Nodemailer owns that header, and
-    // in this setup it does not reach the wire — see BACKLOG.md. Sending
-    // List-Unsubscribe-Post without it is actively worse than sending neither:
-    // the mail client shows a one-click unsubscribe button that does nothing.
-    //
-    // The link in the message body is the path that actually works, and it is
-    // the one most readers use anyway.
-    list: options.unsubscribeUrl
-      ? { unsubscribe: { url: options.unsubscribeUrl, comment: 'Unsubscribe' } }
-      : undefined,
+    /*
+     * Raw headers rather than nodemailer's `list` option, for one reason:
+     * `list` cannot express `List-Unsubscribe-Post`, and one-click is what bulk
+     * senders now require. Written as a pair so the two can never disagree.
+     *
+     * One-click is only safe to advertise because the URL genuinely answers a
+     * POST — see the route. Advertising it otherwise is worse than advertising
+     * neither: the client draws a button that silently does nothing.
+     *
+     * Both are folded by nodemailer onto a continuation line when they run long,
+     * which is correct and what a parser expects.
+     */
+    ...(options.unsubscribeUrl && {
+      headers: {
+        'List-Unsubscribe': `<${options.unsubscribeUrl}>`,
+        'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+      },
+    }),
   })
 }
 
@@ -206,7 +226,14 @@ export async function deliverToSubscriber(
         // Derived from the subscriber id, so every message carries a link that
         // still works — a per-notification link would break as soon as that row
         // was cleaned up, leaving a button that silently does nothing.
-        unsubscribeUrl: `${config.PUBLIC_BASE_URL}/u/${buildUnsubscribeRef(subscriber.id, config.APP_SECRET)}`,
+        //
+        // Points at the API rather than at `/u/…`, which matched no route in
+        // the SPA and quietly served the landing page to anyone who clicked it.
+        // This address answers a GET with a one-button page and a POST with the
+        // unsubscribe itself, so the same URL serves a reader and a provider's
+        // one-click — and `/api/` is already the path operators are told to
+        // route to the API.
+        unsubscribeUrl: unsubscribeUrlFor(subscriber.id),
       })
       break
 

@@ -43,22 +43,30 @@ milestone plan stays finishable.
   the tenant, per-tenant domains, and a plan for what the system tenant supervises. That is a
   product, not a patch.
 
-## Open defects
+## Resolved
 
-- **`List-Unsubscribe` header does not reach the wire.** Nodemailer generates it
-  correctly when called directly — verified against MailHog over real SMTP with several value
-  shapes — but the same `sendEmail` invoked from the notification worker produces mail without it.
-  Ruled out: stale processes, a stale build, the value's length, the `list` option form, and the
-  co-present `List-Unsubscribe-Post` header. Not yet ruled out: something in the long-lived
-  transporter singleton.
+- **Unsubscribing did not work at all**, and the entry that used to sit here
+  described the wrong half of it.
 
-  Mitigation in place, and deliberate: `List-Unsubscribe-Post` is **not** sent either. Advertising
-  one-click unsubscribe without an address is worse than advertising neither — the mail client
-  renders a button that silently does nothing. The unsubscribe link is in the message body and
-  HTML, verified working end to end, and that is the path most readers use.
+  The recorded defect was "`List-Unsubscribe` does not reach the wire", with the transporter
+  singleton as the remaining suspect. That was a misreading. The header does reach the wire and
+  always did: once the value runs long it folds onto a continuation line, so the header line really
+  is bare and the URL really is on the next line. Any check that greps for lines starting `List-`
+  reports a correctly folded header as an empty one. `transports.test.ts` now asserts on the whole
+  header block for exactly this reason, and keeps a control case that would fail if the original
+  claim were ever true.
 
-  Worth resolving before any deployment sending real volume: bulk senders increasingly require the
-  header.
+  What was genuinely broken went unrecorded: the address the header and the message body both
+  pointed at, `${PUBLIC_BASE_URL}/u/<ref>`, **matched no route**. Not in the API, and not in the
+  SPA's path matching either — so it fell through to the catch-all and served the landing page. The
+  note claiming the body link was "verified working end to end" was wrong; nobody could unsubscribe
+  by any path.
+
+  Now: one address, `/api/v1/unsubscribe/<ref>`, built in one place. A GET answers with a
+  one-button page — a GET must not unsubscribe anyone, because mail clients and security appliances
+  prefetch links. A POST unsubscribes, and accepts the urlencoded body an RFC 8058 provider sends,
+  which the API spoke nowhere before. `List-Unsubscribe-Post` is now advertised, because the URL
+  genuinely answers a POST.
 
 ## Known limitations to revisit
 

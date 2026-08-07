@@ -12,8 +12,7 @@ import {
   sendMaintenanceReminders,
   sweepStaleControls,
 } from '../services/scheduler.js'
-import { deliverToSubscriber } from '../services/transports.js'
-import { buildUnsubscribeRef } from '@tern/shared'
+import { deliverToSubscriber, unsubscribeUrlFor } from '../services/transports.js'
 import { renderNotification } from '../services/render.js'
 import { purgeExpiredChallenges } from '../services/webauthn.js'
 import { startLocalAgent } from '../services/local-agent.js'
@@ -56,11 +55,10 @@ const JOBS: Job[] = [
           app,
           notification,
           subscriber,
-          renderNotification(
-            notification,
-            subscriber.locale,
-            `${config.PUBLIC_BASE_URL}/u/${buildUnsubscribeRef(subscriber.id, config.APP_SECRET)}`,
-          ),
+          // The same address the `List-Unsubscribe` header carries. Built once,
+          // in one place: the body link and the header pointing at different
+          // paths is how one of them ends up stale.
+          renderNotification(notification, subscriber.locale, unsubscribeUrlFor(subscriber.id)),
         )
       }),
   },
