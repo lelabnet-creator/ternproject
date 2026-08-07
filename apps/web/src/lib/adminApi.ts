@@ -215,7 +215,14 @@ export const adminApi = {
 
   me: () =>
     request<{
-      user: { id: string; email: string; name: string; mfaEnabled: boolean }
+      user: {
+        id: string
+        email: string
+        name: string
+        mfaEnabled: boolean
+        /** Null while this person has never been walked through the admin. */
+        tourSeenAt: string | null
+      }
       memberships: {
         tenantId: string
         slug: string
@@ -235,6 +242,10 @@ export const adminApi = {
     }),
 
   logout: () => request<{ ok: boolean }>('POST', '/api/v1/auth/logout'),
+
+  /** `false` asks to be walked through the admin again. Stored on the account. */
+  setTourSeen: (seen: boolean) =>
+    request<{ tourSeenAt: string | null }>('PUT', '/api/v1/auth/me/tour', { seen }),
 
   /** Always resolves, for any address — the API refuses to say which exist. */
   forgotPassword: (email: string) =>

@@ -34,6 +34,18 @@ export const users = pgTable('users', {
 
   locale: text().notNull().default('en'),
   timezone: text().notNull().default('UTC'),
+
+  /**
+   * When this person finished or dismissed the guided tour.
+   *
+   * On the user rather than in their browser, deliberately: an operator who was
+   * walked through the admin on their laptop has been walked through it, and
+   * meeting the tour again on the machine in the operations room is the product
+   * forgetting something it was told. Null means "has not seen it", which is
+   * also what the checkbox in Options writes to ask for it again.
+   */
+  tourSeenAt: timestamp({ withTimezone: true }),
+
   lastLoginAt: timestamp({ withTimezone: true }),
   disabledAt: timestamp({ withTimezone: true }),
   createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),

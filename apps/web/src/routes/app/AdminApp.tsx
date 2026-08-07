@@ -8,6 +8,7 @@ import { SponsorButton } from '../../components/SponsorButton'
 import { SiteFooter } from '../../components/SiteFooter'
 import { SetupWizard } from '../../features/onboarding/SetupWizard'
 import { FirstRunSetup } from '../../features/onboarding/FirstRunSetup'
+import { GuidedTour } from '../../features/onboarding/GuidedTour'
 import { accentById, applyAccent } from '../../lib/accents'
 import { PasskeyCancelled, passkeysSupported, signInWithPasskey } from '../../lib/passkeys'
 import { ScriptTabs } from '../../features/control-editor/ScriptTabs'
@@ -221,6 +222,24 @@ export function AdminApp({ slug }: { slug: string }) {
         </div>
       </aside>
 
+      {/*
+        Only once the shell is on screen, and never over the setup wizard: a
+        tour of a rail that has not rendered has nothing to point at, and one
+        that interrupts first-run setup is a second thing to dismiss before the
+        first can be finished.
+      */}
+      {me.data.user.tourSeenAt === null && (
+        <GuidedTour
+          steps={tourSteps(membership.isSystem === true)}
+          onFinish={() => {
+            // Optimistic, and safe to be: the worst case if the write fails is
+            // the tour reappearing on the next sign-in, which is the state the
+            // reader was already in.
+            void adminApi.setTourSeen(true).finally(() => void me.refetch())
+          }}
+        />
+      )}
+
       <main className="admin-main">
         {section === 'layout' ? (
           <LayoutScreen slug={slug} canWrite={canWrite} />
@@ -254,6 +273,39 @@ const SECTIONS = [
 ] as const
 
 type Section = (typeof SECTIONS)[number]['id']
+
+/**
+ * What the tour says about each rail entry.
+ *
+ * Keyed by section id and looked up rather than listed separately, so the steps
+ * are generated from the rail itself. An entry with no copy still gets a step —
+ * a tour that silently skips a screen is worse than one with a plain sentence
+ * about it — which is also why ids that only exist once other work lands are
+ * already written here rather than added later and forgotten.
+ */
+const TOUR_COPY: Record<string, string> = {
+  controls:
+    'One control is one thing you watch. Create one and TERN hands you a script that pushes to it, or a probe it runs for you.',
+  incidents:
+    'When something breaks, you declare it here. That marks the affected components, tells subscribers, and starts the timeline you will publish a postmortem against.',
+  maintenance:
+    'Work you know about in advance. Subscribers are reminded before the window opens, and alerting stays quiet for the components you attach while it runs.',
+  layout: 'What the public page shows, in what order, at one of three densities.',
+  agents:
+    'The hosts running your probes. Pairing hands an agent its jobs, so the list of what is monitored never lives only on the monitored machine.',
+  logs: 'Who changed what, where to forward it, and what the HTTP layer is doing right now.',
+  options: 'Naming, branding, retention, mail and subscribers. Also where this tour lives.',
+  platform: 'How much load each page puts on the instance, and whether the instance is keeping up.',
+}
+
+/** One step per rail entry that this reader can actually see. */
+export function tourSteps(isSystem: boolean): { target: string; title: string; body: string }[] {
+  return SECTIONS.filter((entry) => entry.id !== 'platform' || isSystem).map((entry) => ({
+    target: `[data-tour="${entry.id}"]`,
+    title: entry.label,
+    body: TOUR_COPY[entry.id] ?? `Open ${entry.label}.`,
+  }))
+}
 
 /**
  * Two sections, and the URL says which one.
@@ -327,6 +379,10 @@ function AdminNav({
             }}
             aria-current={current ? 'page' : undefined}
             className={current ? 'admin-nav-item is-current' : 'admin-nav-item'}
+            // What the guided tour anchors each step to. A selector on the real
+            // element rather than a screenshot, so a rail that grows an entry
+            // grows a step with it.
+            data-tour={entry.id}
           >
             <NavIcon name={entry.icon} />
             {entry.label}
