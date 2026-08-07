@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { adminApi, type ScriptBundle } from '../../lib/adminApi'
-import { Banner, Button, CodeBlock } from '../../components/ui'
+import { Banner, Button, CodeBlock, CopyButton } from '../../components/ui'
 
 /** The agent sits beside the ten languages, not behind a separate screen. */
 const AGENT_TAB = 'agent'
@@ -29,13 +29,6 @@ export function ScriptTabs({
   })
 
   const [active, setActive] = useState<string>('python')
-  const [copied, setCopied] = useState(false)
-
-  useEffect(() => {
-    if (!copied) return
-    const timer = setTimeout(() => setCopied(false), 2000)
-    return () => clearTimeout(timer)
-  }, [copied])
 
   if (bundle.isPending) return <p style={{ color: 'var(--color-fg-subtle)' }}>Loading scripts…</p>
   if (bundle.isError || !bundle.data) {
@@ -98,14 +91,7 @@ export function ScriptTabs({
           <CodeBlock label={`tern_push.${language?.extension ?? 'txt'}`}>{script}</CodeBlock>
 
           <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
-            <Button
-              variant="primary"
-              onClick={() => {
-                void navigator.clipboard.writeText(script).then(() => setCopied(true))
-              }}
-            >
-              {copied ? 'Copied' : 'Copy'}
-            </Button>
+            <CopyButton value={script} variant="primary" />
             <Button
               onClick={() => {
                 // A download rather than only a clipboard copy: the target machine

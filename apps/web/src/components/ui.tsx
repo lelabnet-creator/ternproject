@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
 
 /**
@@ -207,6 +208,43 @@ export function CodeBlock({ children, label }: { children: string; label?: strin
         <code>{children}</code>
       </pre>
     </div>
+  )
+}
+
+/**
+ * Copy, then say so.
+ *
+ * The confirmation is the whole point: a clipboard write is silent, and without
+ * a reply the only way to know it worked is to paste somewhere and look. It
+ * reverts after two seconds so the button does not sit there claiming a copy
+ * from five minutes ago.
+ */
+export function CopyButton({
+  value,
+  label = 'Copy',
+  variant = 'secondary',
+}: {
+  value: string
+  label?: string
+  variant?: 'primary' | 'secondary'
+}) {
+  const [copied, setCopied] = useState(false)
+
+  useEffect(() => {
+    if (!copied) return
+    const timer = setTimeout(() => setCopied(false), 2000)
+    return () => clearTimeout(timer)
+  }, [copied])
+
+  return (
+    <Button
+      variant={variant}
+      onClick={() => {
+        void navigator.clipboard.writeText(value).then(() => setCopied(true))
+      }}
+    >
+      {copied ? 'Copied' : label}
+    </Button>
   )
 }
 

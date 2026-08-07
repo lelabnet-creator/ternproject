@@ -9,6 +9,7 @@
     ".": "./src/index.ts",
     "./mock": "./src/mock.ts",
     "./status": "./src/status.ts",
+    "./badges": "./src/badges.ts",
     "./probe": "./src/probe.ts",
     "./probe-runner": "./src/probe-runner.ts",
     "./templates": "./src/templates.ts",
