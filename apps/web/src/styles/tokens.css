@@ -351,49 +351,114 @@ a.tern-target {
   }
 }
 
+/* One segment of the theme control. Here rather than inline on the element,
+   because the admin's app bar resizes these at a breakpoint and a style
+   attribute cannot be reached by a media query. */
+.theme-option {
+  min-height: 36px;
+  padding: 0 var(--space-3);
+}
+
+/* Beside other chrome in a page header, where three full-height segments would
+   push the page's own content down for a control used twice a year. */
+.theme-option.is-compact {
+  min-height: 32px;
+  padding: 0 var(--space-2);
+}
+
 /* ── The admin shell ───────────────────────────────────────────────────────
  *
- * A rail beside the content on a wide screen, a strip of tabs above it on a
- * narrow one. Written here rather than inline because it is the one piece of
- * layout with a breakpoint in it, and a media query cannot live in a style
- * attribute.
+ * A rail beside the content on a wide screen, an app bar above it on a narrow
+ * one. Written here rather than inline because it is the one piece of layout
+ * with a breakpoint in it, and a media query cannot live in a style attribute.
  *
  * The rail is sticky and scrolls independently: on the fleet screen the content
  * is long, and navigation that scrolls away is navigation you have to scroll
  * back for.
+ *
+ * ## The narrow shape
+ *
+ * Two rows, which is the shape every phone operating system settled on: who you
+ * are and what you can do on the first, where you can go on the second.
+ *
+ *   ┌──────────────────────────────┬──────────────┐
+ *   │ mark  Acme Corp / owner      │ ☾ ♡ ⎋        │   ← app bar
+ *   ├──────────────────────────────┴──────────────┤
+ *   │ Controls  Incidents  Agents  Logs  …        │   ← tabs, scrolling
+ *   └─────────────────────────────────────────────┘
+ *
+ * The same three controls as the foot of the wide rail, in the same order, and
+ * the same DOM — only the direction changes. Their labels drop to glyphs
+ * (`.chrome-label`) because three labelled controls plus a tenant's name do not
+ * fit across a phone, and a name that truncates to "Acme C…" costs the reader
+ * more than a word beside an icon they press twice a year.
  */
 .admin-shell {
-  display: grid;
-  /* minmax(0, …) rather than 1fr: a grid track sizes to its widest child by
-     default, so the scrollable tab strip pushed the whole page past the
-     viewport and gave a phone a horizontal scrollbar. */
-  grid-template-columns: minmax(0, 1fr);
+  /* Plain flow on this shape, and it has to be: a sticky grid item can only
+     travel inside its own grid area, and stacked in one column the app bar's
+     area is exactly the app bar. It would scroll away with the page. As blocks,
+     both children take the container's width — which is also what kept the
+     scrollable tab strip from widening the page under the grid. */
+  display: block;
   min-height: 100dvh;
 }
 
 .admin-rail {
-  display: flex;
+  display: grid;
   min-width: 0;
-  flex-direction: column;
-  gap: var(--space-4);
-  padding: var(--space-4);
+  /* Stacked on the narrowest shape. Measured rather than assumed: the three
+     controls come to 265px with their labels dropped, which on a 375px screen
+     leaves 66px for the mark and the tenant's name — an ellipsis and nothing
+     else. Knowing which customer you are looking at is worth a second row. */
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas:
+    'brand'
+    'actions'
+    'nav';
+  align-items: center;
+  /* Tight, because this is three stacked rows and every one of them is fixed
+     furniture at the top of a phone screen. At the wide breakpoint the rail has
+     a whole column of height to spend and the spacing opens back up. */
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
   border-bottom: 1px solid var(--color-border);
   background: var(--color-surface);
+  /* An app bar that scrolls away is one the reader scrolls back for, and the
+     tabs are the only way between sections on this shape. Below the tour's
+     spotlight (60) so a step pointing at a tab is not covered by it. */
+  position: sticky;
+  top: 0;
+  z-index: 20;
 }
 
 .admin-brand {
+  grid-area: brand;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: var(--space-4);
+  /* Packed left against the mark, not spread across the row: the actions hold
+     the right-hand end now, and a name floating between the two read as
+     belonging to neither. */
+  justify-content: flex-start;
+  gap: var(--space-3);
+  min-width: 0;
 }
 
 .admin-tenant {
   margin: 0;
+  min-width: 0;
   font-size: var(--text-sm);
   font-weight: 600;
   color: var(--color-fg);
-  text-align: right;
+  text-align: left;
+}
+
+/* The name yields before the controls do — it is the one thing here that can be
+   arbitrarily long, and an ellipsis is cheaper than an app bar that wraps. */
+.admin-tenant,
+.admin-tenant span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .admin-tenant span {
@@ -404,13 +469,48 @@ a.tern-target {
 }
 
 .admin-rail-foot {
-  /* Visible in both shapes. Hiding sign-out below the breakpoint would leave a
+  /* Visible in every shape. Hiding sign-out below the breakpoint would leave a
      phone with no way out of the session. */
-  display: block;
-  align-self: flex-start;
+  grid-area: actions;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: var(--space-2);
+}
+
+/* Glyph-only in the app bar. Each control keeps its accessible name through
+   `aria-label`, so what is dropped here is pixels, not the label. */
+.admin-rail .chrome-label {
+  display: none;
+}
+
+/* Square, and a full target: losing the label is not a reason to lose the
+   44px, and a phone is exactly where that minimum was written for. The
+   sponsor's own `height: 32` is an inline style, which `min-height` outranks
+   without needing `!important`. */
+.admin-rail .theme-option,
+.admin-rail-foot > a,
+.admin-rail-foot > button {
+  min-width: 44px;
+  min-height: 44px;
+}
+
+.admin-rail .theme-option {
+  padding: 0;
+}
+
+/* The build string is the quietest thing in the rail and the app bar is the
+   most expensive space in the app, so it is the one item that does not make the
+   crossing. It returns at the breakpoint, above. */
+.admin-build {
+  display: none;
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--color-fg-subtle);
 }
 
 .admin-nav {
+  grid-area: nav;
   display: flex;
   gap: var(--space-2);
   overflow-x: auto;
@@ -463,12 +563,42 @@ a.tern-target {
   min-width: 0;
 }
 
+/*
+ * Wide enough for one line: the actions come up beside the brand and the app
+ * bar loses a row. 30rem because that is where 265px of controls stops eating
+ * the tenant's name — the number came from measuring the controls, not from a
+ * device.
+ */
+@media (min-width: 30rem) {
+  .admin-rail {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      'brand actions'
+      'nav nav';
+  }
+
+  .admin-rail-foot {
+    justify-content: flex-end;
+  }
+}
+
 @media (min-width: 64rem) {
   .admin-shell {
+    display: grid;
+    /* minmax(0, …) rather than 1fr: a grid track sizes to its widest child by
+       default, so a wide table pushed the whole page past the viewport. Here
+       the rail's area is as tall as the row — the content's height — which is
+       what gives `position: sticky` somewhere to travel. */
     grid-template-columns: 16rem minmax(0, 1fr);
   }
 
   .admin-rail {
+    /* Back to a column: the two-row app bar was the narrow shape, and with the
+       rail beside the content there is room for the labels again. */
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--space-4);
     position: sticky;
     top: 0;
     height: 100dvh;
@@ -476,6 +606,27 @@ a.tern-target {
     border-right: 1px solid var(--color-border);
     padding: var(--space-6) var(--space-4);
     overflow-y: auto;
+  }
+
+  .admin-rail .chrome-label {
+    display: inline;
+  }
+
+  .admin-build {
+    display: block;
+  }
+
+  /* Labels are back, so the controls are read rather than aimed at: they size
+     to their text again instead of to a thumb. */
+  .admin-rail .theme-option {
+    min-width: 0;
+    min-height: 36px;
+    padding: 0 var(--space-3);
+  }
+
+  .admin-rail-foot > a,
+  .admin-rail-foot > button {
+    min-width: 0;
   }
 
   /* Centred in the rail, both of them. On a 16rem column the mark and the
@@ -490,6 +641,15 @@ a.tern-target {
   .admin-tenant {
     text-align: center;
     margin-top: var(--space-2);
+  }
+
+  /* The ellipsis was the app bar's compromise. A 16rem column has the height to
+     wrap instead, and a customer whose name is long should be able to read it. */
+  .admin-tenant,
+  .admin-tenant span {
+    overflow: visible;
+    text-overflow: clip;
+    white-space: normal;
   }
 
   .admin-nav {
@@ -511,6 +671,11 @@ a.tern-target {
   }
 
   .admin-rail-foot {
+    /* A stacked, centred column again — the app bar's row was for a shape that
+       had width to spare and no height. */
+    display: grid;
+    gap: var(--space-3);
+    justify-items: center;
     margin-top: auto;
     /* Stretched, not hugging the left: `align-self: flex-start` sized this to
        its widest child, so the theme picker, the sponsor button and sign-out
@@ -655,6 +820,44 @@ a.tern-target {
 
 .card-grid > * {
   height: 100%;
+}
+
+/* ── Paired fields ─────────────────────────────────────────────────────────
+ * Two fields on one line where the line is long enough to hold two.
+ *
+ * The ratios below say which field is the subject and which is the qualifier —
+ * a URL beside its method, an interval beside where it runs from. That reading
+ * only survives while both halves are wide enough to be read as fields. Under
+ * a phone's width a 1fr of a 3fr grid is about seven characters: the label
+ * wraps to three lines, the hint to five, and the pair costs more height
+ * stacked side by side than it would stacked properly.
+ *
+ * So the ratio is the enhancement and one column is the base, which is also
+ * the order the rest of this file is written in.
+ */
+.field-row {
+  display: grid;
+  gap: var(--space-4);
+  /* minmax(0, …) rather than 1fr: an <input> carries a default intrinsic width
+     of about 20 characters, and a grid track sizes to it, so two fields in a
+     narrow main column pushed the page sideways. */
+  grid-template-columns: minmax(0, 1fr);
+}
+
+@media (min-width: 48rem) {
+  .field-row {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+
+  /* The subject first — a URL, a hostname, a script. */
+  .field-row.is-lead-first {
+    grid-template-columns: minmax(0, 3fr) minmax(0, 1fr);
+  }
+
+  /* The subject second — a number qualified by the sentence beside it. */
+  .field-row.is-lead-last {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+  }
 }
 
 /* ── Form actions ──────────────────────────────────────────────────────────

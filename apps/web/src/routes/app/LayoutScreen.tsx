@@ -369,6 +369,13 @@ function LayoutPreview({
                 // of a device would need updating every time hardware changes,
                 // and would not follow the theme.
                 width: 'fit-content',
+                // The shell is 390 plus its bezel — wider than the screen of
+                // the very device it draws. Capped here rather than shrunk
+                // below, so on a desktop it stays exactly 390 and on a phone
+                // it previews at whatever width there is instead of pushing
+                // the admin sideways.
+                maxWidth: '100%',
+                boxSizing: 'border-box',
                 padding: 12,
                 borderRadius: 44,
                 background: 'var(--color-fg)',
@@ -417,7 +424,7 @@ function LayoutPreview({
            */
           style={{
             display: 'block',
-            width: width === 'phone' ? 390 : '100%',
+            width: width === 'phone' ? 'min(390px, 100%)' : '100%',
             height: width === 'phone' ? 700 : 520,
             border: 0,
             // The screen's own radius, inside the shell's.

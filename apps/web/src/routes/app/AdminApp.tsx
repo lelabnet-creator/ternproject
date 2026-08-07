@@ -188,33 +188,35 @@ export function AdminApp({ slug }: { slug: string }) {
           isSystem={membership.isSystem === true}
         />
 
-        <div
-          className="admin-rail-foot"
-          style={{ display: 'grid', gap: 'var(--space-3)', justifyItems: 'center' }}
-        >
+        {/* The foot of the rail on a wide screen, the right-hand end of the app
+            bar on a narrow one — same three controls, same order, laid out by
+            `.admin-rail-foot` rather than from here. */}
+        <div className="admin-rail-foot">
           <ThemePicker />
           {/* At the foot of the rail rather than on a screen: it is the one
               spot an operator passes every session and never has to read. */}
           <SponsorButton />
           <Button
+            ariaLabel="Sign out"
             onClick={() => {
               void adminApi.logout().then(() => window.location.reload())
             }}
           >
-            Sign out
+            {/* Wrapped rather than given to Button directly: Button is not a
+                flex container, and an icon beside a text node would sit on the
+                baseline instead of centred against it. */}
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+              <Icons.LogOut size={15} aria-hidden="true" />
+              <span className="chrome-label">Sign out</span>
+            </span>
           </Button>
 
           {/* Under sign-out, and deliberately the quietest thing in the rail:
               nobody navigates by it, but it is the first thing anyone is asked
-              for when reporting that something is wrong. */}
-          <p
-            className="tabular"
-            style={{
-              margin: 0,
-              fontSize: 'var(--text-xs)',
-              color: 'var(--color-fg-subtle)',
-            }}
-          >
+              for when reporting that something is wrong. Dropped from the app
+              bar, where every pixel is spent on the tenant's name and the three
+              controls above — see `.admin-build`. */}
+          <p className="admin-build tabular">
             v{__TERN_VERSION__}
             <span aria-hidden="true"> · </span>
             <span title="Build">{__TERN_BUILD__}</span>
@@ -944,9 +946,7 @@ function ControlEditor({
             </Field>
 
             {form.kind === 'http' && (
-              <div
-                style={{ display: 'grid', gap: 'var(--space-4)', gridTemplateColumns: '3fr 1fr' }}
-              >
+              <div className="field-row is-lead-first">
                 <Field label="URL" hint="Where the request goes. https:// or http://.">
                   <Input
                     value={form.url}
@@ -971,9 +971,7 @@ function ControlEditor({
             )}
 
             {(form.kind === 'tcp' || form.kind === 'cert') && (
-              <div
-                style={{ display: 'grid', gap: 'var(--space-4)', gridTemplateColumns: '3fr 1fr' }}
-              >
+              <div className="field-row is-lead-first">
                 <Field label="Host" hint="A hostname or an address. No scheme.">
                   <Input
                     value={form.host}
@@ -1002,9 +1000,7 @@ function ControlEditor({
             )}
 
             {form.kind === 'dns' && (
-              <div
-                style={{ display: 'grid', gap: 'var(--space-4)', gridTemplateColumns: '3fr 1fr' }}
-              >
+              <div className="field-row is-lead-first">
                 <Field label="Name" hint="The record to resolve.">
                   <Input
                     value={form.dnsName}
@@ -1029,9 +1025,7 @@ function ControlEditor({
             )}
 
             {form.kind !== 'push' && (
-              <div
-                style={{ display: 'grid', gap: 'var(--space-4)', gridTemplateColumns: '1fr 2fr' }}
-              >
+              <div className="field-row is-lead-last">
                 <Field label="Every (seconds)" hint="How often the check runs.">
                   <Input
                     type="number"
@@ -1082,14 +1076,7 @@ function ControlEditor({
                 Advanced
               </summary>
 
-              <div
-                style={{
-                  display: 'grid',
-                  gap: 'var(--space-4)',
-                  gridTemplateColumns: '1fr 1fr',
-                  marginTop: 'var(--space-3)',
-                }}
-              >
+              <div className="field-row" style={{ marginTop: 'var(--space-3)' }}>
                 <Field
                   label="Degraded above (ms)"
                   hint="A push carrying a slower latency than this is shown degraded."
@@ -1231,7 +1218,7 @@ function SimulateStep({ slug, control }: { slug: string; control: Control }) {
           in one click when you are done.
         </Banner>
 
-        <div style={{ display: 'grid', gap: 'var(--space-4)', gridTemplateColumns: '1fr 1fr' }}>
+        <div className="field-row">
           <Field label="Days">
             <Input
               type="number"

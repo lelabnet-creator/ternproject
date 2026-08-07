@@ -137,6 +137,10 @@ export function TernWordmark({
     >
       {variant === 'badge' ? <TernBadge size={size} /> : <TernMark size={size} />}
       <span
+        // Dropped in the admin's app bar with the other labels: the product's
+        // own name is the one thing a signed-in operator does not need told,
+        // and those seventy pixels are the tenant's name instead.
+        className="chrome-label"
         style={{
           fontFamily: 'Helvetica, Arial, system-ui, sans-serif',
           fontWeight: 500,
