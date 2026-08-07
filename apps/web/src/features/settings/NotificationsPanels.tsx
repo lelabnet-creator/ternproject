@@ -53,6 +53,7 @@ function EmailPanel({ slug, canWrite }: { slug: string; canWrite: boolean }) {
     user: '',
     password: '',
     from: '',
+    allowWeakTls: false,
   })
   const [to, setTo] = useState('')
   const [result, setResult] = useState<{ ok: boolean; detail: string } | null>(null)
@@ -71,6 +72,7 @@ function EmailPanel({ slug, canWrite }: { slug: string; canWrite: boolean }) {
         // keeps whatever is stored.
         password: '',
         from: smtp.from,
+        allowWeakTls: smtp.allowWeakTls,
       })
     }
   }, [settings.data])
@@ -86,6 +88,7 @@ function EmailPanel({ slug, canWrite }: { slug: string; canWrite: boolean }) {
               user: smtp.user || undefined,
               password: smtp.password || undefined,
               from: smtp.from,
+              allowWeakTls: smtp.allowWeakTls,
             }
           : null,
       }),
@@ -197,6 +200,36 @@ function EmailPanel({ slug, canWrite }: { slug: string; canWrite: boolean }) {
               />
               <span style={{ fontSize: 'var(--text-sm)' }}>
                 Implicit TLS (port 465). Leave off for STARTTLS on 587.
+              </span>
+            </label>
+
+            {/* Off unless the relay forces the issue, and phrased so the reader
+                can tell whether it is their problem: the error it fixes is
+                unmistakable and worth naming, because nothing else in the UI
+                would connect "dh key too small" to a checkbox. */}
+            <label style={{ display: 'flex', alignItems: 'flex-start', gap: 'var(--space-2)' }}>
+              <input
+                type="checkbox"
+                checked={form.allowWeakTls}
+                disabled={!canWrite}
+                onChange={(e) => setForm({ ...form, allowWeakTls: e.target.checked })}
+                style={{ width: 20, height: 20, flexShrink: 0 }}
+              />
+              <span style={{ fontSize: 'var(--text-sm)' }}>
+                Accept this relay&rsquo;s weaker encryption.
+                <span
+                  style={{
+                    display: 'block',
+                    color: 'var(--color-fg-subtle)',
+                    fontSize: 'var(--text-xs)',
+                    marginTop: 2,
+                  }}
+                >
+                  Only for a server that fails with <code>dh key too small</code> — an old relay
+                  offering a 1024-bit Diffie-Hellman group. It weakens the handshake, and is still
+                  better than the alternative on port 25, which is no encryption at all. Ask whoever
+                  runs the relay to regenerate its parameters at 2048 bits.
+                </span>
               </span>
             </label>
 

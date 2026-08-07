@@ -84,6 +84,8 @@ export interface TenantSettings {
     user: string | null
     from: string
     hasPassword: boolean
+    /** Accept a handshake OpenSSL refuses as too weak. See the settings panel. */
+    allowWeakTls: boolean
   } | null
   instanceSmtp: { host: string; port: number; secure: boolean; from: string }
 }
@@ -99,6 +101,7 @@ export type TenantSettingsPatch = Partial<
     user?: string
     password?: string
     from: string
+    allowWeakTls?: boolean
   } | null
   /**
    * Write-only, and only the first-run wizard sends it. It stamps a timestamp

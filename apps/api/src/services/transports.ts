@@ -31,6 +31,32 @@ export interface TenantMail {
   user?: string
   password?: string
   from: string
+  /** See `weakTlsOptions` and the note on the schema column. */
+  allowWeakTls?: boolean
+}
+
+/**
+ * What to hand Node's TLS stack for a relay that negotiates weakly.
+ *
+ * `SECLEVEL=1` rather than `0`. Level 2 — the OpenSSL 3 default — requires a
+ * Diffie-Hellman group of at least 2048 bits, and a relay offering 1024 fails
+ * the handshake with `dh key too small` before a single byte of mail moves.
+ * Level 1 accepts 1024; level 0 would also accept broken ciphers and null
+ * encryption, which is a different thing entirely and not what anybody asking
+ * for this wants.
+ *
+ * The protocol floor is untouched. Node's `minVersion` stays at TLS 1.2, so
+ * lowering the security level widens which key exchanges are acceptable, not
+ * which protocol versions are.
+ *
+ * A 1024-bit group is within reach of an adversary who can afford the
+ * precomputation — that is Logjam, and it is why the default refuses. It is
+ * offered anyway because on port 25 with opportunistic STARTTLS the honest
+ * alternative is not stronger TLS, it is no TLS: without this the message does
+ * not go at all.
+ */
+function weakTlsOptions() {
+  return { tls: { ciphers: 'DEFAULT@SECLEVEL=1' } }
 }
 
 export function forgetTenantMailer(tenantId: string): void {
@@ -47,6 +73,7 @@ function tenantTransporter(mail: TenantMail): Transporter {
     port: mail.port,
     secure: mail.secure,
     auth: mail.user ? { user: mail.user, pass: mail.password } : undefined,
+    ...(mail.allowWeakTls ? weakTlsOptions() : {}),
   })
   tenantMailers.set(mail.tenantId, created)
   return created

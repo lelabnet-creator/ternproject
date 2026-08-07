@@ -5,6 +5,7 @@ import { schema } from '@tern/db'
 import { encryptSecret } from '@tern/shared'
 import { config } from '../config.js'
 import { audit, forgetCollector } from '../services/audit.js'
+import { forgetTenantMailer } from '../services/transports.js'
 
 /**
  * The settings a tenant owns.
@@ -23,6 +24,12 @@ const smtpSchema = z.object({
   /** Write-only. Absent means "leave the stored one alone". */
   password: z.string().max(255).optional(),
   from: z.string().min(3).max(255),
+  /**
+   * Accept a handshake OpenSSL would refuse as too weak — in practice a relay
+   * still offering a 1024-bit Diffie-Hellman group. Off unless asked for; see
+   * `weakTlsOptions` in services/transports.ts for what it actually relaxes.
+   */
+  allowWeakTls: z.boolean().optional(),
 })
 
 const routes: FastifyPluginAsyncZod = async (app) => {
@@ -73,6 +80,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
                 user: z.string().nullable(),
                 from: z.string(),
                 hasPassword: z.boolean(),
+                allowWeakTls: z.boolean(),
               })
               .nullable(),
             instanceSmtp: z.object({
@@ -115,6 +123,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
               secure: tenant.smtp.secure,
               user: tenant.smtp.user ?? null,
               from: tenant.smtp.from,
+              allowWeakTls: Boolean(tenant.smtp.allowWeakTls),
               // Whether one is stored, never what it is.
               hasPassword: Boolean(tenant.smtpPasswordEnc),
             }
@@ -249,6 +258,13 @@ const routes: FastifyPluginAsyncZod = async (app) => {
       // Otherwise turning forwarding off leaves it on for up to a minute, which
       // is exactly the minute someone is watching to check that it stopped.
       if (req.body.syslog !== undefined) forgetCollector(tenant.id)
+
+      // The same reasoning, and it was missing: `forgetTenantMailer` existed
+      // and nothing called it. A transporter is cached per tenant and holds a
+      // connection pool, so a changed host, port, password or TLS setting kept
+      // being ignored until the process restarted — including the "send a test"
+      // button, which is precisely how somebody checks that a change worked.
+      if (req.body.smtp !== undefined) forgetTenantMailer(tenant.id)
 
       await audit(app, {
         action: 'tenant.settings_updated',

@@ -73,6 +73,20 @@ export const tenants = pgTable(
       secure: boolean
       user?: string
       from: string
+      /**
+       * Accept a TLS handshake OpenSSL would otherwise refuse as too weak.
+       *
+       * Off unless asked for. It exists because a relay nobody controls — an
+       * old corporate Postfix, a hosted box untouched for a decade — commonly
+       * still offers a 1024-bit Diffie-Hellman group, which OpenSSL 3 rejects
+       * outright. On port 25 the realistic alternative to a weak handshake is
+       * not a stronger one, it is cleartext, so this is worth having; it is a
+       * decision for whoever owns the relay, which is why it is a per-tenant
+       * setting rather than a default.
+       *
+       * Not a migration: `smtp` is JSONB, so an absent key reads as off.
+       */
+      allowWeakTls?: boolean
     } | null>(),
     smtpPasswordEnc: text(),
 

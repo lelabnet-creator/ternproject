@@ -44,6 +44,7 @@ export async function tenantMailFor(
       ? decryptSecret(tenant.smtpPasswordEnc, config.APP_SECRET)
       : undefined,
     from: tenant.smtp.from,
+    allowWeakTls: tenant.smtp.allowWeakTls,
   }
 }
 

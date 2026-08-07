@@ -43,6 +43,77 @@ describe('mail settings', () => {
     expect(response.statusCode).toBe(200)
     expect(response.json().sent).toBe(true)
   })
+
+  it('stores the weak-TLS allowance and hands it back, defaulting to off', async () => {
+    // The relay this exists for cannot be stood up in a test — it would need a
+    // server negotiating a 1024-bit Diffie-Hellman group. What is pinned here is
+    // the part this repository owns: that the flag survives a round trip and is
+    // absent-means-off, so a tenant is never quietly opted into a weaker
+    // handshake by a missing key in a JSONB blob.
+    const save = (allowWeakTls?: boolean) =>
+      fx.app.inject({
+        method: 'PATCH',
+        url: `/api/v1/${fx.slug}/settings`,
+        headers: { cookie: adminCookie },
+        payload: {
+          smtp: {
+            host: 'localhost',
+            port: 1025,
+            secure: false,
+            from: 'TERN <status@test.local>',
+            ...(allowWeakTls === undefined ? {} : { allowWeakTls }),
+          },
+        },
+      })
+
+    const read = async () =>
+      (
+        await fx.app.inject({
+          method: 'GET',
+          url: `/api/v1/${fx.slug}/settings`,
+          headers: { cookie: adminCookie },
+        })
+      ).json().smtp
+
+    expect((await save()).statusCode).toBe(200)
+    expect((await read()).allowWeakTls).toBe(false)
+
+    expect((await save(true)).statusCode).toBe(200)
+    expect((await read()).allowWeakTls).toBe(true)
+
+    // And back off again: a setting that can only be turned on is a trap.
+    expect((await save(false)).statusCode).toBe(200)
+    expect((await read()).allowWeakTls).toBe(false)
+  })
+
+  it('still sends after the sender is changed, rather than using the cached transport', async () => {
+    // `forgetTenantMailer` existed and nothing called it, so a tenant's cached
+    // transporter outlived every settings change until the process restarted —
+    // including the change somebody makes precisely because mail is failing.
+    await fx.app.inject({
+      method: 'PATCH',
+      url: `/api/v1/${fx.slug}/settings`,
+      headers: { cookie: adminCookie },
+      payload: {
+        smtp: {
+          host: 'localhost',
+          port: 1025,
+          secure: false,
+          from: 'TERN Changed <changed@test.local>',
+        },
+      },
+    })
+
+    const response = await fx.app.inject({
+      method: 'POST',
+      url: `/api/v1/${fx.slug}/notifications/mail/test`,
+      headers: { cookie: adminCookie },
+      payload: { to: 'ops@example.com' },
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(response.json().sent).toBe(true)
+  })
 })
 
 describe('outbound webhooks', () => {
