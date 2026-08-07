@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { adminApi, ApiError, type TenantSettingsPatch } from '../../lib/adminApi'
 import { Tabs } from '../../components/Tabs'
 import { ACCENTS, accentById, applyAccent } from '../../lib/accents'
+import { LocaleSelect, TimeZoneInput } from '../../components/pickers'
 import { Banner, Button, Card, Field, Input } from '../../components/ui'
 import { NotificationsPanels } from '../../features/settings/NotificationsPanels'
 import { CapacityPanel } from '../../features/settings/CapacityPanel'
@@ -207,18 +208,18 @@ function GeneralPanel({ slug, canWrite }: { slug: string; canWrite: boolean }) {
           time zone win when they are known.
         </p>
         <div className="facts">
-          <Field label="Locale" hint="en, fr, …">
-            <Input
+          <Field label="Locale" hint="The languages this interface has strings for.">
+            <LocaleSelect
               value={value.defaultLocale}
               disabled={!canWrite}
-              onChange={(e) => set('defaultLocale', e.target.value)}
+              onChange={(next) => set('defaultLocale', next)}
             />
           </Field>
-          <Field label="Time zone" hint="An IANA name, e.g. Europe/Paris.">
-            <Input
+          <Field label="Time zone" hint="Start typing a city — Paris, Tokyo, Sao_Paulo.">
+            <TimeZoneInput
               value={value.defaultTimezone}
               disabled={!canWrite}
-              onChange={(e) => set('defaultTimezone', e.target.value)}
+              onChange={(next) => set('defaultTimezone', next)}
             />
           </Field>
         </div>

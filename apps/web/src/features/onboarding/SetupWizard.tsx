@@ -2,9 +2,10 @@ import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Check } from 'lucide-react'
 import { adminApi, ApiError } from '../../lib/adminApi'
-import { Banner, Button, Card, Field, Input } from '../../components/ui'
+import { Banner, Button, Card, Field } from '../../components/ui'
 import { TernWordmark } from '../../components/brand/TernMark'
 import { ACCENTS, accentById, applyAccent } from '../../lib/accents'
+import { LocaleSelect, TimeZoneInput } from '../../components/pickers'
 import { Choice } from '../../routes/app/OptionsScreen'
 import { SiteFooter } from '../../components/SiteFooter'
 
@@ -140,10 +141,13 @@ export function SetupWizard({
 
                 <div className="facts">
                   <Field label="Language" hint="For a reader whose browser says nothing useful.">
-                    <Input value={locale} onChange={(e) => setLocale(e.target.value)} />
+                    <LocaleSelect value={locale} onChange={setLocale} />
                   </Field>
-                  <Field label="Time zone" hint="Taken from this machine. An IANA name.">
-                    <Input value={timezone} onChange={(e) => setTimezone(e.target.value)} />
+                  <Field
+                    label="Time zone"
+                    hint="Taken from this machine. Start typing to change it."
+                  >
+                    <TimeZoneInput value={timezone} onChange={setTimezone} />
                   </Field>
                 </div>
 

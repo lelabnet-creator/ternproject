@@ -20,6 +20,19 @@ export function initI18n(locale: string) {
   return i18next
 }
 
+/**
+ * The languages the interface actually has strings for.
+ *
+ * Exported so the settings screens can offer a list rather than a text field.
+ * A free-text locale invites `fr-FR`, `french` and `FR`, none of which this
+ * resolves to anything but English — a silent wrong answer where a list of two
+ * cannot be got wrong.
+ */
+export const LOCALES = [
+  { id: 'en', label: 'English' },
+  { id: 'fr', label: 'Français' },
+] as const
+
 /** `fr-CA` and `fr` both resolve to French; anything unknown falls back. */
 export function normaliseLocale(locale: string): string {
   const base = locale.split('-')[0]?.toLowerCase()
