@@ -115,7 +115,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
 
       // A push is the strongest possible evidence the agent is alive, and it is
       // what everything downstream means by "last seen".
-      await touchAgent(app, key.id)
+      await touchAgent(app, key.id, req.headers['user-agent'])
 
       const points = Array.isArray(req.body) ? req.body : [req.body]
       const resolved = await resolveControls(app, key, [
@@ -178,7 +178,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
       const key = await authenticateApiKey(app, req, 'ingest')
       if (!key) throw app.httpErrors.unauthorized('Invalid or missing API key')
 
-      await touchAgent(app, key.id)
+      await touchAgent(app, key.id, req.headers['user-agent'])
 
       const resolved = await resolveControls(app, key, [req.params.controlKey])
       const controlId = resolved.get(req.params.controlKey)

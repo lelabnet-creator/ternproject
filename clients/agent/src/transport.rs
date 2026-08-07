@@ -195,6 +195,35 @@ impl Client {
         response.json().await.context("unexpected jobs response")
     }
 
+    /// "I am here", and nothing else.
+    ///
+    /// An agent that is measuring says so with every push, and one that is
+    /// refreshing says so by asking. An agent whose assignment is empty does
+    /// neither — it has nothing to send and, under `--no-refresh`, nothing to
+    /// ask — so it went silent and the fleet drew it as dead. It was not dead;
+    /// it had nothing to do, which is a different thing and worth being able to
+    /// tell apart.
+    ///
+    /// Deliberately its own endpoint rather than a reuse of `jobs`: liveness
+    /// should not cost an assignment download, and it has to keep working when
+    /// the operator has asked for no refreshing at all.
+    pub async fn heartbeat(&self, api_key: &str) -> Result<()> {
+        let response = self
+            .http
+            .post(format!("{}/api/v1/agent/heartbeat", self.base_url))
+            .bearer_auth(api_key)
+            .send()
+            .await
+            .context("could not reach the server")?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            bail!("heartbeat refused ({status})");
+        }
+
+        Ok(())
+    }
+
     pub async fn ingest(&self, api_key: &str, points: &[Point]) -> Result<IngestResponse> {
         let response = self
             .http

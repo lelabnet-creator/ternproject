@@ -1,3 +1,4 @@
+import { spawn, type ChildProcess } from 'node:child_process'
 import { chmodSync, existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { and, eq } from 'drizzle-orm'
@@ -194,24 +195,121 @@ export async function ensureLocalAgent(app: FastifyInstance, tenantId: string): 
 let idleReported = false
 
 /**
- * Brings the local agent's *record* into line with what the instance is.
+ * Keeps the binary running, where this process is the one that has to.
  *
- * Nothing here starts a process. The agent runs as its own service —
- * `docker-compose.prod.yml` — and Docker's `restart: unless-stopped` is the
- * supervisor. An earlier version spawned the binary from this process and
- * restarted it with a backoff, which was a supervisor written by hand to
- * achieve what the container runtime already does, and which also killed the
- * agent every time the API restarted — the opposite of the reason to run it in
- * a separate process at all.
+ * Only used when `TERN_LOCAL_AGENT_SUPERVISE` is on — that is, running from
+ * source, where there is no container to do it. The production stack turns it
+ * off and lets Docker's `restart: unless-stopped` be the supervisor.
  *
- * What is left is provisioning, and it is called from three places for one
- * reason: the precondition is a page, and a page is created by a person minutes
- * or days after the process booted. The wizard calls it on the way out
- * (`routes/setup.ts`), and the job runner calls it on a tick
+ * The restart backoff is not about crashes any more: since the agent idles on
+ * an empty assignment rather than exiting, an exit means something genuinely
+ * went wrong, and hammering it several times a second would only make the log
+ * unreadable at the moment somebody needs to read it.
+ */
+/** An exit sooner than this is a refusal, not a crash worth riding out. */
+const IMMEDIATE_EXIT_MS = 5_000
+/** How many refusals before saying so once and stopping. */
+const MAX_REFUSALS = 3
+
+class Supervisor {
+  private child: ChildProcess | null = null
+  private stopping = false
+  private failures = 0
+  private refusals = 0
+  private timer: NodeJS.Timeout | null = null
+
+  constructor(
+    private readonly app: FastifyInstance,
+    private readonly binary: string,
+  ) {}
+
+  start(): void {
+    if (this.stopping) return
+    const { configPath, queuePath } = dataPaths()
+    const startedAt = Date.now()
+
+    // No `--wait-for-config`: this starts only after `ensureLocalAgent` has
+    // written the file, so there is nothing to wait for. That flag is for the
+    // container, which starts on its own schedule and may well beat the wizard.
+    // Leaving it off also means this works with an older agent binary, which
+    // matters because `clients/agent/bin` is refreshed by CI rather than here.
+    this.child = spawn(
+      this.binary,
+      ['run', '--config', configPath, '--queue', queuePath],
+      // Its logs go to this process's stderr, where the API's collector already
+      // looks. A file would be a second place to know about.
+      { stdio: ['ignore', 'inherit', 'inherit'] },
+    )
+
+    this.child.on('spawn', () => {
+      this.failures = 0
+      this.app.log.info({ agent: LOCAL_AGENT_NAME, pid: this.child?.pid }, 'local agent started')
+    })
+
+    this.child.on('error', (error) => {
+      this.app.log.error({ err: error, agent: LOCAL_AGENT_NAME }, 'local agent failed to start')
+    })
+
+    this.child.on('exit', (code, signal) => {
+      const ranFor = Date.now() - startedAt
+      this.child = null
+      if (this.stopping) return
+
+      // An exit within a few seconds of starting is not a crash to ride out, it
+      // is a refusal — a binary too old for the arguments it was given, or one
+      // that will not run without an assignment. Retrying that forever produces
+      // a loop that says the same thing every second and drowns the reason.
+      if (ranFor < IMMEDIATE_EXIT_MS) this.refusals += 1
+      else this.refusals = 0
+
+      if (this.refusals >= MAX_REFUSALS) {
+        this.stopping = true
+        this.app.log.error(
+          { agent: LOCAL_AGENT_NAME, code, attempts: this.refusals },
+          'local agent keeps exiting immediately — not retrying. ' +
+            'Its own error is above; a binary older than this server is the usual cause. ' +
+            'Restart the API once clients/agent/bin has been refreshed.',
+        )
+        return
+      }
+
+      this.failures += 1
+      const delay = Math.min(1000 * 2 ** (this.failures - 1), 60_000)
+      this.app.log.warn(
+        { agent: LOCAL_AGENT_NAME, code, signal, delayMs: delay },
+        'local agent exited — restarting',
+      )
+      this.timer = setTimeout(() => this.start(), delay)
+    })
+  }
+
+  stop(): void {
+    this.stopping = true
+    if (this.timer) clearTimeout(this.timer)
+    // SIGTERM, not SIGKILL: the agent writes its queue to disk on the way out,
+    // and killing it outright loses whatever it has not sent.
+    this.child?.kill('SIGTERM')
+  }
+}
+
+let supervisor: Supervisor | null = null
+
+export function stopLocalAgent(): void {
+  supervisor?.stop()
+  supervisor = null
+}
+
+/**
+ * Brings the local agent into line with what the instance is.
+ *
+ * Called from three places for one reason: the precondition is a page, and a
+ * page is created by a person minutes or days after the process booted. The
+ * wizard calls it on the way out (`routes/setup.ts`), the plugin calls it once
+ * the server is listening, and the job runner calls it on a tick
  * (`plugins/jobs.ts`) so an instance provisioned any other way converges too.
  *
  * Idempotent. Safe to call while the agent is running: it writes nothing unless
- * the row or the config file is missing.
+ * the row or the config file is missing, and starts nothing twice.
  */
 export async function startLocalAgent(app: FastifyInstance): Promise<void> {
   if (!config.TERN_LOCAL_AGENT) {
@@ -244,4 +342,18 @@ export async function startLocalAgent(app: FastifyInstance): Promise<void> {
 
   idleReported = false
   await ensureLocalAgent(app, tenant.id)
+
+  if (!config.TERN_LOCAL_AGENT_SUPERVISE || supervisor) return
+
+  const binary = resolveBinary()
+  if (!binary) {
+    app.log.info(
+      { platform: process.platform, arch: process.arch },
+      'no agent binary for this platform — the in-process prober keeps measuring',
+    )
+    return
+  }
+
+  supervisor = new Supervisor(app, binary)
+  supervisor.start()
 }

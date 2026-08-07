@@ -109,6 +109,10 @@ services:
       # API writes into agent.toml — http://127.0.0.1:3011 — is already correct.
       # See the `agent` service below for why it is worth arranging that.
       TERN_LOCAL_AGENT: ${TERN_LOCAL_AGENT:-true}
+      # The `agent` service below runs the binary and Docker supervises it, so
+      # this process must not also start one. Running from source there is no
+      # container to do it, which is why the default is the other way round.
+      TERN_LOCAL_AGENT_SUPERVISE: 'false'
     ports:
       - '${TERN_HTTP_PORT:-8080}:3011'
     volumes:

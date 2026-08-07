@@ -81,6 +81,23 @@ const schema = z.object({
   TERN_LOCAL_AGENT_SERVER: z.string().default(''),
 
   /**
+   * Whether this process starts the agent binary itself.
+   *
+   * On by default, because the deployment that needs it is the one nobody
+   * configures: run the API from source and there is no container to run the
+   * agent, so without this the fleet shows an agent that was provisioned and
+   * never once reported — a dead row on every development install.
+   *
+   * `docker-compose.prod.yml` turns it off. There the `agent` service runs the
+   * binary and Docker supervises it, and two supervisors for one process is one
+   * too many.
+   */
+  TERN_LOCAL_AGENT_SUPERVISE: z
+    .string()
+    .default('true')
+    .transform((v) => v !== 'false' && v !== '0'),
+
+  /**
    * Proxy CIDRs whose X-Forwarded-For is believed. Empty by default: IP
    * allowlists are only as trustworthy as this list, and trusting a header
    * nobody sets is how they get bypassed.

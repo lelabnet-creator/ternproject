@@ -198,6 +198,18 @@ async fn stop_requested() {
 /// as soon as an agent reports: the new control was measured by nobody at all.
 const REFRESH_EVERY: Duration = Duration::from_secs(300);
 
+/// How often the agent says it is alive.
+///
+/// Five minutes, and unconditional — it runs whether or not there is anything
+/// to probe, and whether or not refreshing is switched off. Everything else the
+/// agent sends is a side effect of having work: a push proves it is alive, and
+/// so does asking for an assignment. An agent with an empty assignment does
+/// neither, so it looked dead to the fleet while being perfectly healthy.
+///
+/// Well inside the ten-minute window the server calls stale, so one lost
+/// heartbeat is not enough to turn the dot amber.
+const HEARTBEAT_EVERY: Duration = Duration::from_secs(300);
+
 /// Re-reads the assignment, returning whether anything about it changed.
 ///
 /// A failure is a warning, never fatal — an agent that stops because the server
@@ -302,17 +314,20 @@ pub async fn run(
 
     let mut schedule = reschedule(&config, &HashMap::new(), Instant::now());
     let mut next_refresh = Instant::now() + REFRESH_EVERY;
+    // Immediately, not in five minutes: the first thing a freshly started agent
+    // owes the fleet is that it exists. Without this an idle agent is invisible
+    // for its first interval, which is the interval somebody is watching.
+    let mut next_heartbeat = Instant::now();
 
     loop {
-        // Whichever comes first: the next probe, or the next refresh. With an
-        // empty assignment there is no probe, and the refresh is the only thing
-        // that can end the wait — which is precisely why it must be in here
-        // rather than a separate timer.
-        let next_probe = schedule.values().min().copied();
-        let wake_at = match next_probe {
-            Some(at) if at < next_refresh => at,
-            _ => next_refresh,
-        };
+        // The earliest of the three: the next probe, the next refresh, the next
+        // heartbeat. With an empty assignment there is no probe, and the other
+        // two are the only things that can end the wait — which is why they
+        // belong in this select rather than in timers of their own.
+        let mut wake_at = next_refresh.min(next_heartbeat);
+        if let Some(at) = schedule.values().min().copied() {
+            wake_at = wake_at.min(at);
+        }
 
         tokio::select! {
             _ = tokio::time::sleep_until(wake_at) => {}
@@ -324,6 +339,16 @@ pub async fn run(
         }
 
         let mut now = Instant::now();
+
+        if now >= next_heartbeat {
+            // A failure is a warning and nothing more. The server being briefly
+            // unreachable is the moment an agent must keep going, not the
+            // moment it should start treating its own liveness as an error.
+            if let Err(error) = client.heartbeat(&config.api_key).await {
+                warn!(%error, "heartbeat failed");
+            }
+            next_heartbeat = Instant::now() + HEARTBEAT_EVERY;
+        }
 
         if refresh && now >= next_refresh {
             if refresh_assignment(&client, &mut config, &config_path).await {

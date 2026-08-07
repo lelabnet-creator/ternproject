@@ -191,6 +191,33 @@ const routes: FastifyPluginAsyncZod = async (app) => {
    * paired last month runs last month's probes, and adding a control means
    * touching every host — which is the thing having a server is meant to avoid.
    */
+  /**
+   * "I am here."
+   *
+   * Every other sign of life an agent gives is a side effect of having work: a
+   * push proves it, and so does asking for an assignment. An agent whose
+   * assignment is empty does neither — it has nothing to send, and under
+   * `--no-refresh` nothing to ask — so it fell silent and the fleet drew it as
+   * dead. It was not dead; it had nothing to do, and those are worth telling
+   * apart.
+   *
+   * Its own endpoint rather than a reuse of `/agent/jobs`, so liveness costs no
+   * assignment download and keeps working when refreshing is switched off. It
+   * writes nothing but the timestamp and the version, and it answers the same
+   * to every caller holding a valid ingest key.
+   */
+  app.post(
+    '/agent/heartbeat',
+    { schema: { response: { 200: z.object({ ok: z.boolean() }) } } },
+    async (req) => {
+      const key = await authenticateApiKey(app, req, 'ingest')
+      if (!key) throw app.httpErrors.unauthorized('Invalid or missing API key')
+
+      await touchAgent(app, key.id, req.headers['user-agent'])
+      return { ok: true }
+    },
+  )
+
   app.get(
     '/agent/jobs',
     {
@@ -206,7 +233,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
 
       // An agent asking what to run is alive, even if it has nothing to push
       // yet — which is exactly the state a freshly started one is in.
-      await touchAgent(app, key.id)
+      await touchAgent(app, key.id, req.headers['user-agent'])
 
       const [tenant] = await app.db
         .select({ slug: schema.tenants.slug })

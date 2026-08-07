@@ -36,10 +36,14 @@ export interface IssuedApiKey {
  * rest of the time. A minute is far below the ten-minute staleness window that
  * consumes it, so nothing downstream can tell the difference.
  */
-export async function touchAgent(app: FastifyInstance, apiKeyId: string): Promise<void> {
+export async function touchAgent(
+  app: FastifyInstance,
+  apiKeyId: string,
+  userAgent?: string,
+): Promise<void> {
   await app.db
     .update(schema.agents)
-    .set({ lastSeenAt: new Date() })
+    .set({ lastSeenAt: new Date(), ...versionFrom(userAgent) })
     .where(
       and(
         eq(schema.agents.apiKeyId, apiKeyId),
@@ -49,6 +53,24 @@ export async function touchAgent(app: FastifyInstance, apiKeyId: string): Promis
         ),
       ),
     )
+}
+
+/**
+ * The agent's version, read from the header it already sends.
+ *
+ * `agent_version` used to be written once, at pairing, and never again — so the
+ * fleet showed the version an agent had on the day it was installed, and showed
+ * nothing at all for `Agent-local-tern`, which is provisioned rather than paired
+ * and so never had a pairing handshake to report it. "version unknown" beside a
+ * healthy agent is the kind of small wrongness that makes a screen untrusted.
+ *
+ * Taken from `User-Agent` rather than asked for in a body: the agent sets
+ * `tern-agent/<version>` on every request it makes, so this needs no protocol
+ * change and updates itself when the binary is upgraded.
+ */
+function versionFrom(userAgent?: string): { agentVersion?: string } {
+  const match = /^tern-agent\/(\S{1,64})/.exec(userAgent ?? '')
+  return match ? { agentVersion: match[1] } : {}
 }
 
 export async function issueApiKey(

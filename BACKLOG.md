@@ -7,7 +7,6 @@ milestone plan stays finishable.
 
 - **SSO (OIDC / SAML)** — the stated requirement is local login plus MFA. The auth plugin keeps a
   provider seam so this can be added without reworking sessions.
-- **Passkeys / WebAuthn / YubiKey** as a second factor alongside TOTP.
 - **SMS notifications** (Twilio, Vonage) — cost and per-country compliance make this a decision for
   the operator, not a default.
 - **Geographic status maps** — the control group tree already models sites; a map is presentation.

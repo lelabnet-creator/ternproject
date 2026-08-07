@@ -200,13 +200,10 @@ Its files live in `TERN_DATA_DIR` — `/var/lib/tern` in the production image,
 which is the volume already backed up with `APP_SECRET`. `agent.toml` holds a
 live ingest key and is written 0600.
 
-Running the API from source starts **no** agent process. `agent.toml` is still
-written, into `.tern/`, so running it by hand is one line:
-
-```sh
-./clients/agent/bin/tern-agent-x86_64-unknown-linux-musl run \
-    --config .tern/agent.toml --queue .tern/agent-queue.jsonl
-```
+Running the API from source, there is no container to run the agent, so the API
+starts it itself — `TERN_LOCAL_AGENT_SUPERVISE`, on by default and turned off in
+the production stack. Without it a development install shows an agent that was
+provisioned and never reported, which looks like a fault and is not.
 
 ## What breaks first
 

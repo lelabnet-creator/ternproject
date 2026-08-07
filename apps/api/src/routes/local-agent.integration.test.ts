@@ -196,6 +196,50 @@ describe('liveness', () => {
   })
 })
 
+describe('the heartbeat', () => {
+  it('keeps an agent with nothing to do from looking dead', async () => {
+    await ensureLocalAgent(fx.app, fx.tenantId)
+    const agent = await localAgent()
+
+    // The state this endpoint exists for: an agent that has never pushed and
+    // never asked for an assignment, because it has none. Before it, that agent
+    // was indistinguishable from one whose host had been switched off.
+    await fx.app.db
+      .update(schema.agents)
+      .set({ lastSeenAt: null, agentVersion: null })
+      .where(eq(schema.agents.id, agent!.id))
+
+    const issued = await issueApiKey(fx.app, {
+      tenantId: fx.tenantId,
+      name: 'Agent: heartbeat probe',
+      scopes: ['ingest'],
+    })
+    await fx.app.db
+      .update(schema.agents)
+      .set({ apiKeyId: issued.id })
+      .where(eq(schema.agents.id, agent!.id))
+
+    const response = await fx.app.inject({
+      method: 'POST',
+      url: '/api/v1/agent/heartbeat',
+      headers: { authorization: `Bearer ${issued.key}`, 'user-agent': 'tern-agent/9.9.9' },
+    })
+
+    expect(response.statusCode).toBe(200)
+
+    const after = await localAgent()
+    expect(after?.lastSeenAt).not.toBeNull()
+    // And it carries the version, so the fleet stops saying "version unknown"
+    // for an agent that never had a pairing handshake to report one.
+    expect(after?.agentVersion).toBe('9.9.9')
+  })
+
+  it('refuses a caller without a key', async () => {
+    const response = await fx.app.inject({ method: 'POST', url: '/api/v1/agent/heartbeat' })
+    expect(response.statusCode).toBe(401)
+  })
+})
+
 describe('the binary', () => {
   it('either resolves to a file for this platform, or to nothing at all', () => {
     // Both are correct outcomes: `clients/agent/bin` is populated by CI, so a

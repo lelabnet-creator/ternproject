@@ -4,7 +4,7 @@ import { Check } from 'lucide-react'
 import { adminApi, ApiError } from '../../lib/adminApi'
 import { Banner, Button, Card, Field, Input } from '../../components/ui'
 import { TernWordmark } from '../../components/brand/TernMark'
-import { ACCENTS, SEPARATION_FLOOR, accentById, applyAccent } from '../../lib/accents'
+import { ACCENTS, accentById, applyAccent } from '../../lib/accents'
 import { Choice } from '../../routes/app/OptionsScreen'
 import { SiteFooter } from '../../components/SiteFooter'
 
@@ -117,28 +117,25 @@ export function SetupWizard({
             {step === 0 && (
               <>
                 <Explain>
-                  The accent colours buttons and links. The short list is arithmetic rather than
-                  taste — every colour here is far enough from the status palette that a button
-                  cannot be misread as a service state.
+                  The accent colours buttons, links and the focus ring. Decoration only — it changes
+                  nothing about what the page says about a service.
                 </Explain>
 
                 <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
-                  {ACCENTS.filter((option) => option.separation >= SEPARATION_FLOOR).map(
-                    (option) => (
-                      <Choice
-                        key={option.id}
-                        selected={accent === option.id}
-                        label={option.label}
-                        hint={`Clear of every status colour (ΔE ${option.separation})`}
-                        onSelect={() => {
-                          setAccent(option.id)
-                          // Applied at once: a colour you have to save to see is
-                          // one you cannot compare.
-                          applyAccent(accentById(option.id))
-                        }}
-                      />
-                    ),
-                  )}
+                  {ACCENTS.map((option) => (
+                    <Choice
+                      key={option.id}
+                      selected={accent === option.id}
+                      label={option.label}
+                      hint={option.description}
+                      onSelect={() => {
+                        setAccent(option.id)
+                        // Applied at once: a colour you have to save to see is
+                        // one you cannot compare.
+                        applyAccent(accentById(option.id))
+                      }}
+                    />
+                  ))}
                 </div>
 
                 <div className="facts">

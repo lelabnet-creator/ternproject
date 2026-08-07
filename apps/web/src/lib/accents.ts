@@ -1,24 +1,24 @@
 /**
  * The accents a tenant may choose.
  *
- * Short list, and the reason is arithmetic rather than taste. The status palette
- * already occupies green, amber, orange, crimson, blue and grey, and an accent
- * that lands near any of them starts being read as a state — a primary button
- * that looks "operational" is the defect this whole file exists to prevent.
+ * Four, and visibly four different things: a warm pink, a yellow, a blue and
+ * the brand's own near-black. This is decoration — which colour the primary
+ * buttons, the selected row and the focus ring take — and nothing here means
+ * anything about a service.
  *
- * Every candidate was measured against all six statuses in both themes. Teal
- * failed against operational (ΔE 8.6) and maintenance (4.8); steel blue failed
- * at 3.2; amber at 10.6; pink at 9.9; indigo at 14.1. What survives is the
- * purple-to-magenta arc, plus the brand's own ink — which passes at 17.3 and is
- * the option for anyone who wants no colour at all.
- *
- * The number beside each is its worst pair, so a future change can be checked
- * rather than argued about.
+ * A note rather than a guard, because it is worth knowing once: `rose`, `amber`
+ * and `ocean` sit near the `down`, `degraded` and `maintenance` status colours
+ * respectively. The picker used to measure that and label each swatch with the
+ * distance. It no longer does: an accent is a matter of taste, the statuses
+ * always carry their own word beside the colour, and a settings screen that
+ * argues with you about a colour choice is a settings screen nobody enjoys.
  */
 
 export interface Accent {
   id: string
   label: string
+  /** What the colour actually is, for a picker that shows a word beside a dot. */
+  description: string
   /** Fill: buttons, selected chips. Read against its own background. */
   light: string
   /** The same colour as text or an edge, which must clear 4.5:1 on a card. */
@@ -30,91 +30,16 @@ export interface Accent {
   darkSoft: string
   darkFg: string
   lightFg: string
-  /** Worst normal-vision ΔE against any status colour. */
-  separation: number
-  /** Which status it is nearest, named when the separation is below the floor. */
-  nearest?: string
 }
-
-/** Below this, two colours are hard to tell apart even with full colour vision. */
-export const SEPARATION_FLOOR = 15
 
 export const ACCENTS: Accent[] = [
   {
-    id: 'ink',
-    label: 'Ink',
-    // The marque's own navy. No hue to clash with anything, and the highest
-    // contrast of the set at 14.8:1.
-    light: '#0d2a3f',
-    lightInk: '#0d2a3f',
-    lightSoft: '#dfe7ee',
-    lightFg: '#ffffff',
-    dark: '#e2e8f0',
-    darkInk: '#e2e8f0',
-    darkSoft: '#24455e',
-    darkFg: '#0d2a3f',
-    separation: 17.3,
-  },
-  {
-    id: 'violet',
-    label: 'Violet',
-    light: '#7c3aed',
-    lightInk: '#7c3aed',
-    lightSoft: '#f1eafe',
-    lightFg: '#ffffff',
-    dark: '#8b5cf6',
-    darkInk: '#b8a3ff',
-    darkSoft: '#2a2050',
-    darkFg: '#1a0b2e',
-    separation: 19.8,
-  },
-  {
-    id: 'purple',
-    label: 'Purple',
-    light: '#9333ea',
-    lightInk: '#9333ea',
-    lightSoft: '#f5e9fe',
-    lightFg: '#ffffff',
-    dark: '#a855f7',
-    darkInk: '#d8b4fe',
-    darkSoft: '#2f1d4d',
-    darkFg: '#1e0836',
-    separation: 22.5,
-  },
-  {
-    id: 'mint',
-    label: 'Mint',
-    // From the chip palette, and the only one of the five that clears the floor
-    // as an accent: 19.3 from `degraded` amber, its nearest status.
-    light: '#0f8f68',
-    lightInk: '#0f8f68',
-    lightSoft: '#dcf6ec',
-    lightFg: '#ffffff',
-    dark: '#4ed2a6',
-    darkInk: '#7ee0c0',
-    darkSoft: '#123c31',
-    darkFg: '#06251b',
-    separation: 19.3,
-  },
-
-  /*
-   * The rest of the chosen palette, shipped because it was asked for twice, and
-   * shipped with the number visible because the number is the point.
-   *
-   * These sit below the floor: an accent this close to a status colour can be
-   * misread as one, and the misreading that matters is a primary button that
-   * looks like a "down" badge on a status page. The picker names the status
-   * each one is nearest, so the trade is made in front of the person making it
-   * rather than discovered afterwards.
-   *
-   * Darkening does not rescue them — it makes them worse. A rose dark enough to
-   * carry white text at 4.5:1 measures ΔE 2.9 from `down`; the value below is
-   * the lightest that still holds contrast, at 7.4.
-   */
-  {
     id: 'rose',
+    description: 'A warm pink',
     label: 'Rose',
     light: '#d23a60',
+    // A different colour from the fill, because #d23a60 as text on white is
+    // 3.6:1 — fine for a button's background, short of the floor for a word.
     lightInk: '#c2274f',
     lightSoft: '#fde7ec',
     lightFg: '#ffffff',
@@ -122,16 +47,15 @@ export const ACCENTS: Accent[] = [
     darkInk: '#f7a8bd',
     darkSoft: '#45182a',
     darkFg: '#2b0711',
-    separation: 7.4,
-    nearest: 'down',
   },
   {
     id: 'amber',
+    description: 'A soft yellow',
     label: 'Amber',
     light: '#f9d276',
-    // The fill is light enough to need a dark foreground, which is why the ink
-    // is a different colour rather than the same one: #f9d276 as text on white
-    // is 1.6:1 and unreadable.
+    // Same reason, further: #f9d276 as text on white is 1.6:1 and unreadable,
+    // and the fill is light enough that its foreground is dark rather than
+    // white — the only one of the four that way round.
     lightInk: '#8a6d1f',
     lightSoft: '#fdf3dc',
     lightFg: '#17384b',
@@ -139,11 +63,10 @@ export const ACCENTS: Accent[] = [
     darkInk: '#fbdf9e',
     darkSoft: '#42381c',
     darkFg: '#17384b',
-    separation: 9.3,
-    nearest: 'degraded',
   },
   {
     id: 'ocean',
+    description: 'A muted blue',
     label: 'Ocean',
     light: '#2a7ba0',
     lightInk: '#1f6a8c',
@@ -153,21 +76,21 @@ export const ACCENTS: Accent[] = [
     darkInk: '#8ec9e4',
     darkSoft: '#14313f',
     darkFg: '#05161f',
-    separation: 6.0,
-    nearest: 'maintenance',
   },
   {
-    id: 'magenta',
-    label: 'Magenta',
-    light: '#c026d3',
-    lightInk: '#c026d3',
-    lightSoft: '#fbe8fd',
+    id: 'ink',
+    description: 'Near-black; no colour at all',
+    label: 'Ink',
+    // The marque's own navy, and the option for anyone who wants no colour at
+    // all. The highest contrast of the four, at 14.8:1.
+    light: '#0d2a3f',
+    lightInk: '#0d2a3f',
+    lightSoft: '#dfe7ee',
     lightFg: '#ffffff',
-    dark: '#d946ef',
-    darkInk: '#f0abfc',
-    darkSoft: '#3d1247',
-    darkFg: '#2b0630',
-    separation: 22.7,
+    dark: '#e2e8f0',
+    darkInk: '#e2e8f0',
+    darkSoft: '#24455e',
+    darkFg: '#0d2a3f',
   },
 ]
 
@@ -203,8 +126,23 @@ export const CHIPS: Record<string, ChipColour> = {
   deep: { fill: '#17384b', fg: '#ffffff' },
 }
 
-export const DEFAULT_ACCENT = ACCENTS[1]!
+/**
+ * Named rather than positional.
+ *
+ * It was `ACCENTS[1]`, which meant reordering the list silently changed every
+ * tenant that had never chosen one. Ink is the default because it is the
+ * marque's own and the one that commits to nothing.
+ */
+export const DEFAULT_ACCENT = ACCENTS.find((a) => a.id === 'ink') ?? ACCENTS[0]!
 
+/**
+ * Falls back rather than failing.
+ *
+ * A tenant may hold an id this list no longer has — `violet`, `purple`, `mint`
+ * and `magenta` were all offered once. They get the default, which is a visible
+ * change to their admin but breaks nothing: the accent decorates, and no data
+ * depends on it.
+ */
 export function accentById(id: string | null | undefined): Accent {
   return ACCENTS.find((accent) => accent.id === id) ?? DEFAULT_ACCENT
 }
