@@ -37,6 +37,10 @@ export async function buildApp(): Promise<FastifyInstance> {
     credentials: true,
   })
 
+  // Before the routes, so its hooks wrap every one of them — including the
+  // replies Fastify generates itself, which is where the 429s are.
+  await app.register(import('./plugins/metrics.js'))
+
   await app.register(dbPlugin)
   await app.register(contextPlugin)
   await app.register(import('./plugins/jobs.js'))
@@ -60,6 +64,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(import('./routes/system.js'), { prefix: '/api/v1' })
   await app.register(import('./routes/settings.js'), { prefix: '/api/v1' })
   await app.register(import('./routes/logs.js'), { prefix: '/api/v1' })
+  await app.register(import('./routes/monitoring.js'), { prefix: '/api/v1' })
   await app.register(import('./routes/danger.js'), { prefix: '/api/v1' })
   // No prefix: the installer lives at /install.sh, which is where a one-liner
   // can be read aloud.

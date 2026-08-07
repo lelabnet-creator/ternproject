@@ -135,6 +135,41 @@ export interface ScriptBundle {
   agent: { config: string; pairCommand: string; runCommand: string }
 }
 
+export interface ClassFigures {
+  requests: number
+  perMinute: number
+  rateLimited: number
+  failed: number
+  /** Null when nothing was measured, or when every sample overflowed the histogram. */
+  p50Ms: number | null
+  p95Ms: number | null
+}
+
+export interface Monitoring {
+  instance: { name: string; startedAt: string; minutesCovered: number }
+  agents: {
+    id: string
+    name: string
+    site: string | null
+    status: string
+    requests: number
+    perMinute: number
+  }[]
+  /** Null unless the caller administers the system tenant. */
+  platform: {
+    inFlight: number
+    byClass: Record<string, ClassFigures>
+    perMinute: { minute: string; requests: number; rateLimited: number }[]
+    limits: {
+      ingestRateLimitPerMinute: number
+      authRateLimitPerMinute: number
+      dbPoolMax: number
+    }
+    pool: { open: number; active: number; max: number }
+    unattributedRequests: number
+  } | null
+}
+
 export interface ProbeRunResult {
   status: string
   latencyMs: number | null
@@ -292,6 +327,9 @@ export const adminApi = {
     slug: string,
     body: { layout: 'list' | 'grid' | 'compact'; order: { controlId: string }[] },
   ) => request<{ ok: boolean; reordered: number }>('PATCH', `/api/v1/${slug}/layout`, body),
+
+  monitoring: (slug: string, minutes = 60) =>
+    request<Monitoring>('GET', `/api/v1/${slug}/monitoring?minutes=${minutes}`),
 
   agents: (slug: string) => request<Agent[]>('GET', `/api/v1/${slug}/agents`),
 

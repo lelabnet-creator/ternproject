@@ -1,3 +1,4 @@
+import { hostname } from 'node:os'
 import fp from 'fastify-plugin'
 import type { FastifyPluginAsync } from 'fastify'
 import { createDatabase, type Database } from '@tern/db'
@@ -17,8 +18,19 @@ declare module 'fastify' {
   }
 }
 
+/**
+ * Names this process's connections so `pg_stat_activity` can be filtered to
+ * them. Host and pid rather than a constant: the point of the number is "how
+ * much of *this* instance's pool is busy", and a shared name would answer for
+ * the whole deployment while looking like it answered for one.
+ */
+export const APPLICATION_NAME = `tern-api/${hostname()}/${process.pid}`
+
 const plugin: FastifyPluginAsync = async (app) => {
-  const { db, sql } = createDatabase(config.DATABASE_URL, { max: config.DB_POOL_MAX })
+  const { db, sql } = createDatabase(config.DATABASE_URL, {
+    max: config.DB_POOL_MAX,
+    applicationName: APPLICATION_NAME,
+  })
 
   app.decorate('db', db)
   app.decorate('sql', sql)

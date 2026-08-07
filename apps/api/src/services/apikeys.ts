@@ -143,6 +143,10 @@ export async function authenticateApiKey(
     .where(eq(schema.apiKeys.id, row.id))
     .catch((error: unknown) => app.log.warn({ err: error }, 'failed to record api key use'))
 
+  // Tagged on the request so the metrics hook can attribute this call without
+  // every ingest route having to remember to report it.
+  req.apiKeyId = row.id
+
   return {
     id: row.id,
     tenantId: row.tenantId,

@@ -69,6 +69,27 @@ than failing later on a request.
 | `TERN_LOCAL_AGENT`                                | true           | Whether the instance runs `Agent-local-tern` for itself                                                                                   |
 | `TERN_DATA_DIR`                                   | /var/lib/tern  | That agent's `agent.toml` and offline queue. Relative paths resolve from the repository root                                              |
 
+### Watching the values above under load
+
+**Logs → Monitoring** reports what the HTTP layer is actually doing: requests a
+minute by class (ingest, agent, admin, public page), replies that were rate
+limited, p50 and p95 per class, requests in flight, and how much of
+`DB_POOL_MAX` is checked out. It is the measured counterpart to the Capacity
+screen, which computes what a fleet _needs_.
+
+Two things it will not do, and says so on the screen rather than in a footnote:
+
+- **It describes one API process.** The counters live in memory, so behind a load
+  balancer each container keeps its own and neither knows about the other. The
+  instance names itself at the top of the tab.
+- **Latencies come from a histogram**, so each figure is the bound the sample
+  fell under, not an exact number. Past the last bucket it reports `> 10 s`
+  rather than inventing one.
+
+The instance-wide half is visible only to an admin of the system tenant. A
+tenant admin sees their own agents' push rates — which host is generating the
+load — and nothing about the shared machinery.
+
 ### Sizing
 
 The admin's **Capacity** screen computes what the deployment needs from what it
