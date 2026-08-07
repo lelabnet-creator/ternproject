@@ -1,3 +1,4 @@
+import type { IncidentImpactValue } from '@tern/shared/status'
 import { ApiError } from './api'
 
 /**
@@ -133,6 +134,27 @@ export interface ScriptBundle {
   languages: { id: string; label: string; extension: string; syntax: string }[]
   scripts: Record<string, string>
   agent: { config: string; pairCommand: string; runCommand: string }
+}
+
+export type IncidentSeverity = 'minor' | 'major' | 'critical'
+export type IncidentStatus = 'investigating' | 'identified' | 'monitoring' | 'resolved'
+
+export interface IncidentImpact {
+  controlId: string
+  impact: IncidentImpactValue
+}
+
+/** One row of the list. The body of each update is included; the postmortem is not. */
+export interface Incident {
+  id: string
+  title: string
+  severity: IncidentSeverity
+  status: IncidentStatus
+  startedAt: string
+  resolvedAt: string | null
+  hasPostmortem: boolean
+  impacts: IncidentImpact[]
+  updates: { id: string; status: IncidentStatus; body: string; createdAt: string }[]
 }
 
 export interface ProbeRunResult {
@@ -292,6 +314,66 @@ export const adminApi = {
     slug: string,
     body: { layout: 'list' | 'grid' | 'compact'; order: { controlId: string }[] },
   ) => request<{ ok: boolean; reordered: number }>('PATCH', `/api/v1/${slug}/layout`, body),
+
+  incidents: (slug: string, limit = 50) =>
+    request<Incident[]>('GET', `/api/v1/${slug}/incidents?limit=${limit}`),
+
+  /**
+   * The detail, which the list does not carry.
+   *
+   * `postmortemBody` comes back `null` while the postmortem is an unpublished
+   * draft — the API refuses to hand out a draft before its author published it.
+   * A screen that lets someone save a draft has to say so, or they will come
+   * back expecting to find their text.
+   */
+  incident: (slug: string, id: string) =>
+    request<{
+      id: string
+      title: string
+      severity: IncidentSeverity
+      status: IncidentStatus
+      startedAt: string
+      resolvedAt: string | null
+      postmortemBody: string | null
+      postmortemPublishedAt: string | null
+    }>('GET', `/api/v1/${slug}/incidents/${id}`),
+
+  openIncident: (
+    slug: string,
+    body: {
+      title: string
+      severity: IncidentSeverity
+      body: string
+      impacts?: IncidentImpact[]
+      isPublic?: boolean
+      notify?: boolean
+      startedAt?: string
+    },
+  ) => request<{ id: string }>('POST', `/api/v1/${slug}/incidents`, body),
+
+  /**
+   * Posting an update is also how an incident changes status, including how it
+   * is resolved — there is no separate resolve call, because resolving without
+   * saying anything is the thing this shape is meant to prevent.
+   */
+  addIncidentUpdate: (
+    slug: string,
+    id: string,
+    body: {
+      status: IncidentStatus
+      body: string
+      notify?: boolean
+      impacts?: IncidentImpact[]
+    },
+  ) =>
+    request<{ id: string; status: IncidentStatus }>(
+      'POST',
+      `/api/v1/${slug}/incidents/${id}/updates`,
+      body,
+    ),
+
+  savePostmortem: (slug: string, id: string, body: { body: string; publish: boolean }) =>
+    request<{ published: boolean }>('PUT', `/api/v1/${slug}/incidents/${id}/postmortem`, body),
 
   agents: (slug: string) => request<Agent[]>('GET', `/api/v1/${slug}/agents`),
 
