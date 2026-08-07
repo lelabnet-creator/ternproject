@@ -4,8 +4,10 @@ import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod'
 import { schema } from '@tern/db'
 import { config } from '../config.js'
 import { hashPassword } from '@tern/shared'
+import { PASSWORD_MIN_LENGTH, PASSWORD_MIN_MESSAGE } from '@tern/shared/password'
 import { audit } from '../services/audit.js'
 import { createSession, SESSION_COOKIE, sessionCookieOptions } from '../services/sessions.js'
+import { startLocalAgent } from '../services/local-agent.js'
 
 /**
  * First run: creating the account that will own the instance.
@@ -108,9 +110,10 @@ const routes: FastifyPluginAsyncZod = async (app) => {
         body: z.object({
           email: z.string().email().max(255),
           name: z.string().min(1).max(200),
-          // 12 characters, the same floor `provision.ts` applies. This account
-          // holds the instance; a short password on it is not a small mistake.
-          password: z.string().min(12).max(200),
+          // The same floor `provision.ts` applies, from the same constant —
+          // this account holds the instance, and the two paths that can create
+          // it must not disagree about what they accept.
+          password: z.string().min(PASSWORD_MIN_LENGTH, PASSWORD_MIN_MESSAGE).max(200),
 
           /**
            * The status page, when the instance does not have one yet.
@@ -216,6 +219,15 @@ const routes: FastifyPluginAsyncZod = async (app) => {
         actorId: created.user.id,
         meta: { email },
         ip: req.ip,
+      })
+
+      // The page exists as of this request, so the instance's own agent can be
+      // provisioned for it. Not awaited, and failure is logged rather than
+      // raised: the account was created, and reporting that as an error would
+      // send the operator back to a form whose work is already done. The plugin
+      // tries again at every boot.
+      startLocalAgent(app).catch((error) => {
+        req.log.error({ err: error }, 'could not start the local agent after setup')
       })
 
       return {

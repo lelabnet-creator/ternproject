@@ -12,12 +12,13 @@
 //!   outage the recent minutes matter more than the first ones, and an unbounded
 //!   queue turns a network problem into a full disk.
 
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
+use tokio::time::Instant;
 use tracing::{info, warn};
 
 use crate::config::{Config, ProbeEntry};
@@ -156,9 +157,128 @@ pub async fn run_once(entry: &ProbeEntry) -> Point {
     }
 }
 
+/// Resolves when the process is asked to stop.
+///
+/// SIGTERM as well as SIGINT, because those are two different callers and only
+/// one of them is a person at a terminal. `docker stop`, compose and systemd
+/// all send SIGTERM; an agent that only watched for Ctrl-C was killed outright
+/// by every one of them, losing whatever it had buffered since the last flush.
+#[cfg(unix)]
+async fn stop_requested() {
+    use tokio::signal::unix::{signal, SignalKind};
+
+    let mut terminate = match signal(SignalKind::terminate()) {
+        Ok(stream) => stream,
+        Err(error) => {
+            // Not fatal: without the handler the default action still stops the
+            // process, which is what was asked for — just less tidily.
+            warn!(%error, "could not listen for SIGTERM");
+            let _ = tokio::signal::ctrl_c().await;
+            return;
+        }
+    };
+
+    tokio::select! {
+        _ = tokio::signal::ctrl_c() => {}
+        _ = terminate.recv() => {}
+    }
+}
+
+#[cfg(not(unix))]
+async fn stop_requested() {
+    let _ = tokio::signal::ctrl_c().await;
+}
+
+/// How often the assignment is re-read from the server.
+///
+/// Five minutes. Until this existed the assignment was fetched once, at
+/// startup, and the schedule built from it never changed — so a control added
+/// in the admin was not measured until somebody restarted the agent. Worse on
+/// the instance's own agent, where the server stands its in-process prober down
+/// as soon as an agent reports: the new control was measured by nobody at all.
+const REFRESH_EVERY: Duration = Duration::from_secs(300);
+
+/// Re-reads the assignment, returning whether anything about it changed.
+///
+/// A failure is a warning, never fatal — an agent that stops because the server
+/// is briefly unreachable is exactly backwards, which is the same reasoning the
+/// startup refresh in `main.rs` already applies.
+async fn refresh_assignment(client: &Client, config: &mut Config, path: &Path) -> bool {
+    let response = match client.jobs(&config.api_key).await {
+        Ok(response) => response,
+        Err(error) => {
+            warn!(%error, "could not refresh the assignment — keeping the current one");
+            return false;
+        }
+    };
+
+    // Asked before `apply_jobs`, which is what mutates the list out from under it.
+    let added = config.new_control_keys(&response.jobs);
+    let skipped = config.apply_jobs(&response.jobs);
+
+    for key in &added {
+        info!(control = %key, "new from the server");
+    }
+    for skip in &skipped {
+        warn!("skipped {skip}");
+    }
+
+    // Written back so the file keeps showing what actually runs. A failure here
+    // is not fatal either: the agent holds the assignment in memory and will
+    // fetch it again, where refusing to run would lose the measurements too.
+    if let Err(error) = config.save(path) {
+        warn!(%error, "could not write the refreshed config back");
+    }
+
+    !added.is_empty() || !skipped.is_empty()
+}
+
+/// Builds the next-run time for every probe, keeping the deadlines already set.
+///
+/// Keyed by control key rather than by position, because a refresh reorders the
+/// list: an index-keyed schedule would silently attach one probe's deadline to
+/// another after the server adds a control. Probes that survive keep their
+/// place in the cycle, so a refresh does not restart every timer.
+fn reschedule(
+    config: &Config,
+    previous: &HashMap<String, Instant>,
+    now: Instant,
+) -> HashMap<String, Instant> {
+    config
+        .probes
+        .iter()
+        .enumerate()
+        .map(|(index, entry)| {
+            let at = previous
+                .get(&entry.control_key)
+                .copied()
+                .unwrap_or_else(|| {
+                    // Spread the first run across the interval. Without this every
+                    // probe in the file fires at second zero, which is the same
+                    // spike inside one agent that a fleet produces across many.
+                    let interval = config.interval_for(entry);
+                    now + stagger(index, config.probes.len(), interval)
+                });
+            (entry.control_key.clone(), at)
+        })
+        .collect()
+}
+
 /// Runs until the process is asked to stop.
-pub async fn run(config: Config, queue_path: PathBuf) -> Result<()> {
-    if config.probes.is_empty() {
+///
+/// `refresh` is false under `--no-refresh`, where the operator has said to run
+/// the file as written.
+pub async fn run(
+    mut config: Config,
+    config_path: PathBuf,
+    queue_path: PathBuf,
+    refresh: bool,
+) -> Result<()> {
+    // Only refused when nothing could ever arrive to fill it. With refreshing
+    // on, an empty assignment is an ordinary state — it is what the instance's
+    // own agent starts in, before anyone has defined a control — and waiting is
+    // the useful behaviour where exiting would just be a restart loop.
+    if config.probes.is_empty() && !refresh {
         anyhow::bail!("no probes configured — add a [[probes]] section to the config");
     }
 
@@ -176,41 +296,53 @@ pub async fn run(config: Config, queue_path: PathBuf) -> Result<()> {
         server = %config.server,
         "agent started"
     );
+    if config.probes.is_empty() {
+        info!("nothing assigned yet — waiting for the server to hand something over");
+    }
 
-    let mut schedule: Vec<(usize, tokio::time::Instant)> = config
-        .probes
-        .iter()
-        .enumerate()
-        .map(|(index, entry)| {
-            // Spread the first run across the interval. Without this every probe
-            // in the file fires at second zero, which is the same spike inside
-            // one agent that a fleet produces across many.
-            let interval = config.interval_for(entry);
-            let offset = stagger(index, config.probes.len(), interval);
-            (index, tokio::time::Instant::now() + offset)
-        })
-        .collect();
+    let mut schedule = reschedule(&config, &HashMap::new(), Instant::now());
+    let mut next_refresh = Instant::now() + REFRESH_EVERY;
 
     loop {
-        let next_at = schedule.iter().map(|(_, at)| *at).min().unwrap();
+        // Whichever comes first: the next probe, or the next refresh. With an
+        // empty assignment there is no probe, and the refresh is the only thing
+        // that can end the wait — which is precisely why it must be in here
+        // rather than a separate timer.
+        let next_probe = schedule.values().min().copied();
+        let wake_at = match next_probe {
+            Some(at) if at < next_refresh => at,
+            _ => next_refresh,
+        };
 
         tokio::select! {
-            _ = tokio::time::sleep_until(next_at) => {}
-            _ = tokio::signal::ctrl_c() => {
+            _ = tokio::time::sleep_until(wake_at) => {}
+            _ = stop_requested() => {
                 info!(pending = queue.len(), "stopping — the queue is on disk");
                 queue.persist();
                 return Ok(());
             }
         }
 
-        let now = tokio::time::Instant::now();
+        let mut now = Instant::now();
+
+        if refresh && now >= next_refresh {
+            if refresh_assignment(&client, &mut config, &config_path).await {
+                now = Instant::now();
+                schedule = reschedule(&config, &schedule, now);
+            }
+            next_refresh = Instant::now() + REFRESH_EVERY;
+        }
+
         let mut batch: Vec<QueuedPoint> = Vec::new();
 
-        for (index, at) in schedule.iter_mut() {
-            if *at > now {
+        for entry in &config.probes {
+            let Some(at) = schedule.get(&entry.control_key).copied() else {
+                continue;
+            };
+            if at > now {
                 continue;
             }
-            let entry = &config.probes[*index];
+
             let point = run_once(entry).await;
 
             info!(
@@ -230,7 +362,10 @@ pub async fn run(config: Config, queue_path: PathBuf) -> Result<()> {
             });
 
             let interval = config.interval_for(entry);
-            *at = now + Duration::from_secs(interval) + jitter(interval);
+            schedule.insert(
+                entry.control_key.clone(),
+                now + Duration::from_secs(interval) + jitter(interval),
+            );
         }
 
         for point in batch {
@@ -315,6 +450,69 @@ mod tests {
             value: None,
             message: None,
         }
+    }
+
+    fn probe_entry(key: &str) -> ProbeEntry {
+        ProbeEntry {
+            control_key: key.to_string(),
+            probe: Probe::Tcp {
+                host: "127.0.0.1".into(),
+                port: 1,
+                timeout_ms: 1_000,
+            },
+            assertions: Vec::new(),
+            interval_s: Some(60),
+            managed: true,
+        }
+    }
+
+    fn config_with(keys: &[&str]) -> Config {
+        Config {
+            server: "http://127.0.0.1:3011".into(),
+            api_key: "tern_test".into(),
+            interval_s: 60,
+            probes: keys.iter().map(|key| probe_entry(key)).collect(),
+        }
+    }
+
+    #[test]
+    fn a_refresh_keeps_the_deadlines_of_probes_that_survived() {
+        // The subtle half of periodic refreshing. The schedule used to be keyed
+        // by position in `config.probes`; after the server adds a control the
+        // list reorders, and an index-keyed schedule would hand one probe's
+        // deadline to another. Worse, every surviving probe would restart its
+        // timer on each refresh — with a five-minute refresh and a ten-minute
+        // interval, a probe would never run at all.
+        let now = Instant::now();
+        let before = reschedule(&config_with(&["a", "b"]), &HashMap::new(), now);
+
+        // The server hands over a third control, and reorders the list.
+        let after = reschedule(&config_with(&["c", "b", "a"]), &before, now);
+
+        assert_eq!(after.get("a"), before.get("a"));
+        assert_eq!(after.get("b"), before.get("b"));
+        // The newcomer gets a deadline of its own rather than inheriting one.
+        assert!(after.contains_key("c"));
+    }
+
+    #[test]
+    fn a_probe_the_server_withdrew_leaves_the_schedule() {
+        let now = Instant::now();
+        let before = reschedule(&config_with(&["a", "b"]), &HashMap::new(), now);
+        let after = reschedule(&config_with(&["a"]), &before, now);
+
+        assert!(after.contains_key("a"));
+        // Otherwise the loop would keep waking for a probe it no longer has.
+        assert!(!after.contains_key("b"));
+    }
+
+    #[test]
+    fn an_empty_assignment_schedules_nothing_without_panicking() {
+        // The state the instance's own agent starts in, before anybody has
+        // defined a control. The old loop called `.min().unwrap()` on this.
+        let schedule = reschedule(&config_with(&[]), &HashMap::new(), Instant::now());
+        assert!(schedule.is_empty());
+        assert_eq!(schedule.values().min().copied(), None);
     }
 
     #[test]

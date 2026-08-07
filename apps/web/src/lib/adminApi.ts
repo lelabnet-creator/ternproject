@@ -122,6 +122,8 @@ export interface Agent {
   jobCount: number
   controls: { id: string; key: string; name: string }[]
   scopeControlIds: string[]
+  /** The instance's own agent — `Agent-local-tern`. Never revocable. */
+  isLocal: boolean
 }
 
 export interface ScriptBundle {
@@ -166,6 +168,47 @@ export const adminApi = {
       user: { id: string; email: string; name: string }
       tenant: { slug: string; name: string }
     }>('POST', '/api/v1/setup/account', body),
+
+  /**
+   * Passkeys.
+   *
+   * The `options` calls return the WebAuthn payload untyped on purpose: it goes
+   * straight into `@simplewebauthn/browser`, which owns that contract and types
+   * it. Restating it here would be a copy free to drift.
+   */
+  passkeys: () =>
+    request<
+      {
+        id: string
+        name: string
+        deviceType: string | null
+        backedUp: boolean
+        lastUsedAt: string | null
+        createdAt: string
+      }[]
+    >('GET', '/api/v1/auth/passkeys'),
+
+  passkeyRegisterOptions: () =>
+    request<Record<string, unknown>>('POST', '/api/v1/auth/passkeys/register/options'),
+
+  registerPasskey: (response: unknown, name: string) =>
+    request<{ id: string; name: string; createdAt: string }>(
+      'POST',
+      '/api/v1/auth/passkeys/register',
+      { response, name },
+    ),
+
+  removePasskey: (id: string) => request<{ ok: boolean }>('DELETE', `/api/v1/auth/passkeys/${id}`),
+
+  passkeyLoginOptions: () =>
+    request<Record<string, unknown>>('POST', '/api/v1/auth/passkeys/login/options'),
+
+  passkeyLogin: (response: unknown) =>
+    request<{ user: { id: string; email: string; name: string } }>(
+      'POST',
+      '/api/v1/auth/passkeys/login',
+      { response },
+    ),
 
   me: () =>
     request<{

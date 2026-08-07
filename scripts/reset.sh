@@ -134,7 +134,35 @@ if [ "$MODE" = prod ]; then
 
 # --- dev ---------------------------------------------------------------------
 else
-  command -v psql >/dev/null 2>&1 || die "psql est requis pour --dev."
+  # `psql` sur l'hôte si présent, sinon celui du conteneur.
+  #
+  # Installer postgresql-client demande les droits root, et la base de dev tourne
+  # déjà dans un conteneur qui embarque le client. Exiger l'installation d'un
+  # outil dont une copie fonctionnelle est déjà lancée, c'est un obstacle sans
+  # contrepartie — d'autant que ce script exige Docker de toute façon (plus haut).
+  #
+  # Depuis le conteneur, la base n'est pas sur le port publié : l'hôte la voit sur
+  # 127.0.0.1:5433, elle-même s'écoute sur 5432. L'URL est réécrite en
+  # conséquence, et seulement dans ce cas.
+  DB_CONTAINER=''
+  if ! command -v psql >/dev/null 2>&1; then
+    DB_CONTAINER=$(docker compose ps -q db 2>/dev/null | head -1)
+    [ -n "$DB_CONTAINER" ] || die "Ni psql sur cette machine, ni conteneur « db » démarré.
+    L'un ou l'autre : sudo apt install postgresql-client, ou docker compose up -d db"
+    note "psql absent de l'hôte — utilisation de celui du conteneur db"
+  fi
+
+  # `run_psql <url> <args…>` — l'un ou l'autre, même appel côté appelant.
+  run_psql() {
+    url=$1
+    shift
+    if [ -n "$DB_CONTAINER" ]; then
+      inner=$(printf '%s' "$url" | sed 's#@\([^@/]*\):[0-9]*/#@\1:5432/#')
+      docker exec -i "$DB_CONTAINER" psql "$inner" "$@"
+    else
+      psql "$url" "$@"
+    fi
+  }
 
   # La page n'est plus obligatoire ici : l'assistant de premier démarrage la
   # crée en même temps que le compte. On ne la provisionne que si l'instance est
@@ -154,7 +182,7 @@ else
   say "Recréation de la base « $DB_NAME »"
   # WITH (FORCE) coupe les connexions ouvertes — le serveur de dev en garde une
   # poignée, et sans cela le DROP attendrait indéfiniment.
-  psql "$ADMIN_URL" -v ON_ERROR_STOP=1 -q \
+  run_psql "$ADMIN_URL" -v ON_ERROR_STOP=1 -q \
     -c "DROP DATABASE IF EXISTS \"$DB_NAME\" WITH (FORCE);" \
     -c "CREATE DATABASE \"$DB_NAME\";" \
     || die "Recréation impossible. La base tourne-t-elle ? (docker compose up -d db)"

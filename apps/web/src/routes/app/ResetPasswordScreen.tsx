@@ -4,9 +4,10 @@ import { adminApi, ApiError } from '../../lib/adminApi'
 import { Banner, Button, Card, Field, Input } from '../../components/ui'
 import { TernWordmark } from '../../components/brand/TernMark'
 import { SiteFooter } from '../../components/SiteFooter'
+import { PASSWORD_MIN_LENGTH } from '@tern/shared/password'
 
-/** Mirrors the server's own floor, so the rejection happens before the round trip. */
-const MIN_LENGTH = 12
+/** The server's own floor, so the rejection happens before the round trip. */
+const MIN_LENGTH = PASSWORD_MIN_LENGTH
 
 /**
  * What the link in the reset mail opens.

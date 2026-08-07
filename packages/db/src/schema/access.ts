@@ -1,4 +1,14 @@
-import { index, inet, integer, jsonb, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core'
+import {
+  boolean,
+  index,
+  inet,
+  integer,
+  jsonb,
+  pgTable,
+  text,
+  timestamp,
+  uuid,
+} from 'drizzle-orm/pg-core'
 import { agentStatus, apiKeyScope } from './enums.js'
 import { tenants } from './tenants.js'
 import { users } from './auth.js'
@@ -87,6 +97,23 @@ export const agents = pgTable(
 
     apiKeyId: uuid().references(() => apiKeys.id, { onDelete: 'set null' }),
     pairingCodeId: uuid().references(() => pairingCodes.id, { onDelete: 'set null' }),
+
+    /**
+     * The instance's own agent — `Agent-local-tern`.
+     *
+     * It is not paired: there is no PIN and no `pairing_code_id`, because the
+     * server that would issue the code is the server that runs the agent.
+     * It provisions the key and writes the config directly, which removes a
+     * round trip that could only ever fail against itself.
+     *
+     * Set on exactly one row per tenant, and it is what makes that row
+     * undeletable. Deleting it would leave a config file on disk holding a key
+     * for an agent the server no longer knows, and the next reconcile would
+     * make a second one. An operator who genuinely does not want it turns it
+     * off with `TERN_LOCAL_AGENT=false`, which is a decision about the
+     * instance rather than a row to remove.
+     */
+    isLocal: boolean().notNull().default(false),
 
     status: agentStatus().notNull().default('active'),
     lastSeenAt: timestamp({ withTimezone: true }),

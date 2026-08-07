@@ -1,3 +1,6 @@
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+
 /**
  * Runs before any module is imported, which is the only point where the
  * environment can still be changed — `config.ts` validates and freezes it at
@@ -15,3 +18,8 @@ process.env.PAIR_RATE_LIMIT_MAX ??= '1000'
 // still trip its own signup limit within a handful of tests.
 process.env.SUBSCRIBE_RATE_LIMIT_MAX ??= '1000'
 process.env.LOG_LEVEL ??= 'silent'
+
+// Provisioning the local agent writes a real ingest key into `agent.toml`.
+// Without this the suite drops that file into the checkout — a live credential
+// sitting in the working tree, one `git add -A` away from being committed.
+process.env.TERN_DATA_DIR ??= join(tmpdir(), `tern-test-${process.pid}`)

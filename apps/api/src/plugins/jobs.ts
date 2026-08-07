@@ -15,6 +15,8 @@ import {
 import { deliverToSubscriber } from '../services/transports.js'
 import { buildUnsubscribeRef } from '@tern/shared'
 import { renderNotification } from '../services/render.js'
+import { purgeExpiredChallenges } from '../services/webauthn.js'
+import { startLocalAgent } from '../services/local-agent.js'
 
 /**
  * The background job runner.
@@ -88,6 +90,19 @@ const JOBS: Job[] = [
     run: sweepStaleControls,
   },
   {
+    /*
+     * Brings `Agent-local-tern` into line with the instance.
+     *
+     * Its preconditions — a page exists, a control worth probing exists — are
+     * created by a person, long after boot. Without a tick here, an operator
+     * who adds their first control would have to restart the API to get the
+     * agent they were told is automatic.
+     */
+    name: 'local-agent',
+    intervalMs: 60_000,
+    run: (app) => startLocalAgent(app),
+  },
+  {
     // Retention deletes rows; running it hourly rather than constantly keeps it
     // off the hot path, and a few extra minutes of expired data harms nothing.
     name: 'retention',
@@ -99,6 +114,9 @@ const JOBS: Job[] = [
     intervalMs: 3_600_000,
     run: async (app) => {
       await purgeExpired(app)
+      // Answered challenges delete themselves on use; this only collects the
+      // ones nobody ever answered — a prompt dismissed, a tab closed.
+      await purgeExpiredChallenges(app.db)
       return purgeUnconfirmed(app)
     },
   },

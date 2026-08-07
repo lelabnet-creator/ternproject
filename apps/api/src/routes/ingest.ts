@@ -3,7 +3,12 @@ import { z } from 'zod'
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod'
 import { schema } from '@tern/db'
 import { checkStatusSchema } from '@tern/shared'
-import { authenticateApiKey, keyCoversControl, type ApiKeyContext } from '../services/apikeys.js'
+import {
+  authenticateApiKey,
+  keyCoversControl,
+  touchAgent,
+  type ApiKeyContext,
+} from '../services/apikeys.js'
 import { config } from '../config.js'
 
 /**
@@ -108,6 +113,10 @@ const routes: FastifyPluginAsyncZod = async (app) => {
       const key = await authenticateApiKey(app, req, 'ingest')
       if (!key) throw app.httpErrors.unauthorized('Invalid or missing API key')
 
+      // A push is the strongest possible evidence the agent is alive, and it is
+      // what everything downstream means by "last seen".
+      await touchAgent(app, key.id)
+
       const points = Array.isArray(req.body) ? req.body : [req.body]
       const resolved = await resolveControls(app, key, [
         ...new Set(points.map((p) => p.controlKey)),
@@ -168,6 +177,8 @@ const routes: FastifyPluginAsyncZod = async (app) => {
     async (req) => {
       const key = await authenticateApiKey(app, req, 'ingest')
       if (!key) throw app.httpErrors.unauthorized('Invalid or missing API key')
+
+      await touchAgent(app, key.id)
 
       const resolved = await resolveControls(app, key, [req.params.controlKey])
       const controlId = resolved.get(req.params.controlKey)

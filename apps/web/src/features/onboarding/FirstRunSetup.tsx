@@ -5,6 +5,8 @@ import { adminApi, ApiError } from '../../lib/adminApi'
 import { Banner, Button, Card, Field, Input } from '../../components/ui'
 import { TernWordmark } from '../../components/brand/TernMark'
 import { SiteFooter } from '../../components/SiteFooter'
+import { PASSWORD_MIN_LENGTH } from '@tern/shared/password'
+import { PasskeyCancelled, enrolPasskey, passkeysSupported } from '../../lib/passkeys'
 
 /**
  * What a freshly installed instance shows instead of a sign-in form.
@@ -158,13 +160,13 @@ export function FirstRunSetup({
    *
    * a greyed-out button states that something is wrong and refuses to say what.
    * The reader is left comparing their form against a rule nobody wrote down —
-   * and the rule that actually blocks them here, a twelve-character password, is
-   * invisible until they happen to reach it.
+   * and the rule that actually blocks them here, the password's minimum length,
+   * is invisible until they happen to reach it.
    *
    * So: the buttons stay enabled, pressing one reveals what is missing, and each
    * message sits beside the field it belongs to.
    */
-  const PASSWORD_MIN = 12
+  const PASSWORD_MIN = PASSWORD_MIN_LENGTH
 
   const pageErrors = {
     pageName: !pageName.trim() ? 'Required.' : null,
@@ -554,6 +556,13 @@ export function FirstRunSetup({
                   <strong>{tenant?.name ?? createdName}</strong>.
                 </Explain>
 
+                {/* Offered here rather than made a step of its own. It is the
+                    one moment the operator is certainly at the device they will
+                    come back on, and a wizard that grows a fifth mandatory
+                    screen for something optional is a wizard people click
+                    through without reading. */}
+                <PasskeyOffer />
+
                 <Explain>
                   Two things worth doing next: enrol a second factor — it is required for admins and
                   the admin will ask on the way in — and add the first control, which is what puts
@@ -580,6 +589,69 @@ export function FirstRunSetup({
         <SiteFooter compact />
       </div>
     </main>
+  )
+}
+
+/**
+ * "Add a passkey to this device", on the last screen of the wizard.
+ *
+ * Optional and quiet. It disappears entirely where the browser cannot do
+ * WebAuthn — an instance reached over plain http by IP, which is a normal way
+ * to meet a freshly installed box — rather than offering a button that would
+ * throw. The account keeps its password either way, so skipping this costs
+ * nothing that cannot be added later from Options → Account.
+ */
+function PasskeyOffer() {
+  const [supported] = useState(passkeysSupported)
+  const [done, setDone] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const add = useMutation({
+    mutationFn: () => enrolPasskey('This device'),
+    onSuccess: () => {
+      setDone(true)
+      setError(null)
+    },
+    onError: (err) => {
+      if (err instanceof PasskeyCancelled) setError(null)
+      else setError(err instanceof Error ? err.message : String(err))
+    },
+  })
+
+  if (!supported) return null
+
+  if (done) {
+    return (
+      <Explain>
+        <Check size={16} aria-hidden="true" style={{ verticalAlign: '-2px' }} /> This device is now
+        a passkey. Next time, signing in is a fingerprint rather than a password.
+      </Explain>
+    )
+  }
+
+  return (
+    <div
+      style={{
+        display: 'grid',
+        gap: 'var(--space-3)',
+        padding: 'var(--space-4)',
+        borderRadius: 'var(--radius-sm)',
+        border: '1px solid var(--color-border)',
+      }}
+    >
+      <Explain>
+        You can sign in from this device without typing a password — a fingerprint, a face, or a
+        security key. Your password keeps working, and stays the way back in if you lose the device.
+      </Explain>
+
+      {error && <Banner tone="down">{error}</Banner>}
+
+      <div>
+        <Button onClick={() => add.mutate()} busy={add.isPending}>
+          Add a passkey
+        </Button>
+      </div>
+    </div>
   )
 }
 

@@ -1,5 +1,6 @@
 import { eq } from 'drizzle-orm'
 import { hashPassword } from '@tern/shared'
+import { PASSWORD_MIN_LENGTH } from '@tern/shared/password'
 import { createDatabase } from './client.js'
 import { loadEnv } from './env.js'
 import * as s from './schema/index.js'
@@ -66,8 +67,8 @@ async function main() {
     console.error('✗ TERN_ADMIN_EMAIL and TERN_ADMIN_PASSWORD must be set together, or neither')
     process.exit(1)
   }
-  if (adminPassword && adminPassword.length < 12) {
-    console.error('✗ TERN_ADMIN_PASSWORD must be at least 12 characters')
+  if (adminPassword && adminPassword.length < PASSWORD_MIN_LENGTH) {
+    console.error(`✗ TERN_ADMIN_PASSWORD must be at least ${PASSWORD_MIN_LENGTH} characters`)
     process.exit(1)
   }
 

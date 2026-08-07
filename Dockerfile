@@ -108,8 +108,23 @@ COPY tsconfig.base.json  ./
 
 COPY --from=build /app/apps/web/dist apps/web/dist
 
+# The Linux agent and proxy binaries — see `.dockerignore`, which is what
+# selects them and explains why the other targets stay out.
+#
+# Two things need them and neither worked without this. The `agent` service in
+# docker-compose.prod.yml executes one, and `routes/download.ts` resolves
+# exactly this path to serve `/install.sh` — so on a published image that
+# endpoint answered with the SPA's catch-all HTML, which is a web page piped
+# into a shell.
+#
+# CI populates `clients/agent/bin` on every push to main (the `collect` job).
+# The trailing slash and the directory form keep this working when a checkout
+# that has never run CI has nothing to copy.
+COPY clients/agent/bin/ clients/agent/bin/
+
 COPY docker/entrypoint.sh /usr/local/bin/tern-entrypoint
-RUN chmod +x /usr/local/bin/tern-entrypoint
+COPY docker/agent-entrypoint.sh /usr/local/bin/tern-agent-entrypoint
+RUN chmod +x /usr/local/bin/tern-entrypoint /usr/local/bin/tern-agent-entrypoint
 
 # Somewhere durable for the generated APP_SECRET, so a restart does not make
 # every encrypted value unreadable. Owned by node: the process does not run as

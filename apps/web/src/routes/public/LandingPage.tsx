@@ -6,6 +6,7 @@ import { forgetPage, recentPages, type RecentPage } from '../../lib/recentPages'
 import { SponsorButton } from '../../components/SponsorButton'
 import { SiteFooter } from '../../components/SiteFooter'
 import { api } from '../../lib/api'
+import { adminApi } from '../../lib/adminApi'
 
 /**
  * What `/` shows.
@@ -15,6 +16,11 @@ import { api } from '../../lib/api'
  * API which page that is and goes there: a visitor arriving at the domain has
  * been given the domain, not a slug, and asking them to type one is asking for
  * something they were never handed.
+ *
+ * Before that, it asks whether the instance has been set up at all. On a fresh
+ * install there is no page yet — the wizard is what creates it — so "which
+ * status page?" is a question with no possible answer, put to the one person
+ * who could fix that. Same order as `/app`, and for the same reason.
  *
  * The picker below is the fallback, for the two cases where the answer is not
  * unambiguous: a private page, which is never named because the public API
@@ -39,31 +45,42 @@ export function LandingPage() {
   useEffect(() => {
     let cancelled = false
 
-    api
-      .instance()
-      .then((info) => {
+    // Both at once rather than one after the other: the answer to each is
+    // needed in a different case, and asking in sequence would put two round
+    // trips in front of every visitor to serve the rarer one.
+    //
+    // Caught individually, because these two questions fail independently and
+    // an unreachable API is not a reason to show nothing at all — the picker
+    // still lets someone reach a page they already know the name of.
+    Promise.all([adminApi.setupState().catch(() => null), api.instance().catch(() => null)]).then(
+      ([setup, info]) => {
         if (cancelled) return
-        if (info.tenant) {
+
+        if (setup?.needsSetup) {
+          // `/app` rather than a message saying to go there: it is the only thing
+          // this instance can usefully do, and it already draws the wizard.
+          window.location.replace('/app')
+          return
+        }
+
+        if (info?.tenant) {
           // replace, not assign: Back from the status page should leave the
           // site rather than land here and bounce forward again.
           window.location.replace(`/s/${encodeURIComponent(info.tenant.slug)}`)
           return
         }
+
         setResolving(false)
-      })
-      // An unreachable API is not a reason to show nothing at all — the picker
-      // still lets someone reach a page they already know the name of.
-      .catch(() => {
-        if (!cancelled) setResolving(false)
-      })
+      },
+    )
 
     return () => {
       cancelled = true
     }
   }, [])
 
-  // Blank rather than a spinner: this resolves in one request against an API
-  // on the same origin, and a spinner that shows for 80ms is a flicker.
+  // Blank rather than a spinner: this resolves in two parallel requests against
+  // an API on the same origin, and a spinner that shows for 80ms is a flicker.
   if (resolving) return <main className="landing" aria-busy="true" />
 
   return (

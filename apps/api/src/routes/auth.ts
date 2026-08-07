@@ -3,6 +3,7 @@ import { z } from 'zod'
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod'
 import { schema } from '@tern/db'
 import { generateToken, hashPassword, hashToken, verifyPassword } from '@tern/shared'
+import { PASSWORD_MIN_LENGTH, PASSWORD_MIN_MESSAGE } from '@tern/shared/password'
 import { config } from '../config.js'
 import { sendEmail } from '../services/transports.js'
 import { renderPasswordReset } from '../services/render.js'
@@ -22,6 +23,13 @@ import {
 } from '../services/totp.js'
 import { audit } from '../services/audit.js'
 import { userMailFor } from '../services/tenant-mail.js'
+import {
+  authenticationOptions,
+  credentialsFor,
+  registrationOptions,
+  verifyAuthentication,
+  verifyRegistration,
+} from '../services/webauthn.js'
 
 /**
  * How long a reset link lives.
@@ -260,7 +268,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
       schema: {
         body: z.object({
           currentPassword: z.string().min(1),
-          newPassword: z.string().min(12, 'Use at least 12 characters'),
+          newPassword: z.string().min(PASSWORD_MIN_LENGTH, PASSWORD_MIN_MESSAGE),
         }),
         response: { 200: z.object({ ok: z.boolean() }) },
       },
@@ -383,7 +391,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
       schema: {
         body: z.object({
           token: z.string().min(1),
-          newPassword: z.string().min(12, 'Use at least 12 characters'),
+          newPassword: z.string().min(PASSWORD_MIN_LENGTH, PASSWORD_MIN_MESSAGE),
         }),
         response: { 200: z.object({ ok: z.boolean() }) },
       },
@@ -437,6 +445,202 @@ const routes: FastifyPluginAsyncZod = async (app) => {
 
       await audit(app, { action: 'auth.password.reset', actorId: user.id, ip: req.ip })
       return { ok: true }
+    },
+  )
+
+  // ── Passkeys ──────────────────────────────────────────────────────────────
+  //
+  // A passkey is an additional way into an account that already has a password,
+  // never a replacement for one. That is what keeps every account recoverable
+  // through a channel that does not depend on a physical device — see the note
+  // on hostname binding in services/webauthn.ts.
+
+  // No response schema on the two `options` endpoints, unlike every other route
+  // here. What they return is `PublicKeyCredentialCreationOptionsJSON` — a shape
+  // defined by the WebAuthn spec, produced by the library and handed to the
+  // browser verbatim. Restating it in Zod would be a second copy of somebody
+  // else's contract, free to drift from the one that actually matters.
+  app.post('/passkeys/register/options', async (req) => {
+    const user = await requireAuthenticatedUser(app, req)
+    return registrationOptions(app.db, user)
+  })
+
+  app.post(
+    '/passkeys/register',
+    {
+      schema: {
+        body: z.object({
+          // The browser's own payload, passed through untouched. It is verified
+          // cryptographically against a stored challenge, so validating its
+          // shape here would add a second, weaker check of the same thing.
+          response: z.looseObject({ id: z.string() }),
+          name: z.string().min(1).max(100),
+        }),
+        response: {
+          200: z.object({
+            id: z.string(),
+            name: z.string(),
+            createdAt: z.string(),
+          }),
+        },
+      },
+    },
+    async (req) => {
+      const user = await requireAuthenticatedUser(app, req)
+
+      const credential = await verifyRegistration(
+        app.db,
+        user,
+        req.body.response as never,
+        req.body.name.trim(),
+      )
+      if (!credential) throw app.httpErrors.badRequest('That passkey could not be registered')
+
+      await audit(app, {
+        action: 'auth.passkey.registered',
+        actorId: user.id,
+        meta: { name: credential.name },
+        ip: req.ip,
+      })
+
+      return {
+        id: credential.id,
+        name: credential.name,
+        createdAt: credential.createdAt.toISOString(),
+      }
+    },
+  )
+
+  app.get(
+    '/passkeys',
+    {
+      schema: {
+        response: {
+          200: z.array(
+            z.object({
+              id: z.string(),
+              name: z.string(),
+              deviceType: z.string().nullable(),
+              backedUp: z.boolean(),
+              lastUsedAt: z.string().nullable(),
+              createdAt: z.string(),
+            }),
+          ),
+        },
+      },
+    },
+    async (req) => {
+      const user = await requireAuthenticatedUser(app, req)
+      const rows = await credentialsFor(app.db, user.id)
+
+      return rows.map((row) => ({
+        id: row.id,
+        name: row.name,
+        deviceType: row.deviceType,
+        backedUp: row.backedUp,
+        lastUsedAt: row.lastUsedAt?.toISOString() ?? null,
+        createdAt: row.createdAt.toISOString(),
+      }))
+    },
+  )
+
+  app.delete(
+    '/passkeys/:id',
+    {
+      schema: {
+        params: z.object({ id: z.string().uuid() }),
+        response: { 200: z.object({ ok: z.boolean() }) },
+      },
+    },
+    async (req) => {
+      const user = await requireAuthenticatedUser(app, req)
+
+      // Scoped to the caller's own rows: the id is a UUID from a list the user
+      // was shown, and without this clause it would be a way to remove somebody
+      // else's key by guessing.
+      const removed = await app.db
+        .delete(schema.webauthnCredentials)
+        .where(
+          and(
+            eq(schema.webauthnCredentials.id, req.params.id),
+            eq(schema.webauthnCredentials.userId, user.id),
+          ),
+        )
+        .returning({ name: schema.webauthnCredentials.name })
+
+      if (removed.length === 0) throw app.httpErrors.notFound('No such passkey')
+
+      await audit(app, {
+        action: 'auth.passkey.removed',
+        actorId: user.id,
+        meta: { name: removed[0]?.name },
+        ip: req.ip,
+      })
+      return { ok: true }
+    },
+  )
+
+  app.post('/passkeys/login/options', async () => authenticationOptions(app.db))
+
+  /**
+   * Signing in with a passkey.
+   *
+   * The session it issues is fully authenticated even for an account with TOTP
+   * enabled, and that is deliberate rather than an oversight. A passkey is
+   * already two factors in one gesture — possession of the authenticator, plus
+   * the biometric or PIN the device asks for — and it is phishing-resistant in
+   * a way a typed code is not. Demanding a TOTP code after it would add
+   * ceremony without adding a factor.
+   */
+  app.post(
+    '/passkeys/login',
+    {
+      schema: {
+        body: z.object({ response: z.looseObject({ id: z.string() }) }),
+        response: {
+          200: z.object({
+            user: z.object({ id: z.string(), email: z.string(), name: z.string() }),
+          }),
+        },
+      },
+    },
+    async (req, reply) => {
+      const outcome = await verifyAuthentication(app.db, req.body.response as never)
+
+      if (!outcome) {
+        await audit(app, { action: 'auth.passkey.failed', ip: req.ip })
+        throw app.httpErrors.unauthorized('That passkey was not accepted')
+      }
+
+      const [user] = await app.db
+        .select()
+        .from(schema.users)
+        .where(eq(schema.users.id, outcome.userId))
+        .limit(1)
+
+      // A disabled account keeps its passkeys as rows; it must not keep them as
+      // a way in. Same rule the password path applies.
+      if (!user || user.disabledAt) {
+        await audit(app, { action: 'auth.passkey.failed', actorId: outcome.userId, ip: req.ip })
+        throw app.httpErrors.unauthorized('That passkey was not accepted')
+      }
+
+      const session = await createSession(app.db, {
+        userId: user.id,
+        mfaSatisfied: true,
+        ip: req.ip,
+        userAgent: req.headers['user-agent'] ?? null,
+      })
+      reply.setCookie(SESSION_COOKIE, session.token, sessionCookieOptions(session.expiresAt))
+
+      await app.db
+        .update(schema.users)
+        .set({ lastLoginAt: new Date() })
+        .where(eq(schema.users.id, user.id))
+
+      await audit(app, { action: 'auth.passkey.success', actorId: user.id, ip: req.ip })
+
+      return { user: { id: user.id, email: user.email, name: user.name } }
     },
   )
 

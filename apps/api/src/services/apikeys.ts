@@ -1,4 +1,4 @@
-import { and, eq, isNull } from 'drizzle-orm'
+import { and, eq, isNull, lt, or } from 'drizzle-orm'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { schema } from '@tern/db'
 import { generateToken, hashToken } from '@tern/shared'
@@ -18,6 +18,37 @@ export interface IssuedApiKey {
   /** Shown once, at creation. Only the hash is stored. */
   key: string
   id: string
+}
+
+/**
+ * Records that the agent behind a key has just been heard from.
+ *
+ * Until this existed, `agents.last_seen_at` was written exactly once — at
+ * pairing — and never again. Everything that asks "is this agent alive?" reads
+ * that column, so ten minutes after pairing every agent in the fleet looked
+ * dead: ownership election handed its controls elsewhere, `local-probes` took
+ * them over and measured them a second time, and the fleet screen showed a red
+ * dot beside an agent that was reporting perfectly well.
+ *
+ * Rate-limited in SQL rather than on every call. Ingest is the hot path — a
+ * fleet pushing every ten seconds would otherwise turn one write per agent per
+ * minute into one per point — and the predicate makes the update a no-op the
+ * rest of the time. A minute is far below the ten-minute staleness window that
+ * consumes it, so nothing downstream can tell the difference.
+ */
+export async function touchAgent(app: FastifyInstance, apiKeyId: string): Promise<void> {
+  await app.db
+    .update(schema.agents)
+    .set({ lastSeenAt: new Date() })
+    .where(
+      and(
+        eq(schema.agents.apiKeyId, apiKeyId),
+        or(
+          isNull(schema.agents.lastSeenAt),
+          lt(schema.agents.lastSeenAt, new Date(Date.now() - 60_000)),
+        ),
+      ),
+    )
 }
 
 export async function issueApiKey(

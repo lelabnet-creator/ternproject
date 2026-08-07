@@ -1,4 +1,5 @@
 import {
+  bigint,
   boolean,
   index,
   inet,
@@ -118,6 +119,91 @@ export const passwordResetTokens = pgTable(
     index('password_reset_user_idx').on(t.userId),
     index('password_reset_expires_idx').on(t.expiresAt),
   ],
+)
+
+/**
+ * Passkeys — WebAuthn credentials, one row per authenticator.
+ *
+ * Several per account on purpose. A passkey lives in one place: a laptop's
+ * secure enclave, a phone, a security key. One row per account would mean
+ * losing the device is losing the method, and would make "add my phone too"
+ * impossible — which is the ordinary case, not the exotic one.
+ *
+ * These are additions, never a replacement: `users.passwordHash` stays
+ * mandatory, so no account can end up reachable only through a device that can
+ * be dropped in a river. That also keeps the recovery path already built —
+ * email plus a reset link — meaningful for every account.
+ *
+ * Nothing here is secret. A public key is public, which is the entire point of
+ * WebAuthn: a database dump yields nothing that can be replayed against the
+ * account, unlike a password hash, which at least invites cracking.
+ */
+export const webauthnCredentials = pgTable(
+  'webauthn_credentials',
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    userId: uuid()
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+
+    /**
+     * The authenticator's credential ID, base64url as the browser reports it.
+     * Unique across the instance: it is what an assertion arrives carrying, and
+     * it has to identify one row without being told which user to look in.
+     */
+    credentialId: text().notNull().unique(),
+    /** COSE public key, base64url. Verifies signatures; secret of nothing. */
+    publicKey: text().notNull(),
+
+    /**
+     * The authenticator's signature counter.
+     *
+     * `bigint` because the spec allows a 32-bit unsigned value and `integer`
+     * would overflow at half of it. Stored as a number in JS since it never
+     * approaches 2^53. A counter that fails to advance is the one clone signal
+     * WebAuthn gives — many modern authenticators report a constant 0, so it is
+     * recorded and checked, not blindly trusted.
+     */
+    counter: bigint({ mode: 'number' }).notNull().default(0),
+
+    /** Named by the person, so a list of four keys is not four opaque rows. */
+    name: text().notNull(),
+    /** `platform` (this device) or `cross-platform` (a key you carry). */
+    deviceType: text(),
+    /** Whether the authenticator says it syncs across the owner's devices. */
+    backedUp: boolean().notNull().default(false),
+    transports: jsonb().$type<string[]>().notNull().default([]),
+
+    lastUsedAt: timestamp({ withTimezone: true }),
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('webauthn_credentials_user_idx').on(t.userId)],
+)
+
+/**
+ * Challenges awaiting an answer.
+ *
+ * Server-side rather than in a cookie or a signed token, because the one thing
+ * a challenge must guarantee is single use: a replayed assertion has to fail,
+ * and it can only be made to fail by deleting the row that accepted it. They
+ * live about two minutes — long enough to find a security key in a drawer,
+ * short enough not to accumulate.
+ *
+ * `userId` is null for a sign-in challenge: at that point nobody has said who
+ * they are, and the assertion itself names the credential.
+ */
+export const webauthnChallenges = pgTable(
+  'webauthn_challenges',
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    challenge: text().notNull().unique(),
+    userId: uuid().references(() => users.id, { onDelete: 'cascade' }),
+    /** `register` or `authenticate` — a registration challenge must not sign anyone in. */
+    kind: text().notNull(),
+    expiresAt: timestamp({ withTimezone: true }).notNull(),
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('webauthn_challenges_expires_idx').on(t.expiresAt)],
 )
 
 /** Append-only trail of who did what. Exportable as CSV by admins. */
