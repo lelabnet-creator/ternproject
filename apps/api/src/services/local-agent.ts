@@ -91,10 +91,17 @@ export function dataPaths() {
  * cannot resolve, or — in development — at the Vite dev server rather than the
  * API.
  *
- * The default suits an agent on the same machine, which is the case when the
- * API is run from source. In the production stack the agent is a separate
- * container, where `127.0.0.1` is its own loopback and reaches nothing, so
- * `docker-compose.prod.yml` sets this to the API's service name.
+ * The default suits an agent that shares this process's loopback, and both
+ * deployments arrange exactly that: from source it is the same machine, and in
+ * the production stack the agent container shares the API's network namespace.
+ *
+ * That is not an accident of convenience. `tern-agent` refuses to send an
+ * ingest key over plain HTTP to anything but localhost, so an address like
+ * `http://app:3011` on a compose network makes it exit on startup. Sharing the
+ * namespace makes the exemption true rather than bypassing the guard.
+ *
+ * The override exists for the deployment neither of those covers: an agent on
+ * another host, which needs `https://` anyway.
  */
 function serverUrl(): string {
   return config.TERN_LOCAL_AGENT_SERVER || `http://127.0.0.1:${config.API_PORT}`

@@ -105,11 +105,10 @@ services:
       TERN_DEFAULT_LOCALE: ${TERN_DEFAULT_LOCALE:-en}
       TERN_DEFAULT_TIMEZONE: ${TERN_DEFAULT_TIMEZONE:-UTC}
 
-      # Written into the local agent's agent.toml. It runs in its own container,
-      # where 127.0.0.1 is its own loopback and reaches nothing, so it has to be
-      # this service's name on the compose network.
+      # The agent shares this container's network namespace, so the default the
+      # API writes into agent.toml — http://127.0.0.1:3011 — is already correct.
+      # See the `agent` service below for why it is worth arranging that.
       TERN_LOCAL_AGENT: ${TERN_LOCAL_AGENT:-true}
-      TERN_LOCAL_AGENT_SERVER: http://app:3011
     ports:
       - '${TERN_HTTP_PORT:-8080}:3011'
     volumes:
@@ -142,12 +141,25 @@ services:
     # Cleared, or the image's CMD — the API's own start command — would be
     # handed to the entrypoint above as arguments it has no use for.
     command: []
-    # The image's healthcheck curls the API's /health on this container's own
-    # loopback, where nothing listens. Inherited unchanged it would mark a
-    # perfectly healthy agent unhealthy forever. The agent has no port to probe;
-    # whether it is reporting is a question the fleet screen answers.
+    # The image's healthcheck curls the API's /health. Sharing the API's network
+    # namespace, that check would actually succeed here — and would then report
+    # the *API's* health as the agent's, which is worse than no check at all.
+    # Whether the agent is reporting is a question the fleet screen answers.
     healthcheck:
       disable: true
+    # The agent shares the API's network namespace rather than sitting beside it
+    # on the compose network.
+    #
+    # `tern-agent` refuses to send an ingest key over plain HTTP to anything but
+    # localhost, which is a guard worth keeping — so pointing it at `http://app:3011`
+    # made it exit on startup, over and over. The choice was to weaken the guard
+    # or to make its exemption true, and this is the second: with a shared
+    # namespace `127.0.0.1:3011` *is* the API, the key never touches a network
+    # interface, and the agent's own default address is already right.
+    #
+    # It also means this container publishes no ports and needs none — `ports`
+    # is not permitted here, and the API already publishes the only one.
+    network_mode: 'service:app'
     environment:
       TERN_DATA_DIR: /var/lib/tern
     volumes:
@@ -156,7 +168,6 @@ services:
       # offline queue here, which is the one thing in this directory that is
       # its own.
       - tern-data:/var/lib/tern
-    # No ports. It reaches the API outward and nothing reaches it.
 
 volumes:
   db-data:

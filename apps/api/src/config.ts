@@ -70,10 +70,13 @@ const schema = z.object({
   /**
    * The address written into the local agent's `agent.toml`.
    *
-   * Empty means "the API on this machine", which is right when the API is run
-   * from source. The production stack runs the agent in its own container,
-   * where loopback is its own and reaches nothing — `docker-compose.prod.yml`
-   * sets this to the API's compose service name.
+   * Empty means "the API on this loopback", which is right for both shipped
+   * deployments: from source the agent is on the same machine, and in the
+   * production stack its container shares the API's network namespace.
+   *
+   * Set it only for an agent somewhere else — where it has to be `https://`,
+   * since the agent refuses to carry an ingest key over plain HTTP to anything
+   * but localhost.
    */
   TERN_LOCAL_AGENT_SERVER: z.string().default(''),
 

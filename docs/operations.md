@@ -173,6 +173,13 @@ as its supervisor. Nothing in TERN supervises a process — the point of a
 separate one is that it keeps measuring and buffering while the API restarts,
 which a child of the API could not do.
 
+It shares the API container's network namespace (`network_mode: service:app`).
+The agent refuses to send an ingest key over plain HTTP to anything but
+localhost — a guard worth keeping — so rather than weakening it, the namespace
+is arranged so that `127.0.0.1:3011` genuinely _is_ the API and the key never
+touches a network interface. Worth knowing before editing that service: it can
+therefore publish no ports of its own.
+
 The API's only part is the record: it writes the row, the key and `agent.toml`
 as soon as a page exists. That file, on the shared `tern-data` volume, is the
 whole channel between the two containers. The agent container starts with
