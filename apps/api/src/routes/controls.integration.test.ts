@@ -170,6 +170,183 @@ describe('simulation', () => {
   })
 })
 
+describe('listing controls', () => {
+  const listed = async (id: string) => {
+    const response = await fx.app.inject({
+      method: 'GET',
+      url: `/api/v1/${fx.slug}/controls`,
+      headers: { cookie: adminCookie },
+    })
+    expect(response.statusCode).toBe(200)
+    return response.json().find((c: { id: string }) => c.id === id)
+  }
+
+  it('reports nothing for a control that has never been checked', async () => {
+    const id = (await create({ key: `quiet-${Date.now()}` })).json().id
+
+    const row = await listed(id)
+    expect(row.lastCheckAt).toBeNull()
+    expect(row.lastCheckStatus).toBeNull()
+    expect(row.lastSuccessAt).toBeNull()
+    expect(row.lastFailureAt).toBeNull()
+  })
+
+  it('separates the last check from the last success and the last failure', async () => {
+    const id = (await create({ key: `activity-${Date.now()}` })).json().id
+    const at = (minutesAgo: number) => new Date(Date.now() - minutesAgo * 60_000)
+
+    // Failed an hour ago, recovered, and is currently degraded: the three
+    // timestamps must all differ, which is the whole reason for showing three.
+    await fx.app.db.insert(schema.checks).values([
+      { tenantId: fx.tenantId, controlId: id, status: 'down', ts: at(60) },
+      { tenantId: fx.tenantId, controlId: id, status: 'operational', ts: at(30) },
+      { tenantId: fx.tenantId, controlId: id, status: 'degraded', ts: at(1) },
+    ])
+
+    const row = await listed(id)
+    expect(row.lastCheckStatus).toBe('degraded')
+    expect(Date.parse(row.lastCheckAt)).toBeGreaterThan(Date.parse(row.lastSuccessAt))
+    expect(Date.parse(row.lastSuccessAt)).toBeGreaterThan(Date.parse(row.lastFailureAt))
+  })
+
+  it('counts partial as a failure and degraded as neither', async () => {
+    const id = (await create({ key: `partial-${Date.now()}` })).json().id
+    await fx.app.db.insert(schema.checks).values([
+      { tenantId: fx.tenantId, controlId: id, status: 'degraded', ts: new Date(Date.now() - 6e4) },
+      { tenantId: fx.tenantId, controlId: id, status: 'partial', ts: new Date(Date.now() - 3e4) },
+    ])
+
+    const row = await listed(id)
+    // Degraded is slow, not broken — counting it as a failure would reset
+    // "last failure" on every busy afternoon.
+    expect(row.lastFailureAt).not.toBeNull()
+    expect(row.lastSuccessAt).toBeNull()
+  })
+
+  it('reports a check that is neither a success nor a failure, and why', async () => {
+    // The scheduler's staleness marker. It is a real row with a real timestamp,
+    // so the card shows a last check — while `unknown` counts as neither
+    // outcome, which reads as a contradiction unless the status and its message
+    // travel with it.
+    const id = (await create({ key: `stale-${Date.now()}` })).json().id
+    await fx.app.db.insert(schema.checks).values({
+      tenantId: fx.tenantId,
+      controlId: id,
+      status: 'unknown',
+      message: 'No data received within the expected interval',
+    })
+
+    const row = await listed(id)
+    expect(row.lastCheckAt).not.toBeNull()
+    expect(row.lastCheckStatus).toBe('unknown')
+    expect(row.lastCheckMessage).toMatch(/no data received/i)
+    expect(row.lastSuccessAt).toBeNull()
+    expect(row.lastFailureAt).toBeNull()
+  })
+
+  it('ignores simulated history', async () => {
+    const id = (await create({ key: `sim-activity-${Date.now()}` })).json().id
+    await fx.app.db.insert(schema.checks).values({
+      tenantId: fx.tenantId,
+      controlId: id,
+      status: 'down',
+      synthetic: true,
+    })
+
+    // A demo outage must never show up as the moment this control last broke.
+    const row = await listed(id)
+    expect(row.lastFailureAt).toBeNull()
+    expect(row.lastCheckAt).toBeNull()
+  })
+})
+
+describe('forcing a check', () => {
+  const force = (id: string, cookie = adminCookie) =>
+    fx.app.inject({
+      method: 'POST',
+      url: `/api/v1/${fx.slug}/controls/${id}/check`,
+      headers: { cookie },
+    })
+
+  it('records what it measured, so the control stops sitting at unknown', async () => {
+    const id = (
+      await create({
+        key: `forced-${Date.now()}`,
+        kind: 'http',
+        // Nothing listens here, so the probe fails — which is a real outcome
+        // and exactly what has to be recorded. The point of the test is that a
+        // row appears, not which colour it is.
+        config: { url: 'http://127.0.0.1:9/nothing', assertions: [] },
+      })
+    ).json().id
+
+    const before = await fx.app.db
+      .select()
+      .from(schema.checks)
+      .where(eq(schema.checks.controlId, id))
+    expect(before).toHaveLength(0)
+
+    const response = await force(id)
+    expect(response.statusCode).toBe(200)
+    expect(response.json().at).toBeTruthy()
+
+    const after = await fx.app.db
+      .select()
+      .from(schema.checks)
+      .where(eq(schema.checks.controlId, id))
+    expect(after).toHaveLength(1)
+    expect(after[0]!.synthetic).toBe(false)
+    expect(after[0]!.status).toBe(response.json().status)
+  })
+
+  it('refuses a pushed control, which has no probe to run', async () => {
+    const id = (await create({ key: `pushed-${Date.now()}`, kind: 'push' })).json().id
+
+    const response = await force(id)
+    expect(response.statusCode).toBe(400)
+    expect(response.json().message).toMatch(/pushed to/i)
+
+    // And nothing was written for it.
+    const rows = await fx.app.db.select().from(schema.checks).where(eq(schema.checks.controlId, id))
+    expect(rows).toHaveLength(0)
+  })
+
+  it('refuses a disabled control rather than putting a point on a stopped series', async () => {
+    const id = (
+      await create({
+        key: `off-${Date.now()}`,
+        kind: 'http',
+        config: { url: 'http://127.0.0.1:9/nothing', assertions: [] },
+      })
+    ).json().id
+
+    // Set on the row rather than through the API: `enabled` is not part of any
+    // request body today, but `local-probes` already skips on it, so the state
+    // is reachable and the endpoint has to handle it.
+    await fx.app.db
+      .update(schema.controls)
+      .set({ enabled: false })
+      .where(eq(schema.controls.id, id))
+
+    const response = await force(id)
+    expect(response.statusCode).toBe(400)
+    expect(response.json().message).toMatch(/disabled/i)
+  })
+
+  it('requires admin', async () => {
+    const id = (
+      await create({
+        key: `perm-${Date.now()}`,
+        kind: 'http',
+        config: { url: 'http://127.0.0.1:9/nothing', assertions: [] },
+      })
+    ).json().id
+
+    const memberCookie = await login(fx.app, fx.users.member.email)
+    expect((await force(id, memberCookie)).statusCode).toBe(403)
+  })
+})
+
 describe('script generation', () => {
   it('returns all ten languages with the control key and thresholds baked in', async () => {
     const created = await create({

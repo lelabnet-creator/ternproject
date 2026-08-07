@@ -48,6 +48,73 @@ interface Due {
   probe: Probe
 }
 
+export interface AgentCoverage {
+  /** Controls a live agent has named in its scope. */
+  claimed: Set<string>
+  /** Tenants where a live agent's empty scope means "all of it". */
+  fullyCovered: Set<string>
+  /** The same two, restricted to agents that are not this instance's own. */
+  claimedRemote: Set<string>
+  fullyCoveredRemote: Set<string>
+}
+
+/**
+ * Which controls a live agent is already running.
+ *
+ * Shared with the forced-check endpoint, which needs the same answer for a
+ * different reason: this job asks it to avoid doubling a control's sample rate,
+ * and that endpoint asks it to avoid recording the server's view of something
+ * only a remote agent can see.
+ *
+ * Hence the remote/local split. An agent on another host sits somewhere this
+ * process cannot reach, and a measurement taken here would be a second vantage
+ * point interleaved into one series. This instance's own agent shares the
+ * server's network by construction, so there is no disagreement to create.
+ *
+ * An agent's scope lives on the API key it paired with, not on the agent — the
+ * same join `GET /controls/:id/assignment` does.
+ */
+export async function agentCoverage(app: FastifyInstance, now: number): Promise<AgentCoverage> {
+  const agents = await app.db
+    .select({
+      tenantId: schema.agents.tenantId,
+      status: schema.agents.status,
+      lastSeenAt: schema.agents.lastSeenAt,
+      isLocal: schema.agents.isLocal,
+      scopeControlIds: schema.apiKeys.scopeControlIds,
+    })
+    .from(schema.agents)
+    .leftJoin(schema.apiKeys, eq(schema.apiKeys.id, schema.agents.apiKeyId))
+
+  const coverage: AgentCoverage = {
+    claimed: new Set(),
+    fullyCovered: new Set(),
+    claimedRemote: new Set(),
+    fullyCoveredRemote: new Set(),
+  }
+
+  for (const agent of agents) {
+    if (agent.status === 'revoked') continue
+    if (!agent.lastSeenAt || now - agent.lastSeenAt.getTime() > OWNER_STALE_MS) continue
+
+    const scope = agent.scopeControlIds ?? []
+    // An empty scope is not "nothing" — it is the key's whole tenant. Reading it
+    // as an empty list would have this job racing an agent that is already
+    // running every control it has.
+    if (scope.length === 0) {
+      coverage.fullyCovered.add(agent.tenantId)
+      if (!agent.isLocal) coverage.fullyCoveredRemote.add(agent.tenantId)
+    } else {
+      for (const id of scope) {
+        coverage.claimed.add(id)
+        if (!agent.isLocal) coverage.claimedRemote.add(id)
+      }
+    }
+  }
+
+  return coverage
+}
+
 /**
  * Controls this instance should probe right now.
  *
@@ -69,39 +136,13 @@ async function due(app: FastifyInstance, now: number): Promise<Due[]> {
 
   if (controls.length === 0) return []
 
-  // An agent's scope lives on the API key it paired with, not on the agent —
-  // the same join `GET /controls/:id/assignment` does.
-  const agents = await app.db
-    .select({
-      tenantId: schema.agents.tenantId,
-      status: schema.agents.status,
-      lastSeenAt: schema.agents.lastSeenAt,
-      scopeControlIds: schema.apiKeys.scopeControlIds,
-    })
-    .from(schema.agents)
-    .leftJoin(schema.apiKeys, eq(schema.apiKeys.id, schema.agents.apiKeyId))
-
-  const claimedByLiveAgent = new Set<string>()
-  /** Tenants where a live agent covers everything, because its scope is empty. */
-  const tenantsFullyCovered = new Set<string>()
-
-  for (const agent of agents) {
-    if (agent.status === 'revoked') continue
-    if (!agent.lastSeenAt || now - agent.lastSeenAt.getTime() > OWNER_STALE_MS) continue
-
-    const scope = agent.scopeControlIds ?? []
-    // An empty scope is not "nothing" — it is the key's whole tenant. Reading it
-    // as an empty list would have this job racing an agent that is already
-    // running every control it has.
-    if (scope.length === 0) tenantsFullyCovered.add(agent.tenantId)
-    else for (const id of scope) claimedByLiveAgent.add(id)
-  }
+  const coverage = await agentCoverage(app, now)
 
   const result: Due[] = []
 
   for (const control of controls) {
-    if (tenantsFullyCovered.has(control.tenantId)) continue
-    if (claimedByLiveAgent.has(control.id)) continue
+    if (coverage.fullyCovered.has(control.tenantId)) continue
+    if (coverage.claimed.has(control.id)) continue
 
     // A malformed spec is not this job's problem to report — the editor
     // validates on save and the dry-run says why. Skipping keeps one bad
