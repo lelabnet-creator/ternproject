@@ -107,6 +107,22 @@ function base(): string {
 }
 
 /**
+ * Is this instance reached over plain HTTP, somewhere the agent will refuse by
+ * default?
+ *
+ * Localhost is not: the agent exempts it already, and an allowance written into
+ * a script that does not need one teaches the wrong habit. Everything else that
+ * is not `https://` is — a LAN address, a hostname on an internal network, a
+ * public address someone has not put TLS in front of yet. All three are real,
+ * and the first is the ordinary shape of a first deployment.
+ */
+function plainHttp(): boolean {
+  const url = base()
+  if (url.startsWith('https://')) return false
+  return !url.startsWith('http://localhost') && !url.startsWith('http://127.0.0.1')
+}
+
+/**
  * The installer, generated with this instance's address baked in.
  *
  * Deliberately readable: it is piped into a shell, which is a thing to be
@@ -134,7 +150,16 @@ function shellScript(): string {
 set -eu
 
 SERVER="${base()}"
-PIN=""
+# This instance's own address is plain HTTP, so the agent has to be told that
+# is acceptable — it refuses by default, because the API key it receives at
+# pairing crosses the network in clear and then does so on every report.
+#
+# Written here rather than left to whoever runs this: the address in SERVER is
+# the one this instance was configured with, so the choice was already made,
+# and an installer that generates a command its own binary rejects is an
+# installer that is wrong. Give the instance an https:// address and this line
+# disappears from the script.
+${plainHttp() ? 'export TERN_ALLOW_PLAIN_HTTP=1\n' : ''}PIN=""
 DEST="\${TERN_INSTALL_DIR:-}"
 BIN="tern-agent"
 SERVICE=1
@@ -254,7 +279,13 @@ if [ "$os" = "Darwin" ]; then
     <string>--queue</string><string>$QUEUE</string>
   </array>
   <key>RunAtLoad</key><true/>
-  <key>KeepAlive</key><true/>
+  <key>KeepAlive</key><true/>${
+    plainHttp()
+      ? `
+  <key>EnvironmentVariables</key>
+  <dict><key>TERN_ALLOW_PLAIN_HTTP</key><string>1</string></dict>`
+      : ''
+  }
 </dict>
 </plist>
 PLIST_EOF
@@ -289,7 +320,7 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
-ExecStart=$DEST/tern-agent run --config $CONF --queue $QUEUE
+${plainHttp() ? '# The same allowance the pairing needed. Without it here, the agent pairs\n# once and then fails on every report — the shape of failure a monitoring\n# tool can least afford, because the server just shows it as quiet.\nEnvironment=TERN_ALLOW_PLAIN_HTTP=1\n' : ''}ExecStart=$DEST/tern-agent run --config $CONF --queue $QUEUE
 Restart=always
 RestartSec=5
 # The agent buffers to disk while the server is unreachable, so a restart loop
@@ -330,6 +361,7 @@ description="TERN agent"
 command=__BIN__
 command_args="run --config __CONF__ --queue __QUEUE__"
 command_background=true
+${plainHttp() ? 'export TERN_ALLOW_PLAIN_HTTP=1\n' : ''}
 pidfile="/run/tern-agent.pid"
 depend() { need net; }
 RC_EOF
@@ -413,7 +445,21 @@ if ($Proxy) {
   exit 0
 }
 
-if ($Pin -ne "") {
+${
+  plainHttp()
+    ? `# This instance's address is plain HTTP, which the agent refuses unless told
+# otherwise — the API key crosses the network in clear at pairing and on every
+# report after it. Set for this process so the pairing below works, and
+# persisted so the scheduled task inherits it: a scheduled task carries no
+# environment of its own, and pairing once then failing on every report is the
+# failure a monitoring tool can least afford.
+$env:TERN_ALLOW_PLAIN_HTTP = "1"
+[Environment]::SetEnvironmentVariable("TERN_ALLOW_PLAIN_HTTP", "1",
+  $(if ($admin) { "Machine" } else { "User" }))
+
+`
+    : ''
+}if ($Pin -ne "") {
   & $exe pair --server $server --pin $Pin --config $conf
 } else {
   Write-Host "Next: $exe pair --server $server --pin <PIN> --config $conf"

@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process'
 import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { __testables } from './download.js'
 
 const { shellScript, powershellScript } = __testables
@@ -93,5 +93,73 @@ describe('the PowerShell installer', () => {
     // The default execution time limit is three days, after which monitoring
     // would simply end without anything reporting a fault.
     expect(script).toContain('-ExecutionTimeLimit (New-TimeSpan -Seconds 0)')
+  })
+})
+
+/**
+ * The installers generated for an instance that has no TLS in front of it.
+ *
+ * The agent refuses plain HTTP unless told otherwise, because the API key it
+ * receives at pairing crosses the network in clear and does so again on every
+ * report. That refusal is right, and it made the product contradict itself: the
+ * installer accepts `http://192.168.1.30:8080` as a public URL — it suggests the
+ * machine's own address — and the admin then handed you a pair command that the
+ * agent rejected. Found on a LAN install with no TLS anywhere, which is the
+ * ordinary shape of a first deployment.
+ *
+ * The address decides, so these load the module again under a different one.
+ * The default in `config.ts` is a localhost URL, which is exactly the case that
+ * must *not* carry the allowance.
+ */
+describe('an instance reached over plain HTTP', () => {
+  async function scriptsFor(url: string) {
+    vi.resetModules()
+    const previous = process.env.PUBLIC_BASE_URL
+    process.env.PUBLIC_BASE_URL = url
+    try {
+      const module = await import('./download.js')
+      return {
+        sh: module.__testables.shellScript(),
+        ps1: module.__testables.powershellScript(),
+      }
+    } finally {
+      if (previous === undefined) delete process.env.PUBLIC_BASE_URL
+      else process.env.PUBLIC_BASE_URL = previous
+      vi.resetModules()
+    }
+  }
+
+  it('lets the agent pair, and keeps letting it report', async () => {
+    const { sh, ps1 } = await scriptsFor('http://192.168.1.30:8080')
+
+    // Pairing is the visible half. The service is the half that matters: an
+    // agent that pairs once and then fails on every report is the failure a
+    // monitoring tool can least afford, because the server shows it as quiet.
+    expect(sh).toContain('export TERN_ALLOW_PLAIN_HTTP=1')
+    expect(sh).toContain('Environment=TERN_ALLOW_PLAIN_HTTP=1')
+    expect(sh).toContain('<key>TERN_ALLOW_PLAIN_HTTP</key>')
+
+    // Windows carries no environment into a scheduled task, so it has to be
+    // persisted rather than exported.
+    expect(ps1).toContain('$env:TERN_ALLOW_PLAIN_HTTP = "1"')
+    expect(ps1).toContain('SetEnvironmentVariable("TERN_ALLOW_PLAIN_HTTP"')
+  })
+
+  it('still parses as POSIX sh with the allowance in it', async () => {
+    const { sh } = await scriptsFor('http://192.168.1.30:8080')
+    const dir = mkdtempSync(join(tmpdir(), 'tern-install-http-'))
+    const path = join(dir, 'install.sh')
+    writeFileSync(path, sh)
+    expect(() => execFileSync('sh', ['-n', path], { stdio: 'pipe' })).not.toThrow()
+  })
+
+  it('says nothing of the kind when there is TLS, or when it is localhost', async () => {
+    for (const url of ['https://status.example.com', 'http://localhost:5173']) {
+      const { sh, ps1 } = await scriptsFor(url)
+      // An allowance written into a script that does not need one teaches the
+      // habit of writing it into scripts that do.
+      expect(sh).not.toContain('TERN_ALLOW_PLAIN_HTTP')
+      expect(ps1).not.toContain('TERN_ALLOW_PLAIN_HTTP')
+    }
   })
 })

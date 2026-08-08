@@ -130,20 +130,24 @@ def main(name: str) -> int:
             (r"Watch this machine's own services", "n"),
         ]
 
-        code, out = drive(
+        # `dialogue` plutôt que `out` : `out` est le répertoire de trace, et
+        # l'écraser ici avec la transcription faisait mourir la recette sur son
+        # tout dernier geste — l'écriture de resultats.json — après que chaque
+        # étape était passée. Une panne qui n'apparaît que lorsque tout va bien.
+        code, dialogue = drive(
             ["ssh", "-tt", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null",
              "-o", "LogLevel=ERROR", "-i", str(LAB / "id_lab"), "-p", str(t["ssh_port"]),
              f"{VM_USER}@127.0.0.1", "cd ~ && sh setup.sh"],
             answers, timeout=3000, idle_hint=300,
         )
-        (logs / "setup.log").write_text(out)
+        (logs / "setup.log").write_text(dialogue)
         screenshot(name, "02-installation")
 
         installed = ssh(name, "command -v docker && docker --version").returncode == 0
-        step(f"L'installateur pose Docker via {t['pkg']}", installed, out[-600:])
+        step(f"L'installateur pose Docker via {t['pkg']}", installed, dialogue[-600:])
 
         step("L'empreinte du binaire est vérifiée avant exécution",
-             "vérifiée" in out or "verified" in out, out[:400])
+             "vérifiée" in dialogue or "verified" in dialogue, dialogue[:400])
 
         compose_v2 = ssh(name, "sudo docker compose version").returncode == 0
         step("Compose v2 est présent", compose_v2)
@@ -153,7 +157,7 @@ def main(name: str) -> int:
 
         # Le binaire dit « Ready — <url> » en sortant, et laisse son journal.
         step("L'installation va au bout sans demander de reconnexion",
-             "Ready" in out or "Prêt" in out, out[-400:])
+             "Ready" in dialogue or "Prêt" in dialogue, dialogue[-400:])
 
         journal = ssh(name, "wc -l < tern-setup.log 2>/dev/null || echo 0")
         step("Un journal complet est laissé derrière",
@@ -168,7 +172,7 @@ def main(name: str) -> int:
         # not found » là où elle croyait lire l'état de la pile.
         ps = ssh(name, "docker compose -f docker-compose.prod.yml ps")
         (logs / "compose-ps.txt").write_text(ps.stdout + ps.stderr)
-        step("La pile tourne (app, db, agent)", ps.stdout.count("tern-prod") >= 3, ps.stdout[-400:])
+        step("La pile tourne (app, db, agent)", ps.stdout.count("tern-prod") >= 3, ps.stddialogue[-400:])
 
         base = f"http://127.0.0.1:{t['http_port']}"
         healthy = False

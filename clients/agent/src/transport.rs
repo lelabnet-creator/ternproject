@@ -124,6 +124,17 @@ pub fn random_token(bytes: usize) -> String {
     out
 }
 
+/// Has somebody said, in so many words, that plain HTTP is acceptable here?
+///
+/// One spelling and nothing clever: `1` and nothing else. `true`, `yes`, `on`
+/// and the rest would each have to be right in the installer, in the service
+/// unit and in whatever anyone types by hand, and a security control that turns
+/// itself off on a misspelling is worse than one that never existed — it reads
+/// as enabled.
+fn plain_http_allowed() -> bool {
+    std::env::var("TERN_ALLOW_PLAIN_HTTP").is_ok_and(|value| value == "1")
+}
+
 pub struct Client {
     http: reqwest::Client,
     base_url: String,
@@ -136,11 +147,30 @@ impl Client {
         // Pairing hands over a long-lived credential. Refusing plain HTTP
         // outside localhost stops that happening over the wire in clear, which
         // is exactly the mistake a quick-start guide invites.
+        //
+        // The refusal stands, and it stays the default. What it lacked was a way
+        // out, and the product contradicted itself for want of one: `tern-setup`
+        // asks for a public URL and accepts `http://192.168.1.30:8080` — it even
+        // suggests the machine's own address — the admin then hands you a pair
+        // command built from it, and this line refused the command the product
+        // had just written for you. Found on a LAN install with no TLS
+        // anywhere, which is the ordinary shape of a first deployment.
+        //
+        // So there is an opt-in, and it is an environment variable rather than a
+        // flag on `pair`: the credential crosses the wire once at pairing and
+        // then on every report for the life of the agent, so an allowance that
+        // covered only the first would be a false one. The generated installer
+        // sets it in the service unit for exactly that reason.
         if !base_url.starts_with("https://")
             && !base_url.starts_with("http://localhost")
             && !base_url.starts_with("http://127.0.0.1")
+            && !plain_http_allowed()
         {
-            bail!("Refusing to use plain HTTP for {base_url} — use https:// (localhost is exempt)");
+            bail!(
+                "Refusing to use plain HTTP for {base_url} — the API key would cross \
+                 the network in clear. Use https://, or set TERN_ALLOW_PLAIN_HTTP=1 \
+                 to accept that on a network you trust (localhost is exempt)."
+            );
         }
 
         let http = reqwest::Client::builder()
