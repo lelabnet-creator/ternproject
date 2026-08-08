@@ -18,8 +18,7 @@ JS, clippy `-D warnings`, 40 tests Rust.
 
 ## Next Steps
 
-- Supprimer les 5 branches distantes fusionnées ; les pointes sont dans
-  BACKLOG.md. Bloqué ici par les permissions, à lancer à la main.
 - Réparer l'accès SSH en écriture (clé `jacquesh82`) : les push passent par une
-  URL HTTPS écrite à la main. C'est ce qui bloque tout le reste.
+  URL HTTPS écrite à la main. C'est ce qui bloque le reste.
 - Déployer la démonstration ; il manque l'accès registre et l'hôte.
+- Le ménage des branches est fait : local et distant ne portent plus que `main`.

@@ -168,17 +168,17 @@ démonstration, ni le ménage des branches distantes n'avancent.
       avec la portée `repo`, ce qui a permis de pousser par HTTPS — mais c'est un
       contournement, pas une configuration. Toujours vrai au 9 août : chaque
       push passe par l'URL HTTPS écrite à la main, et le remote configuré reste
-      celui qui échoue. C'est le seul point de cette section qui en bloque
-      encore d'autres — le ménage des branches distantes l'attend.
+      celui qui échoue.
 
-- [ ] **Supprimer les branches distantes fusionnées.** Les cinq sont
-      entièrement contenues dans `main` ; leurs pointes sont notées ici pour que
-      la suppression reste réversible. `chore/console-demo-and-incidents`
+- [x] **Supprimer les branches distantes fusionnées.** Fait : le distant ne
+      porte plus que `main`, et les locales avaient déjà été supprimées. Les
+      cinq pointes restent notées ici, parce qu'elles rendent l'opération
+      réversible et ne coûtent qu'une ligne — `chore/console-demo-and-incidents`
       (`93349e9`), `feat/auth-and-local-agent` (`9620e23`),
       `feat/docker-install-and-first-run` (`3aae230`),
       `feat/mobile-shell-and-control-activity` (`b7a8f8d`),
-      `feat/recovery-onboarding-brand` (`bb79e81`). Les locales, elles, sont
-      déjà supprimées.
+      `feat/recovery-onboarding-brand` (`bb79e81`). Toutes vérifiées contenues
+      dans `main` avant suppression : rien ne s'est perdu.
 
 ## Known limitations to revisit
 
