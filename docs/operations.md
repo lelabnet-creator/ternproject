@@ -60,9 +60,97 @@ printed. That file is what to attach to a bug report.
 │  ○  Waiting for the API
 ```
 
+### Installing by hand, without the installer
+
+Nothing here needs `tern-setup`. It asks four questions, writes a file and runs
+two commands; doing that yourself takes five minutes and is the right call on a
+machine where you would rather see every step, on macOS where no binary is
+published, or under a configuration-management tool that owns `.env` already.
+
+Docker and the Compose v2 plugin have to be there first — that part the
+installer would have offered to do, and it is the only part it does that you
+cannot skip.
+
+```bash
+mkdir -p /srv/tern && cd /srv/tern
+curl -fsSL -o docker-compose.prod.yml \
+  https://raw.githubusercontent.com/lelabnet-creator/ternproject/main/docker-compose.prod.yml
+```
+
+Then a `.env` beside it. Four values are enough:
+
+```bash
+umask 077          # it will hold a database password; 0600 from birth
+cat > .env <<EOF
+POSTGRES_PASSWORD=$(openssl rand -hex 32)
+TERN_HTTP_PORT=8080
+PUBLIC_BASE_URL=http://$(ip -4 route get 1.1.1.1 | sed -n 's/.* src \([0-9.]*\).*/\1/p'):8080
+TERN_IMAGE=ghcr.io/lelabnet-creator/ternproject:latest
+EOF
+```
+
+Two of those four deserve a word.
+
+**`PUBLIC_BASE_URL` must be the address other people use.** It signs cookies,
+builds the agent pairing URLs, goes into the generated install scripts and into
+the links in outgoing mail. `http://localhost:8080` produces an instance that
+works perfectly for whoever is sitting at the server and for nobody else:
+remote agents pair against an address that, on their machine, means their own
+machine. Put the hostname if there is one — the command above only guesses the
+address the kernel would use to reach the internet.
+
+**`APP_SECRET` is absent on purpose.** Left unset, the entrypoint generates one
+into the `tern-data` volume on first boot and reuses it forever after. Set it
+yourself only if you are restoring an instance, and then it must be the same
+value: it encrypts TOTP secrets, probe authentication headers and subscriber
+addresses, and a fresh one does not fail — it silently makes all of them
+unreadable.
+
+Then start it, and wait for the API rather than for the containers:
+
+```bash
+docker compose -f docker-compose.prod.yml up -d
+
+# /health only answers once the migrations have run and the page exists,
+# which is a stricter thing to wait for than a container being up.
+until curl -fsS http://localhost:8080/health >/dev/null; do sleep 2; done
+```
+
+Do **not** use `docker compose up --wait` here. The `agent` service has no
+healthcheck on purpose — its own would curl the API and report the API's health
+as its own — and Docker Compose 29 refuses to wait on a container in that state,
+failing a perfectly good installation. That is why the installer polls instead.
+
+Finally open `PUBLIC_BASE_URL` + `/app`. The first person to reach it creates
+the administrator account, names the page and sets up outgoing mail. Until that
+account exists, that window is open to anyone who can reach the address.
+
+Optional, and the same variables the installer would have written for you:
+
+| Variable                       | Why you might set it                                                                                                                    |
+| ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `TRUSTED_PROXIES`              | CIDRs of proxies whose `X-Forwarded-For` is believed                                                                                    |
+| `TERN_AGENT_NETWORK_MODE=host` | so the instance's own agent can watch this machine's services — pair it with `TERN_LOCAL_AGENT_SERVER=http://127.0.0.1:$TERN_HTTP_PORT` |
+| `SMTP_HOST` and friends        | mail, if the admin's own screen is not where you want to set it                                                                         |
+
+### Building the installer from source
+
+On macOS, or on an architecture with no published binary:
+
+```bash
+git clone https://github.com/lelabnet-creator/ternproject
+cd ternproject/clients/installer
+cargo build --release
+./target/release/tern-setup
+```
+
+It refuses to compile anywhere but Unix, and says so rather than failing on a
+missing symbol. On macOS it will not install Docker — Docker Desktop is not a
+package — but with Docker Desktop already running it does everything else.
+
 ### If Docker is missing
 
-The script no longer stops at the sight of it. On Linux it detects the package
+The installer no longer stops at the sight of it. On Linux it detects the package
 manager by which command is present — `apt-get`, `dnf`, `yum` or `pacman`, not
 what `/etc/os-release` claims, since a derivative rarely names its base — and
 offers to install Docker. It asks first, every time: putting system packages on
@@ -225,7 +313,7 @@ there, so the cluster lived in the container's writable layer and any
 `docker compose up -d` that recreated the container — a routine upgrade, a
 changed port — took the database with it.
 
-Fixed in both files, and `setup.sh` now checks it twice: it refuses to start on
+Fixed in both files, and the installer now checks it twice: it refuses to start on
 an installation still holding its data the old way, since remounting would
 present an empty database without a word, and it verifies after start that the
 running container really has its cluster on the volume.
@@ -236,7 +324,7 @@ it before pulling:
 ```bash
 docker exec tern-prod-db-1 pg_dump -U tern -Fc tern > tern-before-migration.dump
 docker compose -f docker-compose.prod.yml down
-git pull && ./scripts/setup.sh          # starts on a fresh, correctly-mounted volume
+sh setup.sh                             # starts on a fresh, correctly-mounted volume
 # then restore the dump, per the section above
 ```
 
@@ -377,7 +465,7 @@ TERN_AGENT_NETWORK_MODE=host
 TERN_LOCAL_AGENT_SERVER=http://127.0.0.1:$TERN_HTTP_PORT
 ```
 
-then `docker compose -f docker-compose.prod.yml up -d`. `scripts/setup.sh` asks
+then `docker compose -f docker-compose.prod.yml up -d`. The installer asks
 the question at install time and writes both lines for you.
 
 Both lines, always. In the machine's namespace the API is no longer at
@@ -388,7 +476,7 @@ network interface. Changing the setting later is safe, since the API rewrites
 `agent.toml` when the address moves and keeps the key already in it.
 
 **Linux only.** Docker Desktop on macOS and Windows does not give host
-networking the meaning expected here; `setup.sh` says so rather than writing a
+networking the meaning expected here; the installer says so rather than writing a
 setting that would quietly do nothing useful.
 
 The in-process `local-probes` job has the _same_ blind spots — it runs in the
