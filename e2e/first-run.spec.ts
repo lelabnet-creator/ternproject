@@ -97,6 +97,18 @@ test('a fresh instance hands the admin to the first visitor, then to nobody', as
   // The rail, which is the proof that every wizard is behind us.
   await expect(rail).toBeVisible()
 
+  // And the guided tour, which opens on a tenant that has nothing in it yet.
+  //
+  // It is a spotlight over the whole admin: every later spec found its target
+  // present in the accessibility tree and un-clickable underneath. Dismissed
+  // here, once, for the same reason as the setup wizard — it belongs to
+  // arriving in the admin, not to what the admin can do.
+  const skipTour = page.getByRole('button', { name: /skip the tour/i })
+  if (await skipTour.isVisible().catch(() => false)) {
+    await skipTour.click()
+    await expect(skipTour).toHaveCount(0)
+  }
+
   // Handed to every later spec. Written only once the admin has actually
   // rendered, so a session captured mid-redirect cannot be saved.
   await context.storageState({ path: 'e2e/.auth/admin.json' })

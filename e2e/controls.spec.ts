@@ -18,12 +18,15 @@ test('a control created in the admin exists', async ({ page }) => {
 
   await page.getByLabel(/^Key/).fill(CONTROL.key)
   await page.getByLabel(/^Name/).fill(CONTROL.name)
+
+  // The kind first, and it is not incidental: a control is `push` by default,
+  // and a `push` control has no URL to give — the field only exists once the
+  // editor is told something else does the checking. Filling a URL before
+  // choosing HTTP waits on a field that will never appear.
+  await page.getByLabel(/^What to check/).selectOption('http')
   await page.getByLabel(/^URL/).fill(CONTROL.url)
 
-  await page
-    .getByRole('button', { name: /^(Save|Continue|Next)/ })
-    .first()
-    .click()
+  await page.getByRole('button', { name: /^Create and continue/ }).click()
 
   // Back on the list, with it on it.
   await page.goto(`/app/${TENANT.slug}`)
@@ -36,6 +39,7 @@ test('an address that means this machine is called out before it is saved', asyn
 
   await page.getByLabel(/^Key/).fill('loopback-check')
   await page.getByLabel(/^Name/).fill('Loopback check')
+  await page.getByLabel(/^What to check/).selectOption('http')
 
   // The natural thing to type when monitoring your own machine — and, with the
   // agent measuring from inside its container, the one address it cannot reach.
@@ -52,6 +56,7 @@ test('an address that means this machine is called out before it is saved', asyn
 test('a real address raises nothing', async ({ page }) => {
   await page.goto(`/app/${TENANT.slug}`)
   await page.getByRole('button', { name: 'New control' }).click()
+  await page.getByLabel(/^What to check/).selectOption('http')
 
   await page.getByLabel(/^URL/).fill('https://status.example.com/health')
   await expect(page.getByText(/will not mean this machine/i)).toHaveCount(0)

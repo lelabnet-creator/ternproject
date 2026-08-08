@@ -1,0 +1,25 @@
+{
+  "cookies": [
+    {
+      "name": "tern_session",
+      "value": "dMdAsJnrzbS78tAyZJTYSVGgiiudwuyYXpT3ecbJy8k",
+      "domain": "localhost",
+      "path": "/",
+      "expires": 1786816383.827898,
+      "httpOnly": true,
+      "secure": true,
+      "sameSite": "Lax"
+    }
+  ],
+  "origins": [
+    {
+      "origin": "http://localhost:28997",
+      "localStorage": [
+        {
+          "name": "tern.theme",
+          "value": "system"
+        }
+      ]
+    }
+  ]
+}

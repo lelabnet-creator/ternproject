@@ -14,6 +14,11 @@ import { TENANT } from './fixtures'
 
 test.beforeEach(async ({ page }) => {
   await page.goto(`/app/${TENANT.slug}/layout`)
+
+  // The frame lives under the Preview tab, and the screen opens on Order.
+  // Asserting on the iframe without this waits for an element that is not
+  // merely late — it is not rendered at all.
+  await page.getByRole('tab', { name: 'Preview' }).click()
 })
 
 test('every density reaches the preview frame', async ({ page }) => {

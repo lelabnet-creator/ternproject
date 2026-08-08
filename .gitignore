@@ -47,3 +47,8 @@ clients/agent/target/
 
 # Disques et images des VM de recette (voir deploy-tests/ pour la trace).
 .vm-lab/
+
+# Artefacts de construction de l'installateur hors du dépôt (CARGO_HOME local,
+# cible musl construite en conteneur pour les essais).
+clients/installer/.cargo-docker/
+clients/installer/target-musl/

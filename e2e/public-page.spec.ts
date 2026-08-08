@@ -31,7 +31,7 @@ test('it offers no way in', async ({ browser }) => {
   // No admin controls leak onto it. Not a styling question — these would be
   // real buttons pointed at real endpoints.
   await expect(page.getByRole('button', { name: 'New control' })).toHaveCount(0)
-  await expect(page.getByRole('link', { name: /^Report an issue/ })).toHaveCount(0)
+  await expect(page.getByRole('link', { name: /report a bug/i })).toHaveCount(0)
 
   await visitor.close()
 })

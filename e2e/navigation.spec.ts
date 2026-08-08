@@ -63,7 +63,9 @@ test('the public page opens in its own tab, at this tenant', async ({ page }) =>
 })
 
 test('reporting an issue carries the version', async ({ page }) => {
-  const link = page.getByRole('link', { name: /^Report an issue/ })
+  // Le nom accessible, pas le texte visible : `aria-label` l'emporte, et c'est
+  // lui que lit un lecteur d'écran comme Playwright.
+  const link = page.getByRole('link', { name: /report a bug/i })
   const href = await link.getAttribute('href')
 
   expect(href).toContain('github.com')
