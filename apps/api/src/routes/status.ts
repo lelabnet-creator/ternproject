@@ -122,6 +122,10 @@ const routes: FastifyPluginAsyncZod = async (app) => {
               /** Consent text for the subscribe form; null when unset. */
               subscriberDisclaimer: z.string().nullable(),
               layout: z.enum(['list', 'grid', 'compact', 'custom']),
+              /** Carries synthetic data, and the page says so rather than pretending. */
+              isDemo: z.boolean(),
+              /** Refuses every write. Travels with `isDemo`; not only with it. */
+              readOnly: z.boolean(),
               /**
                * The document a `custom` layout renders, and null for every
                * other layout — there is no reason to put a hundred kilobytes of
@@ -366,6 +370,8 @@ const routes: FastifyPluginAsyncZod = async (app) => {
           defaultTimezone: tenantRow.defaultTimezone,
           subscriberDisclaimer: tenantRow.subscriberDisclaimer,
           layout: tenantRow.layout,
+          isDemo: tenantRow.isDemo,
+          readOnly: tenantRow.readOnly,
           custom:
             tenantRow.layout === 'custom'
               ? {

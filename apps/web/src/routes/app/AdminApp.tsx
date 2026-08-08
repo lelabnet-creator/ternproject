@@ -9,6 +9,7 @@ import { SiteFooter } from '../../components/SiteFooter'
 import { SetupWizard } from '../../features/onboarding/SetupWizard'
 import { FirstRunSetup } from '../../features/onboarding/FirstRunSetup'
 import { GuidedTour } from '../../features/onboarding/GuidedTour'
+import { DemoBanner } from '../../components/DemoBanner'
 import { accentById, applyAccent } from '../../lib/accents'
 import { PasskeyCancelled, passkeysSupported, signInWithPasskey } from '../../lib/passkeys'
 import { ScriptTabs } from '../../features/control-editor/ScriptTabs'
@@ -57,6 +58,24 @@ export function AdminApp({ slug }: { slug: string }) {
   const signedIn = !me.isError && !me.isPending
 
   /*
+   * A stranger, on a demo page.
+   *
+   * The whole point of a demo is that the product can be looked at rather than
+   * described, so this shows the admin without a session. It is only safe
+   * beside `readOnly`, which the API enforces for everyone at the single point
+   * every route passes through — the screens below simply have nothing to
+   * offer, because every write would be refused anyway.
+   */
+  /*
+   * The demo shell would otherwise swallow the sign-in form entirely, leaving
+   * the page's actual administrator with no way in. `?signin=1` is the door,
+   * linked from the rail — a query parameter rather than a route because the
+   * demo shell and the form are the same address wearing two faces.
+   */
+  const wantsSignIn = new URLSearchParams(window.location.search).get('signin') === '1'
+  const demo = me.isError && !wantsSignIn && summary.data?.tenant.isDemo === true
+
+  /*
    * Asked only when there is no session, and only then because the answer
    * decides which of two screens a stranger sees: a sign-in form, or the
    * first-run setup. On an instance that has been running for a year this
@@ -75,7 +94,7 @@ export function AdminApp({ slug }: { slug: string }) {
   const controls = useQuery({
     queryKey: ['controls', slug],
     queryFn: () => adminApi.controls(slug),
-    enabled: signedIn,
+    enabled: signedIn || demo,
     retry: false,
   })
   const branding = signedIn
@@ -89,7 +108,15 @@ export function AdminApp({ slug }: { slug: string }) {
 
   if (me.isPending) return <Centered>Loading…</Centered>
 
-  if (me.isError) {
+  if (me.isError && !demo) {
+    /*
+     * The summary decides whether this is a demo, so a sign-in form drawn
+     * before it lands would be replaced a moment later — and on a demo page it
+     * is the wrong screen entirely. Same reasoning as the setup check below,
+     * and the same fix: wait for the answer instead of guessing at it.
+     */
+    if (summary.isPending) return <Centered>Loading…</Centered>
+
     // Waiting on the answer rather than guessing: drawing the sign-in form and
     // swapping it for the setup screen a moment later shows a password field to
     // someone who has no password, which is the confusion this replaces.
@@ -122,7 +149,21 @@ export function AdminApp({ slug }: { slug: string }) {
     return <LoginScreen onSignedIn={() => void me.refetch()} />
   }
 
-  const membership = me.data.memberships.find((m) => m.slug === slug)
+  /*
+   * A demo visitor has no membership, because they have no account. They are
+   * given the shape of one so the shell has a name and a role to draw, and the
+   * role it draws is the truth: they can read.
+   */
+  const membership = demo
+    ? {
+        tenantId: '',
+        slug,
+        name: summary.data?.tenant.name ?? slug,
+        role: 'viewer',
+        isSystem: false,
+      }
+    : me.data?.memberships.find((m) => m.slug === slug)
+
   if (!membership) {
     return (
       <Centered>
@@ -131,7 +172,10 @@ export function AdminApp({ slug }: { slug: string }) {
     )
   }
 
-  const canWrite = membership.role === 'admin'
+  // Never for a demo visitor, and never on a read-only page — the API refuses
+  // either way, and offering a button that answers 403 is worse than not
+  // offering it.
+  const canWrite = membership.role === 'admin' && !demo && summary.data?.tenant.readOnly !== true
 
   /*
    * A tenant nobody has configured gets the wizard instead of the shell.
@@ -232,7 +276,7 @@ export function AdminApp({ slug }: { slug: string }) {
         that interrupts first-run setup is a second thing to dismiss before the
         first can be finished.
       */}
-      {me.data.user.tourSeenAt === null && (
+      {!demo && me.data?.user.tourSeenAt === null && (
         <GuidedTour
           steps={tourSteps(membership.isSystem === true)}
           onFinish={() => {
@@ -245,6 +289,9 @@ export function AdminApp({ slug }: { slug: string }) {
       )}
 
       <main className="admin-main">
+        {/* Said on every screen, not only the first: someone who arrives deep
+            in the admin from a link has had no chance to be told. */}
+        {demo && <DemoBanner variant="admin" />}
         {section === 'incidents' ? (
           <IncidentsScreen slug={slug} canWrite={canWrite} />
         ) : section === 'maintenance' ? (

@@ -13,6 +13,7 @@ import { rememberPage } from '../../lib/recentPages'
 import { SponsorButton } from '../../components/SponsorButton'
 import { SiteFooter } from '../../components/SiteFooter'
 import { CustomDashboard } from './CustomDashboard'
+import { DemoBanner } from '../../components/DemoBanner'
 
 /**
  * The public status page.
@@ -88,6 +89,10 @@ export function StatusPage({ slug }: { slug: string }) {
     >
       <div className="page-card">
         <Header name={data.tenant.name} slug={slug} />
+
+        {/* Before anything it reports, not under it: someone who reads a figure
+            and only then learns it was invented has already been misled. */}
+        {data.tenant.isDemo && <DemoBanner />}
 
         <Subscribe slug={slug} disclaimer={data.tenant.subscriberDisclaimer ?? null} />
 

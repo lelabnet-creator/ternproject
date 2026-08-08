@@ -43,6 +43,9 @@ export interface StatusSummary {
     defaultTimezone: string
     subscriberDisclaimer: string | null
     layout: 'list' | 'grid' | 'compact' | 'custom'
+    /** Synthetic data, said out loud rather than left to be discovered. */
+    isDemo: boolean
+    readOnly: boolean
     /** The document a `custom` layout renders; null for every other layout. */
     custom: { html: string; css: string; js: string } | null
     branding: Record<string, unknown>
