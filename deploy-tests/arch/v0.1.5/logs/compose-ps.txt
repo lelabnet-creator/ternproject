@@ -1,0 +1,1 @@
+open /home/tern/docker-compose.prod.yml: no such file or directory

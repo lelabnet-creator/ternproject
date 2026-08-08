@@ -1,0 +1,20 @@
+Aug 08 20:39:46 rocky dockerd[880]: time="2026-08-08T20:39:46.951579784Z" level=info msg="CDI directory does not exist, skipping" dir=/etc/cdi
+Aug 08 20:39:46 rocky dockerd[880]: time="2026-08-08T20:39:46.951587642Z" level=info msg="CDI directory does not exist, skipping" dir=/var/run/cdi
+Aug 08 20:39:46 rocky dockerd[880]: time="2026-08-08T20:39:46.969163001Z" level=info msg="Creating a containerd client" address=/run/containerd/containerd.sock timeout=1m0s
+Aug 08 20:39:46 rocky dockerd[880]: time="2026-08-08T20:39:46.970935831Z" level=warning msg="failed check for fsverity support" error="enable fsverity failed: inappropriate ioctl for device" path=/var/lib/docker/plugins/storage
+Aug 08 20:39:46 rocky dockerd[880]: time="2026-08-08T20:39:46.993423674Z" level=info msg="Loading containers: start."
+Aug 08 20:39:46 rocky dockerd[880]: time="2026-08-08T20:39:46.994571928Z" level=info msg="NRI is disabled"
+Aug 08 20:39:46 rocky dockerd[880]: time="2026-08-08T20:39:46.994588091Z" level=info msg="Starting daemon with containerd snapshotter integration enabled"
+Aug 08 20:39:47 rocky dockerd[880]: time="2026-08-08T20:39:47.006528770Z" level=info msg="Restoring containers: start."
+Aug 08 20:39:47 rocky dockerd[880]: time="2026-08-08T20:39:47.134143473Z" level=info msg="Deleting nftables IPv4 rules" error="running nft: /dev/stdin:1:17-30: Error: Could not process rule: No such file or directory\ndelete table ip docker-bridges\n                ^^^^^^^^^^^^^^\n exit status 1"
+Aug 08 20:39:47 rocky dockerd[880]: time="2026-08-08T20:39:47.139999237Z" level=info msg="Deleting nftables IPv6 rules" error="running nft: /dev/stdin:1:18-31: Error: Could not process rule: No such file or directory\ndelete table ip6 docker-bridges\n                 ^^^^^^^^^^^^^^\n exit status 1"
+Aug 08 20:39:47 rocky dockerd[880]: time="2026-08-08T20:39:47.720804888Z" level=info msg="sbJoin: gwep4 ''->'bf7c5ff93dad', gwep6 ''->''" eid=bf7c5ff93dad ep=tern-prod-db-1 net=tern-prod_default nid=3fbf862f9b5d
+Aug 08 20:39:47 rocky dockerd[880]: time="2026-08-08T20:39:47.736435293Z" level=info msg="sbJoin: gwep4 ''->'e12c1f7f1e63', gwep6 ''->''" eid=e12c1f7f1e63 ep=tern-prod-app-1 net=tern-prod_default nid=3fbf862f9b5d
+Aug 08 20:39:47 rocky dockerd[880]: time="2026-08-08T20:39:47.971840167Z" level=info msg="Loading containers: done."
+Aug 08 20:39:47 rocky dockerd[880]: time="2026-08-08T20:39:47.980427013Z" level=info msg="Docker daemon" commit=6a43e3d containerd-snapshotter=true storage-driver=overlayfs version=29.7.2
+Aug 08 20:39:47 rocky dockerd[880]: time="2026-08-08T20:39:47.980482237Z" level=info msg="Initializing buildkit"
+Aug 08 20:39:48 rocky dockerd[880]: time="2026-08-08T20:39:48.035572217Z" level=warning msg="git source cannot be enabled: failed to find git binary: exec: \"git\": executable file not found in $PATH"
+Aug 08 20:39:48 rocky dockerd[880]: time="2026-08-08T20:39:48.036676081Z" level=info msg="Completed buildkit initialization"
+Aug 08 20:39:48 rocky dockerd[880]: time="2026-08-08T20:39:48.045925983Z" level=info msg="Daemon has completed initialization"
+Aug 08 20:39:48 rocky dockerd[880]: time="2026-08-08T20:39:48.045955089Z" level=info msg="API listen on /run/docker.sock"
+Aug 08 20:39:48 rocky systemd[1]: Started Docker Application Container Engine.
