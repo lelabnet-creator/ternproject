@@ -52,3 +52,8 @@ clients/agent/target/
 # cible musl construite en conteneur pour les essais).
 clients/installer/.cargo-docker/
 clients/installer/target-musl/
+
+# L'état de session que la suite E2E sauvegarde pour ses tests. Il porte un
+# cookie d'authentification — jetable, mais un secret n'entre pas dans
+# l'historique, et il est réécrit à chaque exécution de toute façon.
+e2e/.auth/

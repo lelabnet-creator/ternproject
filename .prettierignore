@@ -28,3 +28,6 @@ docs/*.html
 apps/web/public/docs/
 
 *.svg
+
+# Écrit par Playwright, jamais relu par un humain.
+e2e/.auth/

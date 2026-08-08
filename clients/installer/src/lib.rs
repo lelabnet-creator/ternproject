@@ -18,6 +18,24 @@
 //! `/run/systemd/system` and at file modes; there is nothing here that would
 //! mean anything on Windows.
 
+// Unix only, and deliberately so rather than by accident.
+//
+// This installer puts Docker down with `apt-get`, `dnf`, `yum` or `pacman`,
+// enables a systemd service, adds an account to the `docker` group and re-execs
+// itself under `sg`. None of that exists on Windows, and `scripts/setup.sh` —
+// which picks the binary — offers no Windows target either, a `.sh` being no
+// more runnable there.
+//
+// Said here rather than left to the first platform-specific call to fail: the
+// error was `cannot find function is_executable in this scope`, which sends a
+// reader looking for a missing import instead of telling them the truth.
+#[cfg(not(unix))]
+compile_error!(
+    "tern-setup targets Unix. It installs Docker through a distribution's \
+     package manager and supervises it with systemd; Windows and the rest have \
+     no path through this program."
+);
+
 pub mod checklist;
 pub mod envfile;
 pub mod i18n;
