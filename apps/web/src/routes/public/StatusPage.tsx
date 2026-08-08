@@ -115,6 +115,20 @@ export function StatusPage({ slug }: { slug: string }) {
           </p>
         </section>
 
+        {/*
+          Above the components, because an incident is why most people opened
+          the page. The coloured tiles below say *which* things are wrong; this
+          says what is happening and what is being done, which is the part a
+          reader would otherwise go looking for on social media.
+        */}
+        <Communications
+          incidents={data.incidents}
+          maintenances={data.maintenances}
+          components={data.components}
+          locale={locale}
+          timeZone={timeZone}
+        />
+
         {groupTree(data, preview.order).map(({ group, components }) => (
           <section key={group?.id ?? 'ungrouped'} className="page-group">
             {group && (
@@ -616,6 +630,105 @@ function ThemeToggle() {
   // The same control as the admin's, so a reader's choice is one choice and it
   // survives a reload — the previous toggle forgot it on every visit.
   return <ThemePicker compact />
+}
+
+/**
+ * What is happening, in words.
+ *
+ * The API has served open incidents and maintenance windows in `summary.json`
+ * since the beginning and nothing rendered them: a visitor saw a component turn
+ * red and was told neither why nor whether anyone had noticed. The title, the
+ * severity and the running commentary reached subscribers only — which is to
+ * say, the people who had already decided to trust the page.
+ *
+ * Nothing is drawn when there is nothing to say. A permanent "no incidents"
+ * panel is a line of furniture that trains people to skip the place where the
+ * news appears.
+ */
+function Communications({
+  incidents,
+  maintenances,
+  components,
+  locale,
+  timeZone,
+}: {
+  incidents: StatusSummary['incidents']
+  maintenances: StatusSummary['maintenances']
+  components: StatusSummary['components']
+  locale: string
+  timeZone: string
+}) {
+  const { t } = useTranslation()
+  if (incidents.length === 0 && maintenances.length === 0) return null
+
+  const nameOf = (ids: string[]) =>
+    ids
+      .map((id) => components.find((c) => c.id === id)?.name)
+      .filter((name): name is string => Boolean(name))
+      .join(', ')
+
+  return (
+    <section className="page-group" style={{ display: 'grid', gap: 'var(--space-3)' }}>
+      {incidents.length > 0 && <SectionTitle>{t('incident.active')}</SectionTitle>}
+
+      {incidents.map((incident) => {
+        const affected = nameOf(incident.impacts.map((i) => i.controlId))
+        return (
+          <article key={incident.id} className="page-note" data-tone={incident.severity}>
+            <h3 style={{ margin: 0, fontSize: 'var(--text-base)' }}>{incident.title}</h3>
+            <p className="page-note-meta tabular">
+              {t('incident.started', { when: formatTime(incident.startedAt, locale, timeZone) })}
+              {' · '}
+              {incident.status}
+              {affected && <> · {t('incident.affecting', { components: affected })}</>}
+            </p>
+            {/* The newest update, not the whole timeline. Someone checking
+                whether it is over needs one paragraph, not a history. */}
+            {incident.latestUpdate && (
+              <p style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{incident.latestUpdate.body}</p>
+            )}
+          </article>
+        )
+      })}
+
+      {maintenances.length > 0 && <SectionTitle>{t('maintenance.upcoming')}</SectionTitle>}
+
+      {maintenances.map((window) => {
+        const affected = nameOf(window.controlIds)
+        return (
+          <article key={window.id} className="page-note" data-tone="maintenance">
+            <h3 style={{ margin: 0, fontSize: 'var(--text-base)' }}>{window.title}</h3>
+            <p className="page-note-meta tabular">
+              {window.status === 'in_progress' && <>{t('maintenance.running')} · </>}
+              {t('maintenance.window', {
+                start: formatTime(window.scheduledStart, locale, timeZone),
+                end: formatTime(window.scheduledEnd, locale, timeZone),
+              })}
+              {affected && <> · {t('incident.affecting', { components: affected })}</>}
+            </p>
+            {window.body && <p style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{window.body}</p>}
+          </article>
+        )
+      })}
+    </section>
+  )
+}
+
+function SectionTitle({ children }: { children: React.ReactNode }) {
+  return (
+    <h2
+      style={{
+        fontSize: 'var(--text-sm)',
+        fontWeight: 600,
+        textTransform: 'uppercase',
+        letterSpacing: '0.06em',
+        color: 'var(--color-fg-subtle)',
+        margin: 'var(--space-2) 0 0',
+      }}
+    >
+      {children}
+    </h2>
+  )
 }
 
 function Banner({ tone, children }: { tone: 'unknown'; children: React.ReactNode }) {

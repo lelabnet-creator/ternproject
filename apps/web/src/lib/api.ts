@@ -55,11 +55,14 @@ export interface StatusSummary {
     status: string
     startedAt: string
     resolvedAt: string | null
+    /** The newest thing said about it, which is what a reader wants first. */
+    latestUpdate: { status: string; body: string; createdAt: string } | null
     impacts: { controlId: string; impact: string }[]
   }[]
   maintenances: {
     id: string
     title: string
+    body: string | null
     status: string
     scheduledStart: string
     scheduledEnd: string

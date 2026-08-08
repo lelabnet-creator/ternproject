@@ -54,11 +54,14 @@
     "postmortem": "Analyse post-incident",
     "started": "Début {{when}}",
     "resolved": "Résolu {{when}}",
-    "none": "Aucun incident signalé sur cette période."
+    "none": "Aucun incident signalé sur cette période.",
+    "affecting": "Concerne {{components}}"
   },
   "maintenance": {
     "upcoming": "Maintenance planifiée",
-    "window": "{{start}} → {{end}}"
+    "window": "{{start}} → {{end}}",
+    "running": "Maintenance en cours",
+    "none": "Rien de planifié."
   },
   "period": {
     "24h": "24 heures",

@@ -146,6 +146,9 @@ const routes: FastifyPluginAsyncZod = async (app) => {
                 status: z.string(),
                 startedAt: z.string(),
                 resolvedAt: z.string().nullable(),
+                latestUpdate: z
+                  .object({ status: z.string(), body: z.string(), createdAt: z.string() })
+                  .nullable(),
                 impacts: z.array(z.object({ controlId: z.string(), impact: z.string() })),
               }),
             ),
@@ -153,6 +156,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
               z.object({
                 id: z.string(),
                 title: z.string(),
+                body: z.string().nullable(),
                 status: z.string(),
                 scheduledStart: z.string(),
                 scheduledEnd: z.string(),
@@ -218,32 +222,64 @@ const routes: FastifyPluginAsyncZod = async (app) => {
             )
         : []
 
-      const activeMaintenances = await app.db
+      const updates = activeIncidents.length
+        ? await app.db
+            .select()
+            .from(schema.incidentUpdates)
+            .where(
+              inArray(
+                schema.incidentUpdates.incidentId,
+                activeIncidents.map((i) => i.id),
+              ),
+            )
+            .orderBy(schema.incidentUpdates.createdAt)
+        : []
+
+      /*
+       * Running *and* upcoming.
+       *
+       * Only `in_progress` used to be loaded, which meant planned work first
+       * appeared on the page at the moment it began — announcing it in advance
+       * being the entire reason a maintenance window exists. Subscribers got
+       * their reminder and readers of the page got nothing.
+       */
+      const shownMaintenances = await app.db
         .select()
         .from(schema.maintenances)
         .where(
           and(
             eq(schema.maintenances.tenantId, tenant.id),
             eq(schema.maintenances.isPublic, true),
-            eq(schema.maintenances.status, 'in_progress'),
+            inArray(schema.maintenances.status, ['in_progress', 'scheduled']),
           ),
         )
+        .orderBy(schema.maintenances.scheduledStart)
 
-      const maintenanceControlIds = activeMaintenances.length
-        ? new Set(
-            (
-              await app.db
-                .select()
-                .from(schema.maintenanceControls)
-                .where(
-                  inArray(
-                    schema.maintenanceControls.maintenanceId,
-                    activeMaintenances.map((m) => m.id),
-                  ),
-                )
-            ).map((row) => row.controlId),
+      const maintenanceLinks = shownMaintenances.length
+        ? await app.db
+            .select()
+            .from(schema.maintenanceControls)
+            .where(
+              inArray(
+                schema.maintenanceControls.maintenanceId,
+                shownMaintenances.map((m) => m.id),
+              ),
+            )
+        : []
+
+      /*
+       * Only what is running suppresses a component's measured status. A window
+       * announced for next Tuesday must not paint anything blue today.
+       */
+      const maintenanceControlIds = new Set(
+        maintenanceLinks
+          .filter((link) =>
+            shownMaintenances.some(
+              (m) => m.id === link.maintenanceId && m.status === 'in_progress',
+            ),
           )
-        : new Set<string>()
+          .map((link) => link.controlId),
+      )
 
       // Declared incident impact overrides the measured status. A team that has
       // said "this is a major outage" is making a judgement the raw samples
@@ -333,17 +369,26 @@ const routes: FastifyPluginAsyncZod = async (app) => {
           status: incident.status,
           startedAt: incident.startedAt.toISOString(),
           resolvedAt: incident.resolvedAt?.toISOString() ?? null,
+          // The most recent thing said about it. A page that names an incident
+          // without saying what is happening sends the reader to look elsewhere,
+          // which is the moment a status page has failed at its one job.
+          latestUpdate: latestUpdateFor(incident.id, updates),
           impacts: impacts
             .filter((i) => i.incidentId === incident.id)
             .map((i) => ({ controlId: i.controlId, impact: i.impact })),
         })),
-        maintenances: activeMaintenances.map((m) => ({
+        maintenances: shownMaintenances.map((m) => ({
           id: m.id,
           title: m.title,
+          body: m.body,
           status: m.status,
           scheduledStart: m.scheduledStart.toISOString(),
           scheduledEnd: m.scheduledEnd.toISOString(),
-          controlIds: [...maintenanceControlIds],
+          // Its own components. This used to hand every window the union of all
+          // of them, so two windows on one page each claimed the other's.
+          controlIds: maintenanceLinks
+            .filter((link) => link.maintenanceId === m.id)
+            .map((link) => link.controlId),
         })),
         generatedAt: now.toISOString(),
       }
@@ -497,6 +542,18 @@ async function latestChecks(app: Parameters<FastifyPluginAsyncZod>[0], controlId
       },
     ]),
   )
+}
+
+/** The newest update on an incident, which is the line a reader wants first. */
+function latestUpdateFor(
+  incidentId: string,
+  updates: { incidentId: string; status: string; body: string; createdAt: Date }[],
+): { status: string; body: string; createdAt: string } | null {
+  const mine = updates.filter((u) => u.incidentId === incidentId)
+  const newest = mine[mine.length - 1]
+  return newest
+    ? { status: newest.status, body: newest.body, createdAt: newest.createdAt.toISOString() }
+    : null
 }
 
 export default routes

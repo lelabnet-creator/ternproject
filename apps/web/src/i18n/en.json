@@ -54,11 +54,14 @@
     "postmortem": "Postmortem",
     "started": "Started {{when}}",
     "resolved": "Resolved {{when}}",
-    "none": "No incidents reported in this period."
+    "none": "No incidents reported in this period.",
+    "affecting": "Affecting {{components}}"
   },
   "maintenance": {
     "upcoming": "Scheduled maintenance",
-    "window": "{{start}} → {{end}}"
+    "window": "{{start}} → {{end}}",
+    "running": "Maintenance under way",
+    "none": "Nothing planned."
   },
   "period": {
     "24h": "24 hours",
