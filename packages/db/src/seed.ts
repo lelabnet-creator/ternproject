@@ -308,18 +308,22 @@ async function main() {
           'We use your address only to send status notifications. Unsubscribe at any time.',
 
         /*
-         * Everything here is generated, so the page says so and opens its admin
-         * to anyone. `isDemo` alone is safe: the role it grants an anonymous
-         * visitor can read and nothing else.
+         * Neither is on by default, and both were, one after the other.
          *
-         * `readOnly` is **not** on by default, because this seed is also the
-         * development database. Turning it on shipped a dev instance where the
-         * Incidents and Maintenance screens rendered with every button hidden —
-         * the feature looked missing rather than refused. A public demo, where
-         * a stranger really must not write, sets `TERN_DEMO_READONLY=1`.
+         * This seed is the development database as well as the public demo.
+         * `readOnly` turned every screen into buttons that could not be pressed;
+         * `isDemo` was worse, because it walks an unauthenticated visitor
+         * straight into the admin — so the operator of a dev instance was
+         * silently *not signed in*, saw a full admin, and found every control
+         * dead with no idea why. A developer wants a sign-in form and a page
+         * they can change.
+         *
+         * `TERN_DEMO=1` turns both on, for the deployment that really is a
+         * demonstration. They belong together: `isDemo` lets a stranger in and
+         * `readOnly` is what makes that safe.
          */
-        isDemo: true,
-        readOnly: process.env.TERN_DEMO_READONLY === '1',
+        isDemo: process.env.TERN_DEMO === '1',
+        readOnly: process.env.TERN_DEMO === '1',
 
         layout: 'custom',
         customHtml: DASHBOARD.html,

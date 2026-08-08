@@ -32,7 +32,7 @@ export function DemoBanner({ variant = 'page' }: { variant?: 'page' | 'admin' })
       <div>
         <strong>This is a demonstration.</strong>{' '}
         {variant === 'admin'
-          ? 'Everything here is synthetic, and nothing can be changed — every write is refused, whoever is asking.'
+          ? 'You are looking at it without signing in, which is why every control is disabled. Everything here is synthetic and every write is refused.'
           : 'Every component, incident and measurement on this page was generated. None of it reports a real service.'}
       </div>
 
