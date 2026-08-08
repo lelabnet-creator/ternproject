@@ -404,6 +404,32 @@ fn install_docker(ctx: &Ctx) -> Result<(), Stop> {
 
     run::prime_sudo(&ctx.journal, ctx.uid);
 
+    // The engine, then the Compose plugin, under each distribution's names.
+    // `docker-ce` only shows up when Docker's own repository has already been
+    // added on this machine — in which case we may as well use it, being newer
+    // than the distribution's.
+    let (engine_names, compose_names, compose_hint) = match manager {
+        PackageManager::Apt => (
+            vec!["docker-ce", "docker.io"],
+            vec!["docker-compose-plugin", "docker-compose-v2"],
+            c.hint_compose_apt,
+        ),
+        PackageManager::Dnf | PackageManager::Yum => (
+            vec!["docker-ce", "moby-engine"],
+            vec!["docker-compose-plugin", "docker-compose"],
+            c.hint_compose_dnf,
+        ),
+        PackageManager::Pacman => (
+            vec!["docker"],
+            vec!["docker-compose"],
+            c.hint_compose_pacman,
+        ),
+    };
+
+    // Before anything is drawn, because this one has a question in it and a
+    // question cannot be asked through a checklist that is redrawing itself.
+    offer_docker_repo(ctx, manager, &engine_names)?;
+
     // The list, settled before the first line of it runs. Refreshing the
     // package lists is an apt-only step: the others query their metadata live.
     let refresh = manager == PackageManager::Apt;
@@ -439,34 +465,9 @@ fn install_docker(ctx: &Ctx) -> Result<(), Stop> {
         .map_err(|failure| stop_from(failure, ctx))?;
     }
 
-    // The engine, then the Compose plugin, under each distribution's names.
-    // `docker-ce` only shows up when Docker's own repository has already been
-    // added on this machine — in which case we may as well use it, being newer
-    // than the distribution's.
-    let (engine_names, compose_names, compose_hint) = match manager {
-        PackageManager::Apt => (
-            vec!["docker-ce", "docker.io"],
-            vec!["docker-compose-plugin", "docker-compose-v2"],
-            c.hint_compose_apt,
-        ),
-        PackageManager::Dnf | PackageManager::Yum => (
-            vec!["docker-ce", "moby-engine"],
-            vec!["docker-compose-plugin", "docker-compose"],
-            c.hint_compose_dnf,
-        ),
-        PackageManager::Pacman => (
-            vec!["docker"],
-            vec!["docker-compose"],
-            c.hint_compose_pacman,
-        ),
-    };
-
     let engine = probe::first_available(&ctx.journal, manager, &engine_names);
     let compose = probe::first_available(&ctx.journal, manager, &compose_names);
 
-    // The typical case is RHEL, Rocky or Alma: their base repositories do not
-    // publish Docker at all. Adding Docker's own in their place would be
-    // exactly the kind of decision ruled out above.
     let Some(engine) = engine else {
         list.finish();
         return Err(Stop::new(c.docker_no_pkg)
@@ -522,6 +523,87 @@ fn install_docker(ctx: &Ctx) -> Result<(), Stop> {
     }
 
     cliclack::log::success(c.docker_ready)?;
+    Ok(())
+}
+
+/// Docker's own repository, on the one family of distributions that has no
+/// Docker of its own.
+///
+/// Rocky, Alma and RHEL publish no Docker package at all — their answer to
+/// containers is Podman — so an installer that will not add a repository is an
+/// installer that cannot install there. Measured on a stock Rocky 9: the run
+/// stopped at "No Docker package in the repositories configured on this
+/// machine", which was true, correct, and a dead end with a link at the bottom.
+///
+/// Asked, never assumed, and the question says the part that matters: a
+/// repository outlives this installation. From here on the machine takes
+/// packages from Docker, which is a decision for whoever owns it and not one an
+/// installer makes in passing. Declining leaves the old refusal exactly as it
+/// was, so nothing is lost by saying no.
+///
+/// `curl` writes the file rather than `dnf config-manager`: the plugin is not
+/// always installed, dnf5 renamed the subcommand, and the file this would fetch
+/// is the same file either way. One command, no shell, no plugin — and `curl`
+/// is already known to be here, since the bootstrap that fetched this program
+/// required it.
+///
+/// Nothing here is fatal. Every failure path leaves `engine` unresolved, and
+/// the caller's refusal — the one this is trying to avoid — says the right
+/// thing on its own.
+fn offer_docker_repo(
+    ctx: &Ctx,
+    manager: PackageManager,
+    engine_names: &[&str],
+) -> Result<(), Stop> {
+    let c = ctx.c;
+
+    // Only where the distribution has nothing to offer. Debian ships
+    // `docker.io` and Arch ships `docker`; swapping a supported package for a
+    // third-party one there would be a downgrade dressed as a fix.
+    if !matches!(manager, PackageManager::Dnf | PackageManager::Yum) {
+        return Ok(());
+    }
+    if probe::first_available(&ctx.journal, manager, engine_names).is_some() {
+        return Ok(());
+    }
+    let Some(url) = probe::docker_repo() else {
+        return Ok(());
+    };
+
+    ctx.journal.section("adding docker's repository");
+    cliclack::log::warning(c.repo_absent)?;
+    cliclack::log::info(fill(c.repo_why, &[url]))?;
+
+    if !cliclack::confirm(c.repo_add_q)
+        .initial_value(true)
+        .interact()?
+    {
+        ctx.journal.line("declined: docker repository not added");
+        return Ok(());
+    }
+
+    let outcome = run::run(
+        &ctx.journal,
+        run::as_root(
+            ctx.uid,
+            "curl",
+            &["-fsSL", "-o", "/etc/yum.repos.d/docker-ce.repo", url],
+        ),
+    );
+    if !outcome.ok {
+        cliclack::log::warning(c.repo_failed)?;
+        return Ok(());
+    }
+
+    // Said only once it is true, and checked rather than assumed: a repo file
+    // can land and still resolve to nothing, on an architecture Docker does not
+    // build for or a `$releasever` that expands to a directory that is not
+    // published. Announcing success on the strength of a written file would put
+    // the confusing message two steps further from its cause.
+    match probe::first_available(&ctx.journal, manager, engine_names) {
+        Some(found) => cliclack::log::success(fill(c.repo_added, &[&found]))?,
+        None => cliclack::log::warning(c.repo_empty)?,
+    }
     Ok(())
 }
 

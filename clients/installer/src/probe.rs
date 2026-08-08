@@ -74,11 +74,61 @@ pub fn detect_package_manager(present: impl Fn(&str) -> bool) -> Option<PackageM
     }
 }
 
+/// Which of Docker's own repository files fits this machine, if any.
+///
+/// Only the RPM family, and only because there is nothing else to fall back on
+/// there: Rocky, Alma and RHEL publish no Docker package at all, so an
+/// installer that will not add a repository is an installer that cannot install
+/// on them. Debian and Ubuntu ship `docker.io`, Arch ships `docker` — asking to
+/// add a third-party repository where the distribution already has the software
+/// would be trading a supported package for an unsupported one, and nobody
+/// gains by that.
+///
+/// `ID` first and `ID_LIKE` after it, which is the order these two fields are
+/// meant to be read in: a derivative that names itself gets its own answer, and
+/// one that only declares its base falls back to the base. Anything that
+/// declares neither gets `None` rather than a guess — a repository file aimed
+/// at the wrong distribution installs packages built against another libc, and
+/// that failure surfaces days later.
+///
+/// The reader is a parameter for the same reason it is one elsewhere in this
+/// module: `/etc/os-release` is a fact about the machine running the tests, not
+/// about the machine under test.
+pub fn docker_repo_from(read_os_release: impl Fn() -> Option<String>) -> Option<&'static str> {
+    let text = read_os_release()?;
+    let field = |key: &str| -> Option<String> {
+        text.lines()
+            .find_map(|line| line.strip_prefix(key)?.strip_prefix('='))
+            .map(|value| value.trim_matches('"').to_ascii_lowercase())
+    };
+
+    let id = field("ID").unwrap_or_default();
+    let like = field("ID_LIKE").unwrap_or_default();
+    let names = std::iter::once(id.as_str()).chain(like.split_whitespace());
+
+    for name in names {
+        match name {
+            "fedora" => return Some("https://download.docker.com/linux/fedora/docker-ce.repo"),
+            "rhel" | "centos" | "rocky" | "almalinux" | "ol" => {
+                return Some("https://download.docker.com/linux/centos/docker-ce.repo")
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// The rule above, against this machine.
+pub fn docker_repo() -> Option<&'static str> {
+    docker_repo_from(|| std::fs::read_to_string("/etc/os-release").ok())
+}
+
 /// Is this package in the repositories *already* configured on this machine?
 ///
-/// We do not look anywhere else. Adding Docker's own repository would mean
-/// importing a key and writing a repo file, which would be no more auditable
-/// than the remote script this installer refuses to pipe into a shell.
+/// We do not look anywhere else on our own. Adding Docker's own repository
+/// means importing a key and writing a repo file, and that is a question put to
+/// whoever is at the keyboard rather than a step taken behind them — see
+/// `docker_repo_from` for the one family where the question is worth asking.
 pub fn package_available(journal: &Journal, manager: PackageManager, package: &str) -> bool {
     match manager {
         PackageManager::Apt => {
@@ -298,6 +348,68 @@ pub fn install_root(compose_file: &str) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Rocky is the machine this was written for: it names itself, and it names
+    /// the two bases it derives from.
+    #[test]
+    fn a_rhel_derivative_gets_the_centos_repository() {
+        let rocky = || {
+            Some(
+                "NAME=\"Rocky Linux\"\nID=\"rocky\"\nVERSION=\"9.8\"\n\
+                 ID_LIKE=\"rhel centos fedora\"\n"
+                    .to_string(),
+            )
+        };
+        assert_eq!(
+            docker_repo_from(rocky),
+            Some("https://download.docker.com/linux/centos/docker-ce.repo")
+        );
+    }
+
+    /// `ID` before `ID_LIKE`, which is what decides this one: Fedora has its own
+    /// repository, and reading the fields in the other order would hand Rocky
+    /// the Fedora one on the strength of its `ID_LIKE`.
+    #[test]
+    fn fedora_gets_its_own_repository_and_id_wins_over_id_like() {
+        let fedora = || Some("ID=fedora\nVERSION_ID=41\n".to_string());
+        assert_eq!(
+            docker_repo_from(fedora),
+            Some("https://download.docker.com/linux/fedora/docker-ce.repo")
+        );
+
+        // Declares itself Fedora-like but is a RHEL derivative: `ID` is the one
+        // that answers, and it answers centos.
+        let alma = || Some("ID=almalinux\nID_LIKE=\"rhel centos fedora\"\n".to_string());
+        assert_eq!(
+            docker_repo_from(alma),
+            Some("https://download.docker.com/linux/centos/docker-ce.repo")
+        );
+    }
+
+    /// No answer rather than a guess. A repository file aimed at the wrong
+    /// distribution installs packages built against another libc, and that
+    /// failure surfaces days later on somebody else's machine.
+    #[test]
+    fn a_distribution_docker_does_not_publish_for_gets_nothing() {
+        assert_eq!(docker_repo_from(|| Some("ID=arch\n".to_string())), None);
+        assert_eq!(
+            docker_repo_from(|| Some("ID=debian\nID_LIKE=\n".to_string())),
+            None
+        );
+        assert_eq!(docker_repo_from(|| None), None);
+        assert_eq!(docker_repo_from(|| Some(String::new())), None);
+    }
+
+    /// `VERSION_ID` starts with `ID`, and a prefix match on the key alone would
+    /// read the version as the distribution.
+    #[test]
+    fn a_field_is_matched_whole_and_not_by_its_prefix() {
+        let ordered = || Some("VERSION_ID=\"9.8\"\nID=rocky\n".to_string());
+        assert_eq!(
+            docker_repo_from(ordered),
+            Some("https://download.docker.com/linux/centos/docker-ce.repo")
+        );
+    }
 
     #[test]
     fn the_package_manager_is_the_one_that_is_installed() {

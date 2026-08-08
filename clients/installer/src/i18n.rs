@@ -136,6 +136,15 @@ pub struct Catalog {
     pub sock_just_added: &'static str,
     pub sock_relogin: &'static str,
 
+    /// The RPM family publishes no Docker at all, so the choice there is
+    /// between adding a repository and not installing.
+    pub repo_absent: &'static str,
+    pub repo_why: &'static str,
+    pub repo_add_q: &'static str,
+    pub repo_added: &'static str,
+    pub repo_failed: &'static str,
+    pub repo_empty: &'static str,
+
     /// Docker running now and Docker running after a reboot are two different
     /// facts, and only the first one is visible while installing.
     pub boot_title: &'static str,
@@ -285,6 +294,16 @@ pub static EN: Catalog = Catalog {
     sock_reexec: "Picking the install back up with the rights just granted…",
     sock_just_added: "Your account has just been added to the docker group.",
     sock_relogin: "Close this session, open a new one, and run this installer again.",
+
+    repo_absent: "This distribution publishes no Docker package of its own.",
+    repo_why: "Docker publishes one, in its own repository:\n\
+         {}\n\
+         Adding it outlives this installation: from then on this machine takes\n\
+         those packages from Docker rather than from its distribution.",
+    repo_add_q: "Add Docker's repository?",
+    repo_added: "Docker's repository added — {} is now available.",
+    repo_failed: "Could not add Docker's repository.",
+    repo_empty: "The repository was added but publishes nothing for this machine.",
 
     boot_title: "Docker is running, but it is not set to start with this machine.",
     boot_why: "TERN restarts with its containers, and its containers restart with\n\
@@ -465,6 +484,16 @@ pub static FR: Catalog = Catalog {
     sock_reexec: "Reprise de l'installation avec les droits acquis…",
     sock_just_added: "Votre compte vient d'être ajouté au groupe docker.",
     sock_relogin: "Fermez cette session, rouvrez-en une, et relancez cet installateur.",
+
+    repo_absent: "Cette distribution ne publie aucun paquet Docker qui lui soit propre.",
+    repo_why: "Docker en publie un, dans son propre dépôt :\n\
+         {}\n\
+         L'ajouter survit à cette installation : à partir de là, cette machine\n\
+         prend ces paquets chez Docker plutôt que chez sa distribution.",
+    repo_add_q: "Ajouter le dépôt de Docker ?",
+    repo_added: "Dépôt de Docker ajouté — {} est maintenant disponible.",
+    repo_failed: "Impossible d'ajouter le dépôt de Docker.",
+    repo_empty: "Le dépôt a été ajouté mais ne publie rien pour cette machine.",
 
     boot_title: "Docker tourne, mais il n'est pas réglé pour démarrer avec cette machine.",
     boot_why: "TERN redémarre avec ses conteneurs, et ses conteneurs redémarrent avec\n\
