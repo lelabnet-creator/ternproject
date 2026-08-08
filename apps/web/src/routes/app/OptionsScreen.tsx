@@ -6,6 +6,7 @@ import { ACCENTS, accentById, applyAccent } from '../../lib/accents'
 import { LocaleSelect, TimeZoneInput } from '../../components/pickers'
 import { Banner, Button, Card, Field, Input } from '../../components/ui'
 import { NotificationsPanels } from '../../features/settings/NotificationsPanels'
+import { BadgesPanel } from '../../features/settings/BadgesPanel'
 import { CapacityPanel } from '../../features/settings/CapacityPanel'
 import { DangerPanel } from '../../features/settings/DangerPanel'
 import { PasskeysPanel } from '../../features/settings/PasskeysPanel'
@@ -40,6 +41,7 @@ export function OptionsScreen({ slug, canWrite }: { slug: string; canWrite: bool
           { id: 'general', label: 'General' },
           { id: 'account', label: 'Account' },
           { id: 'notifications', label: 'Notifications' },
+          { id: 'badges', label: 'Badges' },
           { id: 'advanced', label: 'Advanced' },
           { id: 'danger', label: 'Danger' },
         ]}
@@ -50,6 +52,10 @@ export function OptionsScreen({ slug, canWrite }: { slug: string; canWrite: bool
             person across every tenant they administer. */}
         {tab === 'account' && <PasskeysPanel />}
         {tab === 'notifications' && <NotificationsPanels slug={slug} canWrite={canWrite} />}
+        {/* No `canWrite`: a badge is a URL anyone who can read the page can
+            already construct, so there is nothing here to withhold from a
+            viewer. */}
+        {tab === 'badges' && <BadgesPanel slug={slug} />}
         {tab === 'advanced' && <CapacityPanel slug={slug} canWrite={canWrite} />}
         {tab === 'danger' && <DangerPanel slug={slug} canWrite={canWrite} />}
       </Tabs>

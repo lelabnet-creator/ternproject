@@ -21,7 +21,7 @@ describe('badge rendering', () => {
     // Names are tenant-controlled and the badge is embedded in third-party
     // pages. Without escaping, a component called `"><script>` becomes script
     // execution on every site that embeds it.
-    const svg = badge.renderBadge('"><script>alert(1)</script>', 'operational', '#000', 'flat')
+    const svg = badge.renderBadge('"><script>alert(1)</script>', 'operational', 'flat')
     expect(svg).not.toContain('<script>')
     expect(svg).toContain('&lt;script&gt;')
   })

@@ -144,10 +144,34 @@ with the same bodies as TERN. An agent pointed at a proxy is an ordinary agent.
 | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
 | `GET /api/v1/public/:slug/summary.json`           | Tenant, overall status, groups, components, open incidents and maintenances. `cache-control: public, max-age=5, stale-while-revalidate=30` |
 | `GET /api/v1/public/:slug/uptime.json?period=90d` | Daily uptime per control, from the aggregates                                                                                              |
-| `GET /badge/:slug/:key.svg`                       | A status badge                                                                                                                             |
+| `GET /badge/:slug.svg`                            | A status badge for the page as a whole — the worst status across every public control                                                      |
+| `GET /badge/:slug/:key.svg`                       | A status badge for one control                                                                                                             |
 | `GET /api/v1/public/:slug/feed.rss` / `.atom`     | Incident history                                                                                                                           |
 
 All of these are readable without authentication — a status page is public.
+
+#### Badge styles
+
+Both badge routes take `?style=` and `?label=`. A control badge defaults its
+label to the control's name; the page badge defaults to `status`.
+
+| `style`       | Shape                                                                         |
+| ------------- | ----------------------------------------------------------------------------- |
+| `flat`        | The shields.io two-part pill. The default.                                    |
+| `plastic`     | The same pill with a gloss.                                                   |
+| `circle`      | A status dot with the word beside it, compact enough to sit inside a sentence |
+| `alert-block` | A callout with a coloured rule, for the top of a page or a docs section       |
+| `status-bar`  | A strip that spans a column, with the state in a chip on the right            |
+
+Every style spells the status out in words as well as colour, and carries it in
+`role="img"` plus a `<title>`, so none of them depends on the reader
+distinguishing green from red. The list lives in `@tern/shared/badges` and is
+read by both the renderer and the admin screen that offers them.
+
+Badges are cached for 60s with `stale-while-revalidate=300`, so a CDN or
+GitHub's camo proxy keeps serving the last render rather than a broken image
+while it refreshes. A badge for a control that does not exist — or that the
+caller may not see — renders as `no data` rather than 404, for the same reason.
 
 ### Admin, authenticated
 
