@@ -18,6 +18,7 @@ import { DEFAULT_WIDGET, resolveOptions, widgetById } from '../../charts/registr
 import type { CheckStatusValue } from '@tern/shared/status'
 import { api } from '../../lib/api'
 import { LayoutScreen } from './LayoutScreen'
+import { IncidentsScreen } from './IncidentsScreen'
 import { FleetScreen } from './FleetScreen'
 import { OptionsScreen } from './OptionsScreen'
 import { LogsScreen } from './LogsScreen'
@@ -222,7 +223,9 @@ export function AdminApp({ slug }: { slug: string }) {
       </aside>
 
       <main className="admin-main">
-        {section === 'layout' ? (
+        {section === 'incidents' ? (
+          <IncidentsScreen slug={slug} canWrite={canWrite} />
+        ) : section === 'layout' ? (
           <LayoutScreen slug={slug} canWrite={canWrite} />
         ) : section === 'agents' ? (
           <FleetScreen slug={slug} canWrite={canWrite} />
@@ -246,6 +249,9 @@ const SECTIONS = [
   // Icon *and* label, never the icon alone: an icon-only rail is a memory test,
   // and the words are what a screen reader reads out.
   { id: 'controls', label: 'Controls', icon: 'Activity' },
+  // Second, not buried: declaring an incident is the thing this product exists
+  // to do, and it is reached under pressure.
+  { id: 'incidents', label: 'Incidents', icon: 'Siren' },
   { id: 'layout', label: 'Page layout', icon: 'LayoutGrid' },
   { id: 'agents', label: 'Agents', icon: 'Radar' },
   { id: 'logs', label: 'Logs', icon: 'ScrollText' },
