@@ -292,6 +292,23 @@ export function AdminApp({ slug }: { slug: string }) {
         {/* Said on every screen, not only the first: someone who arrives deep
             in the admin from a link has had no chance to be told. */}
         {demo && <DemoBanner variant="admin" />}
+
+        {/*
+          Why nothing can be changed, said once for every screen.
+          
+          A disabled button gives no reason and looks exactly like an enabled
+          one that did not work — the report that led here was "I cannot click
+          another density", from a page where all four were disabled and the
+          saved one merely looked chosen. The demo banner above already explains
+          its own case, so this covers the other two.
+        */}
+        {!demo && !canWrite && (
+          <Banner tone="maintenance">
+            {summary.data?.tenant.readOnly
+              ? 'This page is read-only: every change is refused, whoever is signed in. Nothing below will save.'
+              : `You are signed in as a ${membership.role}, which can read this page but not change it.`}
+          </Banner>
+        )}
         {section === 'incidents' ? (
           <IncidentsScreen slug={slug} canWrite={canWrite} />
         ) : section === 'maintenance' ? (
