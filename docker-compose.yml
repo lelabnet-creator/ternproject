@@ -33,7 +33,7 @@ services:
       # server is a miserable thing to debug.
       - '5433:5432'
     volumes:
-      # `/home/postgres/pgdata/data`, not `/var/lib/postgresql/data`: that is
+      # `/home/postgres/pgdata`, not `/var/lib/postgresql/data`: that is
       # where `timescaledb-ha` puts `PGDATA`, and it is not the path the plain
       # `postgres` image uses. Mounting the conventional one looked right and
       # did nothing — the image never wrote there, so the cluster lived in the

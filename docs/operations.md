@@ -8,11 +8,16 @@ For whoever has to keep this running.
 ./scripts/setup.sh
 ```
 
-Asks for the tenant, the administrator and the SMTP server, writes `.env`,
-builds the image and starts `docker-compose.prod.yml`. The container's
-entrypoint settles `APP_SECRET`, applies the migrations and creates the tenant
-before the server binds — all three idempotent, so a restart repeats none of
-them.
+Asks for the published port, the public URL and the trusted-proxy CIDRs, writes
+`.env`, builds the image and starts `docker-compose.prod.yml`. The page name,
+the administrator account and the mail server are not asked here: they are set
+at the first visit to the admin, by the person in front of it, so no password
+has to pass through a file on disk. Rerunning the script keeps any variable you
+added to `.env` by hand.
+
+The container's entrypoint settles `APP_SECRET`, applies the migrations and
+creates the tenant before the server binds — all three idempotent, so a restart
+repeats none of them.
 
 `APP_SECRET` is the one value that must survive. Supplied in the environment it
 is used as given; left empty it is generated once into `/var/lib/tern` on the
@@ -271,9 +276,6 @@ before they bite.
 
 Recorded in `BACKLOG.md` with reasoning. The two that affect operations:
 
-- **`List-Unsubscribe` is not sent.** The header does not reach the wire in this
-  setup and the cause is not yet found. Bulk senders increasingly require it, so
-  resolve it before sending real volume. The in-body unsubscribe link works.
 - **Named metrics are not on the public page.** They are ingested, stored and
   drawn in the admin, but the public page reads the daily rollups and the
   aggregates do not roll up a JSONB map.

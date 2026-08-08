@@ -97,6 +97,23 @@ services:
       INGEST_RATE_LIMIT_MAX: ${INGEST_RATE_LIMIT_MAX:-600}
       DB_POOL_MAX: ${DB_POOL_MAX:-10}
 
+      # The other three limits, which used to be absent from this list.
+      #
+      # `config.ts` reads them and `docs/operations.md` documents them, so
+      # setting one in `.env` looked like it worked and did nothing at all —
+      # compose only forwards what is named here. The default is repeated on
+      # each rather than left to the application, so this file says what the
+      # instance will actually run with.
+      AUTH_RATE_LIMIT_MAX: ${AUTH_RATE_LIMIT_MAX:-10}
+      PAIR_RATE_LIMIT_MAX: ${PAIR_RATE_LIMIT_MAX:-10}
+      SUBSCRIBE_RATE_LIMIT_MAX: ${SUBSCRIBE_RATE_LIMIT_MAX:-5}
+
+      # Where the API writes `agent.toml` for the sidecar. The sidecar already
+      # declared it; the API did not, so the two could disagree about the one
+      # path that connects them. `TERN_LOCAL_AGENT` is set further down, beside
+      # the note explaining why supervision is off here.
+      TERN_DATA_DIR: ${TERN_DATA_DIR:-/var/lib/tern}
+
       # Read once, by the entrypoint, to create the status page. Harmless to
       # leave in place: provisioning never touches a tenant that already exists.
       #

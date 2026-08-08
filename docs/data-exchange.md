@@ -215,10 +215,17 @@ behalf.
 Sent through the SMTP configured for the deployment. Double opt-in for
 self-service subscribers; the unsubscribe link is in the body.
 
-`List-Unsubscribe` is deliberately **not** advertised — see the open defect in
-`BACKLOG.md`. Sending `List-Unsubscribe-Post` without a working
-`List-Unsubscribe` renders a one-click button that silently does nothing, which
-is worse than neither.
+Every notification carries `List-Unsubscribe` and `List-Unsubscribe-Post`, so a
+mail client's own unsubscribe button works and bulk senders that now require
+one-click are satisfied. Both point at
+`GET|POST /api/v1/unsubscribe/<ref>` — a GET answers a one-button page and a
+POST does the work, because mail clients prefetch links and a GET that
+unsubscribed would remove readers who never clicked.
+
+This entry used to record the header as broken. It was not: once the value runs
+long it folds onto a continuation line, and a check that greps for lines
+beginning `List-` reads a correctly folded header as an empty one. What _was_
+broken was the address it pointed at. See `BACKLOG.md`.
 
 ## Generated scripts
 

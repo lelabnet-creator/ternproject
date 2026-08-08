@@ -159,6 +159,28 @@ LOG_LEVEL=info
 # TERN_TENANT_SLUG, TERN_TENANT_NAME, TERN_ADMIN_EMAIL et TERN_ADMIN_PASSWORD
 # crée tout au démarrage et ferme la fenêtre avant la première requête servie.
 EOF
+
+  # Ce que ce script ne sait pas écrire, mais que quelqu'un a ajouté à la main.
+  #
+  # Le fichier est régénéré depuis un gabarit fixe à chaque exécution. Sans ce
+  # report, relancer le script pour changer un port effaçait SMTP_HOST,
+  # INGEST_RATE_LIMIT_MAX et tout le reste — récupérables dans le .bak, mais
+  # rien ne prévenait, et une limite de débit qui redevient sa valeur par défaut
+  # ne se voit pas.
+  if [ -f "$ENV_FILE.bak" ]; then
+    _kept=$(awk -F= '
+      /^[A-Za-z_][A-Za-z0-9_]*=/ {
+        split($0, kv, "=")
+        if (kv[1] !~ /^(POSTGRES_PASSWORD|APP_SECRET|TERN_HTTP_PORT|PUBLIC_BASE_URL|TRUSTED_PROXIES|LOG_LEVEL|TERN_IMAGE)$/) print
+      }' "$ENV_FILE.bak")
+
+    if [ -n "$_kept" ]; then
+      {
+        printf '\n# ── Reporté depuis la configuration précédente ──────────────────────────────\n'
+        printf '%s\n' "$_kept"
+      } >> "$ENV_FILE"
+    fi
+  fi
 )
 
 note "$ENV_FILE écrit (permissions 600)"

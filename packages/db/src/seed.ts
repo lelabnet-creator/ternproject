@@ -309,12 +309,17 @@ async function main() {
 
         /*
          * Everything here is generated, so the page says so and opens its admin
-         * to anyone. The two flags are meant to travel together: `isDemo` lets a
-         * stranger in, `readOnly` is what makes that safe, and a demo tenant
-         * without it would be a public page anybody could edit.
+         * to anyone. `isDemo` alone is safe: the role it grants an anonymous
+         * visitor can read and nothing else.
+         *
+         * `readOnly` is **not** on by default, because this seed is also the
+         * development database. Turning it on shipped a dev instance where the
+         * Incidents and Maintenance screens rendered with every button hidden —
+         * the feature looked missing rather than refused. A public demo, where
+         * a stranger really must not write, sets `TERN_DEMO_READONLY=1`.
          */
         isDemo: true,
-        readOnly: true,
+        readOnly: process.env.TERN_DEMO_READONLY === '1',
 
         layout: 'custom',
         customHtml: DASHBOARD.html,
