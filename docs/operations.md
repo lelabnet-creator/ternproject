@@ -136,6 +136,30 @@ Restoring needs the TimescaleDB extension present before the restore, and
 `timescaledb_pre_restore()` / `timescaledb_post_restore()` around it. Test a
 restore before needing one.
 
+### Where the data actually sits
+
+`timescaledb-ha` keeps `PGDATA` in `/home/postgres/pgdata`, which is **not** the
+`/var/lib/postgresql/data` the plain `postgres` image uses. Both compose files
+used to mount the named volume on the conventional path: the image never wrote
+there, so the cluster lived in the container's writable layer and any
+`docker compose up -d` that recreated the container — a routine upgrade, a
+changed port — took the database with it.
+
+Fixed in both files, and `setup.sh` now checks it twice: it refuses to start on
+an installation still holding its data the old way, since remounting would
+present an empty database without a word, and it verifies after start that the
+running container really has its cluster on the volume.
+
+**If you installed before this fix**, your data is in the container layer. Dump
+it before pulling:
+
+```bash
+docker exec tern-prod-db-1 pg_dump -U tern -Fc tern > tern-before-migration.dump
+docker compose -f docker-compose.prod.yml down
+git pull && ./scripts/setup.sh          # starts on a fresh, correctly-mounted volume
+# then restore the dump, per the section above
+```
+
 What is **not** in the database: `APP_SECRET`. A restore without it gives you
 rows whose encrypted columns cannot be read and sessions that cannot be
 validated. Back it up separately, and not beside the dump.

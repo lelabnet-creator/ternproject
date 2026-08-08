@@ -35,7 +35,14 @@ services:
     # network, and a database on a host port is both an exposure and the cause
     # of the collision that a machine already running PostgreSQL will hit.
     volumes:
-      - db-data:/var/lib/postgresql/data
+      # `/home/postgres/pgdata`, not `/var/lib/postgresql/data`. That is where
+      # `timescaledb-ha` puts `PGDATA`; the conventional path belongs to the
+      # plain `postgres` image and this one never writes to it. Mounting the
+      # wrong one looked correct and did nothing — the cluster lived in the
+      # container's writable layer, so every `docker compose up -d` that
+      # recreated the container destroyed the database. `setup.sh` refuses to
+      # start on an installation still holding its data that way.
+      - db-data:/home/postgres/pgdata
     healthcheck:
       test: ['CMD-SHELL', 'pg_isready -U tern -d tern']
       interval: 5s
@@ -134,6 +141,12 @@ services:
   # API restarts. `restart: unless-stopped` is the supervisor; there is no
   # supervision code anywhere in this project.
   agent:
+    # La même que `app`, et écrite ici explicitement. Sans cette ligne le
+    # service n'a pas d'image nommée, Compose en déduit qu'il doit la
+    # construire, et l'installation reconstruit ce que TERN_IMAGE venait
+    # précisément d'éviter — quand elle le peut : hors d'un checkout il n'y a
+    # ni Dockerfile ni sources, et le démarrage échoue.
+    image: ${TERN_IMAGE:-tern:local}
     build:
       context: .
       dockerfile: Dockerfile
