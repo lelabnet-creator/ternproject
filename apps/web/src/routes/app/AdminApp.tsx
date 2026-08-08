@@ -56,7 +56,27 @@ import { PlatformScreen } from './PlatformScreen'
  * depends on the wide case working.
  */
 export function AdminApp({ slug }: { slug: string }) {
-  const me = useQuery({ queryKey: ['me'], queryFn: adminApi.me, retry: false })
+  // Retried, except on the one answer that means the question is settled.
+  //
+  // This asked once and treated every failure as "signed out", which is a
+  // conclusion the failure does not support: a 429, a 502 from a reverse proxy
+  // mid-reload, a dropped connection on a train all say "could not ask", not
+  // "you are not signed in". The difference matters because the two look
+  // nothing alike to the reader — one is a sign-in form asking for a password
+  // they already gave, the other is a machine that will answer in a moment.
+  //
+  // Found end to end rather than reasoned about: `/auth/me` lives in the route
+  // file that carries the hard limiter meant for `/login` and
+  // `/password/forgot` — ten requests a minute, per IP. The admin calls it on
+  // every mount, so a brisk session hit the limit and was thrown back to the
+  // sign-in form holding a valid session cookie. Behind one NAT that counter is
+  // shared by everybody in the building.
+  const me = useQuery({
+    queryKey: ['me'],
+    queryFn: adminApi.me,
+    retry: (attempt, error) => attempt < 3 && !(error instanceof ApiError && error.status === 401),
+    retryDelay: (attempt) => 500 * 2 ** attempt,
+  })
   const [section, setSection] = useSection(slug)
 
   // The tenant's accent, applied to its admin as well as its page: an operator
