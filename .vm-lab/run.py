@@ -364,9 +364,28 @@ def main(name: str) -> int:
                 time.sleep(5)
             step("L'instance revient d'elle-même après un redémarrage", revived)
 
-            agent_back = ssh(name, "pgrep -af tern-agent | head -3")
+            # Avec du temps, et la même patience que pour l'instance : le
+            # gestionnaire de session utilisateur démarre après le reste du
+            # boot, et un service qui vit chez `linger` peut arriver une
+            # trentaine de secondes après que l'API répond. Une seule
+            # interrogation ici, alors que l'instance en obtient soixante,
+            # produisait un faux négatif — le même défaut de banc que la table
+            # ARP, à un autre endroit.
+            agent_back = None
+            for _ in range(20):
+                agent_back = ssh(name, "pgrep -af tern-agent | head -3")
+                if "tern-agent" in agent_back.stdout:
+                    break
+                time.sleep(5)
+            detail = agent_back.stdout.strip()[:200] if agent_back else ""
+            if "tern-agent" not in (agent_back.stdout if agent_back else ""):
+                # Ce que systemd en dit, faute de quoi l'échec ne nomme rien.
+                diag = ssh(name, "systemctl --user status tern-agent --no-pager -l 2>&1 | head -20; "
+                                 "systemctl status tern-agent --no-pager -l 2>&1 | head -20")
+                (logs / "agent-apres-redemarrage.txt").write_text(diag.stdout + diag.stderr)
+                detail = (diag.stdout + diag.stderr).strip()[-300:]
             step("L'agent revient d'elle-même après un redémarrage",
-                 "tern-agent" in agent_back.stdout, agent_back.stdout.strip()[:200])
+                 "tern-agent" in (agent_back.stdout if agent_back else ""), detail)
             screenshot(name, "06-apres-redemarrage")
 
         j = ssh(name, "sudo journalctl -u docker --no-pager -n 20 || true")

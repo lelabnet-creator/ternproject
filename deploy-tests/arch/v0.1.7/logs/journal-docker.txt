@@ -1,0 +1,20 @@
+Aug 08 21:16:04 arch dockerd[434]: time="2026-08-08T21:16:04.408263098Z" level=info msg="CDI directory does not exist, skipping" dir=/etc/cdi
+Aug 08 21:16:04 arch dockerd[434]: time="2026-08-08T21:16:04.408267845Z" level=info msg="CDI directory does not exist, skipping" dir=/var/run/cdi
+Aug 08 21:16:04 arch dockerd[434]: time="2026-08-08T21:16:04.408579942Z" level=info msg="detected 127.0.0.53 nameserver, assuming systemd-resolved, so using resolv.conf: /run/systemd/resolve/resolv.conf"
+Aug 08 21:16:04 arch dockerd[434]: time="2026-08-08T21:16:04.417429165Z" level=info msg="Creating a containerd client" address=/run/containerd/containerd.sock timeout=1m0s
+Aug 08 21:16:04 arch dockerd[434]: time="2026-08-08T21:16:04.460835549Z" level=info msg="Loading containers: start."
+Aug 08 21:16:04 arch dockerd[434]: time="2026-08-08T21:16:04.461828975Z" level=info msg="NRI is disabled"
+Aug 08 21:16:04 arch dockerd[434]: time="2026-08-08T21:16:04.461843316Z" level=info msg="Starting daemon with containerd snapshotter integration enabled"
+Aug 08 21:16:04 arch dockerd[434]: time="2026-08-08T21:16:04.483844393Z" level=info msg="Restoring containers: start."
+Aug 08 21:16:04 arch dockerd[434]: time="2026-08-08T21:16:04.576913687Z" level=info msg="Deleting nftables IPv4 rules" error="running nft: /dev/stdin:1:17-30: Error: Could not process rule: No such file or directory\ndelete table ip docker-bridges\n                ^^^^^^^^^^^^^^\n exit status 1"
+Aug 08 21:16:04 arch dockerd[434]: time="2026-08-08T21:16:04.585816773Z" level=info msg="Deleting nftables IPv6 rules" error="running nft: /dev/stdin:1:18-31: Error: Could not process rule: No such file or directory\ndelete table ip6 docker-bridges\n                 ^^^^^^^^^^^^^^\n exit status 1"
+Aug 08 21:16:05 arch dockerd[434]: time="2026-08-08T21:16:05.281224312Z" level=info msg="sbJoin: gwep4 ''->'fce80ca62f33', gwep6 ''->''" eid=fce80ca62f33 ep=tern-prod-db-1 net=tern-prod_default nid=c0f30291934a
+Aug 08 21:16:05 arch dockerd[434]: time="2026-08-08T21:16:05.356036426Z" level=info msg="sbJoin: gwep4 ''->'aa1d5dd7dd39', gwep6 ''->''" eid=aa1d5dd7dd39 ep=tern-prod-app-1 net=tern-prod_default nid=c0f30291934a
+Aug 08 21:16:05 arch dockerd[434]: time="2026-08-08T21:16:05.718010147Z" level=info msg="Loading containers: done."
+Aug 08 21:16:05 arch dockerd[434]: time="2026-08-08T21:16:05.724951575Z" level=info msg="Docker daemon" commit=6a43e3d5af containerd-snapshotter=true storage-driver=overlayfs version=29.7.2
+Aug 08 21:16:05 arch dockerd[434]: time="2026-08-08T21:16:05.725049907Z" level=info msg="Initializing buildkit"
+Aug 08 21:16:05 arch dockerd[434]: time="2026-08-08T21:16:05.788007889Z" level=warning msg="git source cannot be enabled: failed to find git binary: exec: \"git\": executable file not found in $PATH"
+Aug 08 21:16:05 arch dockerd[434]: time="2026-08-08T21:16:05.788465340Z" level=info msg="Completed buildkit initialization"
+Aug 08 21:16:05 arch dockerd[434]: time="2026-08-08T21:16:05.790319955Z" level=info msg="Daemon has completed initialization"
+Aug 08 21:16:05 arch dockerd[434]: time="2026-08-08T21:16:05.790414405Z" level=info msg="API listen on /run/docker.sock"
+Aug 08 21:16:05 arch systemd[1]: Started Docker Application Container Engine.

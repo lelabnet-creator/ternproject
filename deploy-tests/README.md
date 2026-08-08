@@ -16,6 +16,24 @@ dernier, que tout cela revient après un redémarrage.
 Les scripts qui produisent tout ceci sont dans `.vm-lab/` à la racine du dépôt.
 Sans eux, ce dossier ne serait qu'une affirmation.
 
+## Résultat
+
+| Distribution | Version | Étapes |
+|---|---|---|
+| Ubuntu 24.04 LTS | v0.1.5 | **24 / 24** |
+| Rocky Linux 9 | v0.1.5 | **24 / 24** |
+| Arch Linux | v0.1.7 | **27 / 27** |
+
+Arch en compte trois de plus parce que son chemin en compte trois de plus : la
+mise à jour du système remplace le noyau, l'installateur demande un redémarrage,
+et la recette redémarre puis relance — ce qu'une personne ferait, et la seule
+façon de vérifier que ce message est actionnable.
+
+Chaque campagne part d'une image vierge, récupère `setup.sh` depuis GitHub, et
+laisse l'installateur poser Docker lui-même. Rien n'est déposé à l'avance : le
+binaire vient de la release, l'image applicative du registre. C'est l'installation
+d'un inconnu qui n'a qu'une URL.
+
 ## Mots de passe
 
 Écrits en clair, parce que c'est exactement ce qu'ils sont : les identifiants de
@@ -76,6 +94,7 @@ dangereux que les précédents : un test qui échoue se corrige, un test qui pas
 | `lan_address` interrogeait la table ARP après un ping broadcast | « pas d'adresse sur le réseau local » sur des machines qui en avaient une — et tout ce qui dépend d'une adresse joignable cessait discrètement d'être testé |
 | l'agent était installé avec `--no-service` | l'inscription au démarrage, la fonctionnalité demandée, n'était jamais exercée |
 | `openvt -c 1` échouait sur une tty occupée | quatre captures « réussies » de l'écran de connexion |
+| l'agent après redémarrage n'avait droit qu'à une seule interrogation, là où l'instance en obtient soixante | un service utilisateur qui démarre après l'API était compté comme absent |
 
 ## Rejouer la recette
 
