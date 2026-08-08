@@ -42,9 +42,15 @@ d'authentification et répond partout.
   resultats.json  chaque étape, son verdict, et les identifiants ci-dessus
 ```
 
-`ubuntu/v0.1.1-defauts-trouves/` garde la trace de la campagne précédente. Elle
-est conservée parce que c'est elle qui a trouvé les défauts corrigés depuis, et
-qu'un banc qui n'archive que ses succès ne prouve rien.
+Les campagnes sont rangées par version de l'installateur. `v0.1.1-defauts-trouves/`
+est celle qui a trouvé les défauts ; `v0.1.3/` celle qui a vérifié leur
+correction. Les deux sont conservées, parce qu'un banc qui n'archive que ses
+succès ne prouve rien.
+
+`ubuntu/console/` contient les captures du rendu sur une vraie console —
+seize couleurs, pas de caractères semi-graphiques. C'est là, et nulle part
+ailleurs, que se voient les défauts d'affichage : par SSH, dans un terminal
+moderne, tout allait déjà bien.
 
 ## Ce que cette campagne a trouvé
 
@@ -55,9 +61,21 @@ l'étaient depuis une machine vierge.
 |---|---|---|
 | Rocky : aucun paquet Docker dans les dépôts de base | l'installation s'arrêtait sur un refus correct et une impasse | le dépôt de Docker est proposé, jamais supposé |
 | Arch : base de paquets plus ancienne que les miroirs | 404 sur chaque miroir, « no packages were upgraded » | la mise à jour du système est proposée avant l'installation |
+| Arch : le noyau remplacé par cette mise à jour | `iptables … Could not fetch rule set generation id`, à trois pas de sa cause | « redémarrez », dit avant que Docker n'échoue |
 | Docker installé mais pas activé au démarrage | rien ne revenait après un redémarrage | la question est posée quand `is-enabled` dit non |
 | L'agent refusait l'adresse que le produit lui donnait | ajout d'un agent sur un LAN sans TLS | autorisation explicite, posée par l'installateur généré |
 | Cadre et états illisibles sur une console | seize couleurs, pas de police semi-graphique | marques ASCII, couleur portée par le libellé, gouttière visible |
+
+Et trois défauts du banc lui-même, tous de la même famille — une vérification qui
+répondait sans avoir vérifié. Ils sont notés ici parce qu'ils sont plus
+dangereux que les précédents : un test qui échoue se corrige, un test qui passe
+à tort se croit.
+
+| Défaut du banc | Ce qu'il faisait croire |
+|---|---|
+| `lan_address` interrogeait la table ARP après un ping broadcast | « pas d'adresse sur le réseau local » sur des machines qui en avaient une — et tout ce qui dépend d'une adresse joignable cessait discrètement d'être testé |
+| l'agent était installé avec `--no-service` | l'inscription au démarrage, la fonctionnalité demandée, n'était jamais exercée |
+| `openvt -c 1` échouait sur une tty occupée | quatre captures « réussies » de l'écran de connexion |
 
 ## Rejouer la recette
 
