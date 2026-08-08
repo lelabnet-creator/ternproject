@@ -37,9 +37,10 @@ const routes: FastifyPluginAsyncZod = async (app) => {
     '/:slug/monitoring',
     {
       onRequest: [app.requireTenant()],
-      // The same bar as the fleet screen: this is the same agents, counted. The
-      // instance figures below carry their own, higher one.
-      preHandler: [app.requirePermission('agent:manage')],
+      // The same bar as the fleet screen: this is the same agents, counted, so
+      // it asks to read them rather than to manage them. The instance figures
+      // below carry their own, higher bar.
+      preHandler: [app.requirePermission('agent:read')],
       schema: {
         params: z.object({ slug: z.string() }),
         querystring: z.object({

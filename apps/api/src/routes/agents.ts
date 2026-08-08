@@ -317,7 +317,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
     '/:slug/agents',
     {
       onRequest: [app.requireTenant()],
-      preHandler: [app.requirePermission('agent:manage')],
+      preHandler: [app.requirePermission('agent:read')],
       schema: {
         params: z.object({ slug: z.string() }),
         response: {

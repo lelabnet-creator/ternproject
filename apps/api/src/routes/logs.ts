@@ -69,6 +69,8 @@ const routes: FastifyPluginAsyncZod = async (app) => {
         if (matches) filters.push(matches)
       }
 
+      const demo = req.role === 'demo'
+
       const [rows, actions] = await Promise.all([
         app.db
           .select({
@@ -101,9 +103,20 @@ const routes: FastifyPluginAsyncZod = async (app) => {
           action: row.action,
           // The user's email when there was one, the recorded label otherwise —
           // a pairing agent has no user, and "unknown" would lose which agent.
-          actor: row.actorEmail ?? row.actorLabel ?? 'system',
+          actor: demo
+            ? redactActor(row.actorEmail ?? row.actorLabel)
+            : (row.actorEmail ?? row.actorLabel ?? 'system'),
           target: row.target,
-          ip: row.ip,
+          /*
+           * Never to a demo visitor.
+           *
+           * The audit trail of a public demo accumulates the addresses of the
+           * strangers who came to look at it, and the email of whoever
+           * administers the instance. The trail is worth showing — it is a
+           * feature — but not those two columns, and a demo is exactly the
+           * deployment where they belong to people who never agreed to be in it.
+           */
+          ip: demo ? null : row.ip,
           meta: row.meta,
         })),
         actions: actions.map((row) => row.action),
@@ -173,6 +186,12 @@ const routes: FastifyPluginAsyncZod = async (app) => {
       }
     },
   )
+}
+
+/** Keeps who acted legible without naming them: "an administrator", not an address. */
+function redactActor(actor: string | null): string {
+  if (!actor) return 'system'
+  return actor.includes('@') ? 'an administrator' : actor
 }
 
 export default routes

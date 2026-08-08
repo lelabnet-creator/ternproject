@@ -20,6 +20,11 @@ export const PERMISSIONS = [
   /** Subscribe to notifications. */
   'subscribe',
 
+  /** Read the fleet: which agents exist, where, and when each last reported. */
+  'agent:read',
+  /** Read the tenant's settings. Changing them is `tenant:settings`. */
+  'settings:read',
+
   'incident:write',
   'maintenance:write',
 
@@ -43,6 +48,13 @@ const VISITOR: readonly Permission[] = ['status:read', 'history:read', 'subscrib
 const USER: readonly Permission[] = [
   ...VISITOR,
   'status:read:all',
+  'agent:read',
+  'settings:read',
+  /** Read the fleet: which agents exist, where, and when each last reported. */
+  'agent:read',
+  /** Read the tenant's settings. Changing them is `tenant:settings`. */
+  'settings:read',
+
   'incident:write',
   'maintenance:write',
 ]
@@ -77,6 +89,9 @@ export const READ_ONLY_PERMISSIONS: readonly Permission[] = [
   'status:read',
   'status:read:all',
   'history:read',
+  'agent:read',
+  'settings:read',
+  'audit:read',
 ]
 
 /**
@@ -93,6 +108,21 @@ export const DEMO_PERMISSIONS: readonly Permission[] = [
   'status:read',
   'status:read:all',
   'history:read',
+  /*
+   * The screens a demo exists to show.
+   *
+   * Reading the fleet, the settings and the audit trail was gated behind
+   * `agent:manage`, `tenant:settings` and nothing at all respectively — the
+   * first two being the permissions that *change* those things. A demo visitor
+   * therefore met "Could not load the agents", "Could not load settings" and an
+   * empty log on three screens whose whole content is a list. Withholding them
+   * did not protect anything either: the sensitive parts are redacted for this
+   * role at the routes themselves, which is where the knowledge of what is
+   * sensitive actually lives.
+   */
+  'agent:read',
+  'settings:read',
+  'audit:read',
 ]
 
 export function permissionsFor(role: Role | 'anonymous' | 'demo'): readonly Permission[] {

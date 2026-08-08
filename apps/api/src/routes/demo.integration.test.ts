@@ -61,15 +61,40 @@ describe('what a stranger may see', () => {
     expect((await get('/maintenances')).statusCode).toBe(200)
   })
 
-  it.each([
-    ['/settings', 'the SMTP host and user'],
-    ['/logs', 'visitor IP addresses'],
-    ['/notifications/webhooks', 'subscriber endpoints'],
-    ['/agents', 'the fleet'],
-  ])('refuses %s — %s', async (path) => {
+  it('refuses the subscriber endpoints outright', async () => {
     // An allowlist, so a permission added later is refused until somebody
     // classifies it. A demo that leaks is not a demo.
-    expect((await get(path)).statusCode).toBe(403)
+    expect((await get('/notifications/webhooks')).statusCode).toBe(403)
+  })
+
+  it('shows the settings screen without the addresses on it', async () => {
+    // Withholding the whole screen protected nothing and hid a feature. The
+    // hostnames are what must not travel, so those are what is replaced.
+    const response = await get('/settings')
+    expect(response.statusCode).toBe(200)
+
+    const body = response.json() as {
+      instanceSmtp: { host: string }
+      smtp: { host: string; user: string | null } | null
+    }
+    expect(body.instanceSmtp.host).toBe('redacted.example')
+    if (body.smtp) {
+      expect(body.smtp.host).toBe('redacted.example')
+      expect(body.smtp.user).toBeNull()
+    }
+  })
+
+  it('shows the audit trail without the people in it', async () => {
+    const response = await get('/logs')
+    expect(response.statusCode).toBe(200)
+
+    const body = response.json() as { entries: { ip: string | null; actor: string }[] }
+    // A public demo's trail accumulates the addresses of the strangers who came
+    // to look at it, and the email of whoever administers the instance.
+    for (const entry of body.entries) {
+      expect(entry.ip).toBeNull()
+      expect(entry.actor).not.toContain('@')
+    }
   })
 })
 
@@ -93,6 +118,24 @@ describe('an ordinary page', () => {
     } finally {
       await other.cleanup()
     }
+  })
+})
+
+describe('the fleet', () => {
+  it('is readable, because a demo with no agents shows nothing at all', async () => {
+    // Reading the list used to be gated behind `agent:manage` — the permission
+    // that also pairs and revokes — so this screen met an error where its whole
+    // content is a list. Every install has at least its own local agent.
+    expect((await get('/agents')).statusCode).toBe(200)
+  })
+
+  it('still refuses to pair or revoke', async () => {
+    const pair = await fx.app.inject({
+      method: 'POST',
+      url: `/api/v1/${fx.slug}/pairing-codes`,
+      payload: {},
+    })
+    expect(pair.statusCode).toBe(403)
   })
 })
 

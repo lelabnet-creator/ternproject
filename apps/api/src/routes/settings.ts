@@ -37,7 +37,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
     '/:slug/settings',
     {
       onRequest: [app.requireTenant()],
-      preHandler: [app.requirePermission('tenant:settings')],
+      preHandler: [app.requirePermission('settings:read')],
       schema: {
         params: z.object({ slug: z.string() }),
         response: {
@@ -101,6 +101,8 @@ const routes: FastifyPluginAsyncZod = async (app) => {
         .limit(1)
       if (!tenant) throw app.httpErrors.notFound()
 
+      const demo = req.role === 'demo'
+
       return {
         name: tenant.name,
         slug: tenant.slug,
@@ -115,25 +117,47 @@ const routes: FastifyPluginAsyncZod = async (app) => {
         accent: String((tenant.branding as Record<string, unknown>)?.accent ?? 'violet'),
         logoUrl: ((tenant.branding as Record<string, unknown>)?.logoUrl as string) ?? null,
         sizingAssumptions: tenant.sizingAssumptions ?? { intervalS: 60, concurrentViewers: 20 },
-        syslog: tenant.syslog ?? null,
-        smtp: tenant.smtp
-          ? {
-              host: tenant.smtp.host,
-              port: tenant.smtp.port,
-              secure: tenant.smtp.secure,
-              user: tenant.smtp.user ?? null,
-              from: tenant.smtp.from,
-              allowWeakTls: Boolean(tenant.smtp.allowWeakTls),
-              // Whether one is stored, never what it is.
-              hasPassword: Boolean(tenant.smtpPasswordEnc),
-            }
-          : null,
-        instanceSmtp: {
-          host: config.SMTP_HOST,
-          port: config.SMTP_PORT,
-          secure: config.SMTP_SECURE,
-          from: config.MAIL_FROM,
-        },
+        /*
+         * A demo visitor sees the shape, never the addresses.
+         *
+         * These name the instance's own infrastructure — a mail relay, a log
+         * collector — and a demo is a page a stranger opens. Redacted here
+         * rather than by withholding the whole screen, because the screen is
+         * what the demo exists to show and the hostnames are not.
+         */
+        syslog: demo ? redactSyslog(tenant.syslog) : (tenant.syslog ?? null),
+        smtp: demo
+          ? !tenant.smtp
+            ? null
+            : {
+                host: 'redacted.example',
+                port: tenant.smtp.port,
+                secure: tenant.smtp.secure,
+                user: null,
+                from: 'status@example.com',
+                allowWeakTls: Boolean(tenant.smtp.allowWeakTls),
+                hasPassword: Boolean(tenant.smtpPasswordEnc),
+              }
+          : tenant.smtp
+            ? {
+                host: tenant.smtp.host,
+                port: tenant.smtp.port,
+                secure: tenant.smtp.secure,
+                user: tenant.smtp.user ?? null,
+                from: tenant.smtp.from,
+                allowWeakTls: Boolean(tenant.smtp.allowWeakTls),
+                // Whether one is stored, never what it is.
+                hasPassword: Boolean(tenant.smtpPasswordEnc),
+              }
+            : null,
+        instanceSmtp: demo
+          ? { host: 'redacted.example', port: 587, secure: true, from: 'status@example.com' }
+          : {
+              host: config.SMTP_HOST,
+              port: config.SMTP_PORT,
+              secure: config.SMTP_SECURE,
+              from: config.MAIL_FROM,
+            },
       }
     },
   )
@@ -280,6 +304,11 @@ const routes: FastifyPluginAsyncZod = async (app) => {
       return { ok: true }
     },
   )
+}
+
+/** Keeps the shape so the screen renders, drops the host that is not ours to give. */
+function redactSyslog<T extends { host: string }>(syslog: T | null | undefined): T | null {
+  return syslog ? { ...syslog, host: 'redacted.example' } : null
 }
 
 export default routes

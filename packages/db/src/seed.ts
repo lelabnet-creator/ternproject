@@ -405,6 +405,52 @@ async function main() {
       controlIds.set(spec.key, row.id)
     }
 
+    /*
+     * A trail with something in it.
+     *
+     * The Logs screen is a real feature and the demo showed it empty, which
+     * reads as broken rather than as quiet. These are the entries a page of
+     * this age would genuinely have accumulated — the setup, the components,
+     * the incidents — written at plausible times rather than all at once.
+     */
+    console.warn('→ writing an audit trail')
+    const trailStart = Date.now() - DAYS * 86_400_000
+    const TRAIL: [string, string | null, number][] = [
+      ['tenant.created', null, 0],
+      ['settings.updated', null, 0.3],
+      ['control.created', 'website', 0.4],
+      ['control.created', 'api-gateway', 0.5],
+      ['control.created', 'db-eu-west', 0.6],
+      ['agent.paired', 'Agent-local-tern', 2],
+      ['subscriber.requested', null, 6],
+      ['subscriber.confirmed', null, 6.1],
+      ['incident.opened', null, 12],
+      ['incident.identified', null, 12.4],
+      ['incident.resolved', null, 12.9],
+      ['incident.postmortem.published', null, 14],
+      ['maintenance.scheduled', null, 30],
+      ['maintenance.in_progress', null, 32],
+      ['maintenance.completed', null, 32.2],
+      ['settings.updated', null, 45],
+      ['control.updated', 'billing', 60],
+      ['auth.login.success', null, 88],
+      ['auth.login.failed', null, 88.1],
+      ['layout.updated', null, 89],
+    ]
+
+    await db.insert(s.auditLog).values(
+      TRAIL.map(([action, target, dayOffset]) => ({
+        tenantId: tenant.id,
+        action,
+        actorId: admin.id,
+        actorLabel: null,
+        target,
+        ip: '203.0.113.10',
+        meta: {},
+        ts: new Date(trailStart + dayOffset * 86_400_000),
+      })),
+    )
+
     console.warn(`→ generating ${DAYS} days of history`)
     const to = new Date()
     const from = new Date(to.getTime() - DAYS * 24 * 3600 * 1000)
