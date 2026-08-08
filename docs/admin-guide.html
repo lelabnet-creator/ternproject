@@ -1,0 +1,592 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="generator" content="scripts/build-docs.mjs" />
+    <title>Administrator guide — TERN</title>
+    <style>
+:root {
+  color-scheme: light dark;
+  --bg: #fbfbfa;
+  --surface: #ffffff;
+  --text: #1c1c1a;
+  --muted: #5f6360;
+  --rule: #e2e2de;
+  --accent: #1f6f5c;
+  --code-bg: #f2f2ef;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #16181a;
+    --surface: #1c1f21;
+    --text: #e6e7e4;
+    --muted: #9aa09c;
+    --rule: #2e3234;
+    --accent: #6fc0a6;
+    --code-bg: #232729;
+  }
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  padding: 3rem 1.25rem 6rem;
+  background: var(--bg);
+  color: var(--text);
+  font: 16px/1.65 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+        "Helvetica Neue", Arial, sans-serif;
+  overflow-wrap: break-word;
+}
+main { max-width: 46rem; margin: 0 auto; }
+h1, h2, h3, h4 { line-height: 1.25; font-weight: 650; }
+h1 { font-size: 2rem; margin: 0 0 1.5rem; letter-spacing: -0.02em; }
+h2 {
+  font-size: 1.4rem;
+  margin: 3.25rem 0 1rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--rule);
+}
+h3 { font-size: 1.1rem; margin: 2.25rem 0 0.75rem; }
+h4 { font-size: 1rem; margin: 1.75rem 0 0.5rem; color: var(--muted); }
+p, ul, ol, blockquote { margin: 0 0 1rem; }
+li { margin: 0.35rem 0; }
+li > ul, li > ol { margin: 0.35rem 0 0.35rem; }
+a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+a.anchor { color: inherit; text-decoration: none; }
+a.anchor:hover { text-decoration: underline; text-decoration-color: var(--rule); }
+hr { border: 0; border-top: 1px solid var(--rule); margin: 2.5rem 0; }
+code {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.875em;
+  background: var(--code-bg);
+  border-radius: 4px;
+  padding: 0.12em 0.35em;
+}
+pre {
+  margin: 0;
+  padding: 0.9rem 1rem;
+  background: var(--code-bg);
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+}
+pre code { background: none; padding: 0; font-size: 0.83rem; line-height: 1.55; }
+blockquote {
+  margin-left: 0;
+  padding: 0.1rem 0 0.1rem 1rem;
+  border-left: 3px solid var(--rule);
+  color: var(--muted);
+}
+/* Wide content scrolls inside its own box. The page itself never does. */
+.scroll-x { overflow-x: auto; margin: 0 0 1.25rem; }
+table { border-collapse: collapse; width: 100%; font-size: 0.9rem; }
+th, td {
+  text-align: left;
+  vertical-align: top;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--rule);
+}
+th { font-weight: 600; white-space: nowrap; }
+tbody tr:last-child td { border-bottom: 0; }
+nav.toc {
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  padding: 1rem 1.25rem;
+  margin: 0 0 2.5rem;
+  font-size: 0.92rem;
+}
+nav.toc p { margin: 0 0 0.5rem; font-weight: 600; font-size: 0.8rem;
+  text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+nav.toc ol { list-style: none; margin: 0; padding: 0; }
+nav.toc li { margin: 0.2rem 0; }
+nav.toc li.level-3 { padding-left: 1.1rem; font-size: 0.88rem; }
+footer {
+  max-width: 46rem;
+  margin: 4rem auto 0;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--rule);
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+    </style>
+  </head>
+  <body>
+    <main>
+<nav class="toc"><p>On this page</p>
+<ol>
+<li class="level-2"><a href="#what-an-instance-is">What an instance is</a></li>
+<li class="level-2"><a href="#before-you-install">Before you install</a></li>
+<li class="level-2"><a href="#installing">Installing</a></li>
+<li class="level-3"><a href="#the-normal-path">The normal path</a></li>
+<li class="level-3"><a href="#from-a-checkout">From a checkout</a></li>
+<li class="level-3"><a href="#the-storage-check">The storage check</a></li>
+<li class="level-3"><a href="#the-first-run-window-and-closing-it">The first-run window, and closing it</a></li>
+<li class="level-3"><a href="#the-first-visit">The first visit</a></li>
+<li class="level-3"><a href="#what-the-development-stack-is-not">What the development stack is not</a></li>
+<li class="level-2"><a href="#configuration">Configuration</a></li>
+<li class="level-3"><a href="#what-each-variable-decides">What each variable decides</a></li>
+<li class="level-3"><a href="#three-of-those-do-not-reach-a-docker-install">Three of those do not reach a Docker install</a></li>
+<li class="level-3"><a href="#what-is-not-configured-here">What is not configured here</a></li>
+<li class="level-2"><a href="#where-the-data-lives">Where the data lives</a></li>
+<li class="level-3"><a href="#backing-up">Backing up</a></li>
+<li class="level-3"><a href="#restoring">Restoring</a></li>
+<li class="level-3"><a href="#if-you-installed-before-the-storage-fix">If you installed before the storage fix</a></li>
+<li class="level-2"><a href="#upgrading">Upgrading</a></li>
+<li class="level-2"><a href="#watching-the-instance">Watching the instance</a></li>
+<li class="level-3"><a href="#from-outside">From outside</a></li>
+<li class="level-3"><a href="#from-inside">From inside</a></li>
+<li class="level-3"><a href="#the-process-log">The process log</a></li>
+<li class="level-2"><a href="#the-agents">The agents</a></li>
+<li class="level-3"><a href="#agent-local-tern">Agent-local-tern</a></li>
+<li class="level-3"><a href="#adding-an-agent-elsewhere">Adding an agent elsewhere</a></li>
+<li class="level-2"><a href="#behind-a-reverse-proxy">Behind a reverse proxy</a></li>
+<li class="level-2"><a href="#mail-and-notifications">Mail and notifications</a></li>
+<li class="level-2"><a href="#security-and-what-is-yours-to-do">Security, and what is yours to do</a></li>
+<li class="level-2"><a href="#when-something-is-wrong">When something is wrong</a></li>
+<li class="level-3"><a href="#the-stack-will-not-start">The stack will not start</a></li>
+<li class="level-3"><a href="#setup-sh-refuses-to-start">setup.sh refuses to start</a></li>
+<li class="level-3"><a href="#the-agent-container-restarts-or-never-reports">The agent container restarts, or never reports</a></li>
+<li class="level-3"><a href="#the-public-page-trails-or-has-gaps">The public page trails, or has gaps</a></li>
+<li class="level-3"><a href="#mail-does-not-arrive">Mail does not arrive</a></li>
+<li class="level-3"><a href="#install-sh-returns-html">/install.sh returns HTML</a></li>
+<li class="level-3"><a href="#passkeys-are-not-offered">Passkeys are not offered</a></li>
+<li class="level-3"><a href="#starting-over">Starting over</a></li>
+<li class="level-2"><a href="#known-limitations-that-affect-operations">Known limitations that affect operations</a></li>
+</ol></nav>
+<h1>Administrator guide</h1>
+
+<p>For whoever installs a TERN instance and keeps it alive afterwards.</p>
+
+<p>It assumes you have a machine, a shell and Docker, and that you are not going to change TERN's code. It is the order things happen in — install, configure, back up, upgrade, watch, repair — rather than a reference. Where a reference already exists this page links to it instead of restating it: <a href="https://github.com/lelabnet-creator/ternproject/blob/main/docs/operations.md">operations</a> for sizing and what breaks first, <a href="https://github.com/lelabnet-creator/ternproject/blob/main/docs/security.md">security</a> for the threat model, <a href="https://github.com/lelabnet-creator/ternproject/blob/main/docs/data-exchange.md">data exchange</a> for every endpoint, <a href="https://github.com/lelabnet-creator/ternproject/blob/main/docs/architecture.md">architecture</a> for why the pieces are where they are.</p>
+
+<p>The screens themselves — writing an incident, arranging components, inviting members — are somebody else's guide. This one stops at the login page.</p>
+
+<h2 id="what-an-instance-is"><a class="anchor" href="#what-an-instance-is">What an instance is</a></h2>
+
+<p>One instance serves <strong>one status page</strong>. Nothing in the API creates a second one. The page is made once, at install, and that is the page this instance serves for the rest of its life.</p>
+
+<p>Three containers, two volumes, one file:</p>
+
+<div class="scroll-x"><table>
+<thead><tr><th>Piece</th><th>What it is</th></tr></thead>
+<tbody>
+<tr><td><code>app</code></td><td>One Node process serving both the API and the built web app on the same origin</td></tr>
+<tr><td><code>db</code></td><td>PostgreSQL 16 with TimescaleDB (<code>timescale/timescaledb-ha:pg16</code>)</td></tr>
+<tr><td><code>agent</code></td><td>The same image as <code>app</code>, running the Rust agent binary — see <a href="#the-agents">the agents</a></td></tr>
+<tr><td>volume <code>db-data</code></td><td>The database cluster</td></tr>
+<tr><td>volume <code>tern-data</code></td><td><code>APP_SECRET</code>, the local agent's <code>agent.toml</code> and its offline queue</td></tr>
+<tr><td><code>.env</code></td><td>Everything the stack is configured with, mode 600</td></tr>
+</tbody>
+</table></div>
+
+<p>The API and the web app share an origin on purpose, so there is no CORS to configure and no second service to place. The database publishes no host port: one less exposure, and one less collision on a machine that already runs PostgreSQL.</p>
+
+<p>There is no message broker, no cache tier and no worker fleet. The scheduled work — notification delivery, the staleness sweep, retention, maintenance transitions — runs on timers inside the API process. That is a ceiling rather than an oversight, and it has one consequence worth carrying into every decision below: <strong>when the API process is not running, none of that happens.</strong> A status page left up by a dead API keeps showing the last state it knew.</p>
+
+<h2 id="before-you-install"><a class="anchor" href="#before-you-install">Before you install</a></h2>
+
+<p>You need:</p>
+
+<ul>
+<li><strong>Docker with Compose v2.</strong> The installer checks <code>docker compose version</code> and that the daemon answers, and stops if either is missing.</li>
+<li><strong>A terminal.</strong> The installer asks questions and refuses to run without one on standard input, rather than writing an instance full of blank answers. That is also why it is downloaded and then run, never piped into <code>sh</code>.</li>
+<li><strong><code>curl</code></strong>, if you are running the script outside a checkout — it fetches the compose file it needs.</li>
+<li><strong>A hostname you intend to keep.</strong> Passkeys bind to the host in <code>PUBLIC_BASE_URL</code>. Moving the instance from <code>status.example.com</code> to <code>status.example.net</code> stops every registered passkey working there. That is the guarantee, not a defect — it is what stops a lookalike domain replaying one — but it is much cheaper to decide the name now.</li>
+<li><strong>TLS, in front.</strong> TERN terminates plain HTTP on the port you publish. Passkeys need a secure context (https, or http on <code>localhost</code>), the agent refuses to carry an ingest key over plain HTTP to anything but localhost, and a session cookie on a clear channel is a session cookie somebody else has.</li>
+</ul>
+
+<p>Sizing the machine is a separate question, answered by the admin's <strong>Capacity</strong> screen once the instance is up. The short version: the connection pool is the scarce resource, and raw points cost about 160 bytes each before compression. The arithmetic and the failure modes are in <a href="https://github.com/lelabnet-creator/ternproject/blob/main/docs/operations.md#sizing">operations → sizing</a>.</p>
+
+<h2 id="installing"><a class="anchor" href="#installing">Installing</a></h2>
+
+<h3 id="the-normal-path"><a class="anchor" href="#the-normal-path">The normal path</a></h3>
+
+<p>In an empty directory:</p>
+
+<div class="scroll-x"><pre data-language="bash"><code>curl -fsSL -o setup.sh https://raw.githubusercontent.com/lelabnet-creator/ternproject/main/scripts/setup.sh
+sh setup.sh</code></pre></div>
+
+<p>No clone. The script fetches <code>docker-compose.prod.yml</code> — the only other file an installation reads — and, finding no sources beside it, pulls the published multi-architecture image rather than trying to build from an empty context.</p>
+
+<p>It asks three things:</p>
+
+<div class="scroll-x"><table>
+<thead><tr><th>Question</th><th>Default</th><th>What it decides</th></tr></thead>
+<tbody>
+<tr><td>Host port</td><td><code>8080</code></td><td>The port published in front of the app, mapped to 3011 in the container</td></tr>
+<tr><td>Public URL</td><td><code>http://localhost:&lt;port&gt;</code></td><td><code>PUBLIC_BASE_URL</code> — see <a href="#configuration">configuration</a>; get this right</td></tr>
+<tr><td>Trusted proxy CIDRs</td><td>empty</td><td><code>TRUSTED_PROXIES</code>. Leave empty unless something really is in front</td></tr>
+</tbody>
+</table></div>
+
+<p>Then it writes <code>.env</code> with mode 600, generates <code>POSTGRES_PASSWORD</code> and <code>APP_SECRET</code> if they are not already there, checks the storage (see below), starts the stack with <code>--wait</code>, and returns only once the health check passes — which is after the migrations and after the page exists, not merely after the container started.</p>
+
+<p>It is re-runnable. Values already in <code>.env</code> become the defaults, and <code>APP_SECRET</code> is <strong>never</strong> regenerated once set.</p>
+
+<p>One thing to know before re-running it: it rewrites <code>.env</code> from a fixed template. Variables you added by hand — <code>SMTP_HOST</code>, <code>INGEST_RATE_LIMIT_MAX</code>, anything — are not carried over. The previous file is copied to <code>.env.bak</code> first, so nothing is lost, but you have to put them back.</p>
+
+<h3 id="from-a-checkout"><a class="anchor" href="#from-a-checkout">From a checkout</a></h3>
+
+<div class="scroll-x"><pre data-language="bash"><code>./scripts/setup.sh</code></pre></div>
+
+<p>Identical, except that it builds the image from your working tree instead of pulling one. That is what you want if you have changed anything, and it is slower. Set <code>TERN_IMAGE</code> to pull a published tag instead:</p>
+
+<div class="scroll-x"><pre data-language="bash"><code>TERN_IMAGE=ghcr.io/lelabnet-creator/ternproject:1.0.0 ./scripts/setup.sh</code></pre></div>
+
+<p>The value is appended to <code>.env</code>, so every later <code>docker compose</code> command targets the same image this start did.</p>
+
+<h3 id="the-storage-check"><a class="anchor" href="#the-storage-check">The storage check</a></h3>
+
+<p>Before it starts anything, the installer inspects an existing <code>tern-prod-db-1</code> container and <strong>refuses to continue</strong> if the database volume is mounted at <code>/var/lib/postgresql/data</code>. That path belongs to the plain <code>postgres</code> image; <code>timescaledb-ha</code> keeps <code>PGDATA</code> at <code>/home/postgres/pgdata</code>. An installation in that state is keeping its database in the container's writable layer. Read <a href="#if-you-installed-before-the-storage-fix">what to do about it</a> before doing anything else — remounting without dumping first would present an empty database in place of yours.</p>
+
+<p>After the stack is up it checks the running container rather than the file: that <code>$PGDATA/PG_VERSION</code> exists and that <code>/home/postgres/pgdata</code> really is a mount. A database that is not on a volume survives everything until the day it does not, and that day is a routine <code>docker compose up -d</code>.</p>
+
+<h3 id="the-first-run-window-and-closing-it"><a class="anchor" href="#the-first-run-window-and-closing-it">The first-run window, and closing it</a></h3>
+
+<p>A freshly installed instance has a page and nobody who can administer it. <code>POST /api/v1/setup/account</code> needs no authentication — it cannot, there is no account to authenticate as — and it is open only while the instance holds zero users. The first successful call closes it permanently; every later one answers 409, including calls that arrive at the same moment.</p>
+
+<p><strong>Whoever opens the admin first becomes the administrator.</strong> The installer says so, and it is why it tells you to open the page now rather than later.</p>
+
+<p>If the instance will be reachable before anyone gets to it — a public DNS record that already resolves, a deployment pipeline that finishes overnight — provision the account instead, and the window never opens:</p>
+
+<div class="scroll-x"><pre data-language="bash"><code># in .env, before the first start
+TERN_TENANT_SLUG=acme
+TERN_TENANT_NAME=Acme Corp
+TERN_ADMIN_EMAIL=you@example.com
+TERN_ADMIN_NAME=Your Name
+TERN_ADMIN_PASSWORD=…          # 8 characters minimum</code></pre></div>
+
+<p><code>TERN_ADMIN_EMAIL</code> and <code>TERN_ADMIN_PASSWORD</code> are both-or-neither: an address with no password creates an account nobody can sign into, which looks like success. Provisioning is idempotent and never touches a tenant or an account that already exists, so leaving these in <code>.env</code> afterwards is harmless — though a plain password in a file that stays on disk is its own decision.</p>
+
+<h3 id="the-first-visit"><a class="anchor" href="#the-first-visit">The first visit</a></h3>
+
+<p>Open <code>PUBLIC_BASE_URL/app</code>. The admin resolves the page's slug from the database, so <code>/app</code> is enough; the public page is at <code>/s/&lt;slug&gt;</code>.</p>
+
+<p>The wizard names the page, creates your account, and sends you to enrol MFA — <strong>mandatory for admins</strong>, and a session that has passed the password but not the second factor can do nothing but complete it. The mail step goes through the ordinary settings endpoints, so nothing it configures is unreachable later from the same screens.</p>
+
+<h3 id="what-the-development-stack-is-not"><a class="anchor" href="#what-the-development-stack-is-not">What the development stack is not</a></h3>
+
+<p><code>docker-compose.yml</code>, <code>pnpm dev</code>, <code>pnpm db:seed</code> and <code>scripts/quickstart.sh</code> are the from-source development path. They run under the compose project name <code>tern</code> rather than <code>tern-prod</code>, publish a database on host port 5433, run a mail catcher that swallows every message, and the seed creates a demo tenant with three months of invented history and a password printed on the terminal.</p>
+
+<p>Useful to look at. Ruinous to deploy. If you want to run a real instance from source, use <code>./scripts/setup.sh</code> from the checkout, which builds the same production stack from your tree.</p>
+
+<h2 id="configuration"><a class="anchor" href="#configuration">Configuration</a></h2>
+
+<p>Everything is environment variables, validated at boot by <code>apps/api/src/config.ts</code>. The process prints every problem it found and exits rather than starting and failing later on a request. <code>APP_SECRET</code> shorter than 32 characters, or still set to the placeholder from <code>.env.example</code>, is one of those problems.</p>
+
+<h3 id="what-each-variable-decides"><a class="anchor" href="#what-each-variable-decides">What each variable decides</a></h3>
+
+<div class="scroll-x"><table>
+<thead><tr><th>Variable</th><th>Default</th><th>Decides</th></tr></thead>
+<tbody>
+<tr><td><code>APP_SECRET</code></td><td>generated into <code>tern-data</code></td><td>Session signing, and encryption of TOTP secrets, probe auth headers, SMTP passwords and subscriber addresses</td></tr>
+<tr><td><code>DATABASE_URL</code></td><td>—</td><td>PostgreSQL. Set by the compose file to the <code>db</code> service</td></tr>
+<tr><td><code>PUBLIC_BASE_URL</code></td><td><code>http://localhost:5173</code></td><td>The CORS origin, the passkey RP ID, the URL in generated install scripts, pairing commands, mail links and badges</td></tr>
+<tr><td><code>API_PORT</code> / <code>API_HOST</code></td><td><code>3011</code> / <code>0.0.0.0</code></td><td>Where the process listens inside the container</td></tr>
+<tr><td><code>TRUSTED_PROXIES</code></td><td>empty</td><td>Comma-separated CIDRs whose <code>X-Forwarded-For</code> is believed. Empty means the header is ignored entirely</td></tr>
+<tr><td><code>DB_POOL_MAX</code></td><td><code>10</code></td><td>PostgreSQL connections for this API process. Each is a backend process</td></tr>
+<tr><td><code>INGEST_RATE_LIMIT_MAX</code></td><td><code>600</code></td><td>Ingest requests a minute, per API key</td></tr>
+<tr><td><code>AUTH_RATE_LIMIT_MAX</code></td><td><code>10</code></td><td>Sign-in and first-run attempts a minute, per IP</td></tr>
+<tr><td><code>PAIR_RATE_LIMIT_MAX</code></td><td><code>10</code></td><td>Pairing redemptions a minute, per IP</td></tr>
+<tr><td><code>SUBSCRIBE_RATE_LIMIT_MAX</code></td><td><code>5</code></td><td>Subscription attempts a minute, per IP</td></tr>
+<tr><td><code>SMTP_HOST</code> … <code>SMTP_SECURE</code></td><td><code>localhost:1025</code></td><td>The instance's fallback mail server — see <a href="#mail-and-notifications">mail</a></td></tr>
+<tr><td><code>MAIL_FROM</code></td><td><code>TERN Status &lt;status@example.com&gt;</code></td><td>The fallback sender</td></tr>
+<tr><td><code>LOG_LEVEL</code></td><td><code>info</code></td><td><code>silent</code> … <code>trace</code></td></tr>
+<tr><td><code>TERN_LOCAL_AGENT</code></td><td><code>true</code></td><td>Whether the instance runs <code>Agent-local-tern</code> for itself</td></tr>
+<tr><td><code>TERN_LOCAL_AGENT_SUPERVISE</code></td><td><code>true</code></td><td>Whether the API process starts the agent binary. The production stack sets this <code>false</code>; Docker supervises instead</td></tr>
+<tr><td><code>TERN_LOCAL_AGENT_SERVER</code></td><td>empty</td><td>The address written into <code>agent.toml</code>. Empty means this process's loopback, which is correct in both shipped stacks</td></tr>
+<tr><td><code>TERN_DATA_DIR</code></td><td><code>/var/lib/tern</code> in production</td><td>Where <code>agent.toml</code> and the offline queue live. A relative path resolves from the repository root</td></tr>
+<tr><td><code>APP_SECRET_FILE</code></td><td><code>/var/lib/tern/app_secret</code></td><td>Read by the container entrypoint only, where it keeps the generated secret</td></tr>
+</tbody>
+</table></div>
+
+<p>Read once at boot by the entrypoint, then ignored: <code>TERN_TENANT_SLUG</code>, <code>TERN_TENANT_NAME</code>, <code>TERN_DEFAULT_LOCALE</code>, <code>TERN_DEFAULT_TIMEZONE</code>, <code>TERN_ADMIN_EMAIL</code>, <code>TERN_ADMIN_NAME</code>, <code>TERN_ADMIN_PASSWORD</code>. Provisioning never touches a tenant that already exists.</p>
+
+<p>Read by Compose, not by the application: <code>POSTGRES_PASSWORD</code>, <code>TERN_HTTP_PORT</code>, <code>TERN_IMAGE</code>.</p>
+
+<h3 id="three-of-those-do-not-reach-a-docker-install"><a class="anchor" href="#three-of-those-do-not-reach-a-docker-install">Three of those do not reach a Docker install</a></h3>
+
+<p><code>docker-compose.prod.yml</code> passes a fixed list of variables into the container. <code>AUTH_RATE_LIMIT_MAX</code>, <code>PAIR_RATE_LIMIT_MAX</code> and <code>SUBSCRIBE_RATE_LIMIT_MAX</code> are not on it, and neither is <code>TERN_LOCAL_AGENT_SERVER</code> or <code>TERN_DATA_DIR</code>. Compose reads <code>.env</code> for substitution into the compose file, not as an environment for the service, so setting one of these in <code>.env</code> on a Docker install has no effect and says nothing about it.</p>
+
+<p>To change one, add it to the <code>app</code> service's <code>environment:</code> block yourself. The defaults are deliberately tight and most installations should leave them alone — but a limit you believe you have raised and have not is worth knowing about.</p>
+
+<h3 id="what-is-not-configured-here"><a class="anchor" href="#what-is-not-configured-here">What is not configured here</a></h3>
+
+<p>The page's name, its branding, its retention window, its components, its SMTP server, its notification channels and its members all live in the database and are edited in the admin. They are per-tenant settings, and a tenant admin is expected to get them wrong occasionally without an operator being involved.</p>
+
+<h2 id="where-the-data-lives"><a class="anchor" href="#where-the-data-lives">Where the data lives</a></h2>
+
+<div class="scroll-x"><table>
+<thead><tr><th>What</th><th>Where</th></tr></thead>
+<tbody>
+<tr><td>Everything the product knows</td><td>Volume <code>tern-prod_db-data</code>, mounted at <code>/home/postgres/pgdata</code></td></tr>
+<tr><td><code>APP_SECRET</code>, when generated rather than given</td><td>Volume <code>tern-prod_tern-data</code>, file <code>/var/lib/tern/app_secret</code>, mode 600</td></tr>
+<tr><td>The local agent's key and offline queue</td><td>The same volume: <code>agent.toml</code> (mode 600) and <code>agent-queue.jsonl</code></td></tr>
+<tr><td>The stack's own configuration</td><td><code>.env</code> beside the compose file, mode 600</td></tr>
+</tbody>
+</table></div>
+
+<p><strong><code>APP_SECRET</code> is not in the database.</strong> It encrypts TOTP secrets, probe authentication headers, tenant SMTP passwords and subscriber addresses. A restore without it does not fail — it gives you rows whose encrypted columns cannot be read, and sessions that cannot be validated. Back it up separately, and not in the same place as the dump: a dump plus the secret is everything except the passwords, which stay Argon2id hashes. The full table of what each stolen artefact yields is in <a href="https://github.com/lelabnet-creator/ternproject/blob/main/docs/security.md">the security model</a>.</p>
+
+<h3 id="backing-up"><a class="anchor" href="#backing-up">Backing up</a></h3>
+
+<p>Two things, and a third that is only convenience.</p>
+
+<div class="scroll-x"><pre data-language="bash"><code># 1. The database
+docker compose -f docker-compose.prod.yml exec -T db \
+  pg_dump -U tern -Fc tern &gt; tern-$(date +%F).dump
+
+# 2. APP_SECRET — somewhere else entirely
+docker compose -f docker-compose.prod.yml exec -T app cat /var/lib/tern/app_secret
+
+# 3. .env, so a rebuild does not need the questions asked again</code></pre></div>
+
+<p><code>agent.toml</code> is deliberately absent from that list. It holds a live ingest key, and the instance rewrites it with a fresh key whenever the row exists and the file does not — which is exactly what a restore onto a new volume looks like. Losing it costs nothing; copying it around costs a credential.</p>
+
+<p><code>pg_dump</code> is enough at any size this deployment reaches. It is a logical dump, so the restore rebuilds the hypertable rather than copying its chunks — slower than a file-level copy, and portable across PostgreSQL versions, which matters more here.</p>
+
+<h3 id="restoring"><a class="anchor" href="#restoring">Restoring</a></h3>
+
+<p>Restore into an <strong>empty</strong> database. The container entrypoint migrates on every boot, so a schema will already be there if you let <code>app</code> start first.</p>
+
+<div class="scroll-x"><pre data-language="bash"><code>C=&quot;docker compose -f docker-compose.prod.yml&quot;
+
+$C down
+$C up -d db                                        # the database alone
+
+$C exec -T db psql -U tern -d postgres -c 'DROP DATABASE IF EXISTS tern'
+$C exec -T db psql -U tern -d postgres -c 'CREATE DATABASE tern'
+$C exec -T db psql -U tern -d tern -c 'CREATE EXTENSION IF NOT EXISTS timescaledb'
+$C exec -T db psql -U tern -d tern -c 'SELECT timescaledb_pre_restore()'
+
+$C exec -T db pg_restore -U tern -d tern --no-owner &lt; tern-2026-08-08.dump
+
+$C exec -T db psql -U tern -d tern -c 'SELECT timescaledb_post_restore()'
+$C up -d</code></pre></div>
+
+<p>The extension has to exist before the restore, and <code>timescaledb_pre_restore()</code> / <code>timescaledb_post_restore()</code> have to bracket it — that is TimescaleDB's requirement, not TERN's. Put <code>APP_SECRET</code> back in <code>.env</code>, or the file back on the <code>tern-data</code> volume, before starting <code>app</code>.</p>
+
+<p><strong>Rehearse this.</strong> There is no down migration anywhere in TERN, deliberately: a restore somebody has actually performed is a better answer than a reverse migration nobody has ever run. That is only true if you have performed it.</p>
+
+<h3 id="if-you-installed-before-the-storage-fix"><a class="anchor" href="#if-you-installed-before-the-storage-fix">If you installed before the storage fix</a></h3>
+
+<p>Both compose files used to mount the database volume at <code>/var/lib/postgresql/data</code>. <code>timescaledb-ha</code> never writes there, so the mount did nothing and the cluster lived in the container's writable layer — where any <code>docker compose up -d</code> that recreated the container, a routine upgrade or a changed port, took the database with it.</p>
+
+<p>If <code>./scripts/setup.sh</code> refuses to start and tells you the installation stores its database in the container, this is why. Your data is still there. Get it out before anything recreates that container:</p>
+
+<div class="scroll-x"><pre data-language="bash"><code>docker exec tern-prod-db-1 pg_dump -U tern -Fc tern &gt; tern-before-migration.dump
+docker compose -f docker-compose.prod.yml down</code></pre></div>
+
+<p>Then update the compose file — <code>git pull</code> in a checkout, or re-download it — and run <code>./scripts/setup.sh</code>. It starts on a fresh, correctly mounted volume with an empty database. Restore the dump into it as above.</p>
+
+<p>Do not shortcut this by editing the mount path and restarting. The container would come up on an empty volume, without a word, and the old writable layer goes with the container that was replaced.</p>
+
+<h2 id="upgrading"><a class="anchor" href="#upgrading">Upgrading</a></h2>
+
+<p>Pin a version. <code>latest</code> means an unattended restart can move you onto a release you have not read.</p>
+
+<div class="scroll-x"><pre data-language="bash"><code># in .env
+TERN_IMAGE=ghcr.io/lelabnet-creator/ternproject:1.0.0
+
+docker compose -f docker-compose.prod.yml pull app agent
+docker compose -f docker-compose.prod.yml up -d</code></pre></div>
+
+<p><code>app</code> and <code>agent</code> run the same image on purpose, so the agent's version and the server's cannot drift. Pull both.</p>
+
+<p>The entrypoint applies migrations before the server binds, retrying for up to ten attempts three seconds apart while a freshly started PostgreSQL finishes coming up. Migrations are forward-only. The TimescaleDB layer is re-applied whenever its checksum changes, and every statement in it is idempotent.</p>
+
+<p>Take a dump first. Not because upgrades have gone wrong, but because the recovery path from a migration you dislike is a restore, and a restore needs a dump from before it.</p>
+
+<p>From a source checkout, without Docker:</p>
+
+<div class="scroll-x"><pre data-language="bash"><code>git pull &amp;&amp; pnpm install
+pnpm db:migrate            # Drizzle DDL, then the TimescaleDB SQL
+pnpm build                 # then restart the API</code></pre></div>
+
+<p>Agents need nothing. They are independent of the server's lifecycle: one whose server is unreachable keeps measuring and buffers to disk, 5 000 points, oldest dropped first.</p>
+
+<h2 id="watching-the-instance"><a class="anchor" href="#watching-the-instance">Watching the instance</a></h2>
+
+<p><strong>Nothing inside TERN watches TERN.</strong> The scheduled work runs in the API process, so if that process is gone, so is the staleness sweep — and a status page that stops being updated does not go unknown, it keeps showing the last state it knew. Something outside has to watch.</p>
+
+<h3 id="from-outside"><a class="anchor" href="#from-outside">From outside</a></h3>
+
+<p><code>GET /health</code> answers <code>{&quot;status&quot;:&quot;ok&quot;}</code>, and it reaches the database to do it — it runs <code>SELECT 1</code>, so a healthy reply means the process is up <em>and</em> its connection to PostgreSQL works. That is the endpoint to point your other monitoring at.</p>
+
+<p>The image also carries a <code>HEALTHCHECK</code> that fetches the same endpoint from inside the container, which is what <code>docker compose up --wait</code> and <code>depends_on: service_healthy</code> wait for.</p>
+
+<p>The <code>agent</code> service has its health check <strong>disabled</strong>, deliberately. It shares the API's network namespace, so the image's check would succeed by reporting the API's health as the agent's — worse than no check. Whether the agent is reporting is a question the fleet screen answers.</p>
+
+<h3 id="from-inside"><a class="anchor" href="#from-inside">From inside</a></h3>
+
+<p><strong>Logs → Monitoring</strong> in the admin reports what the HTTP layer is doing: requests a minute by class (ingest, agent, admin, public), replies that were rate limited, p50 and p95 per class, requests in flight, and how much of <code>DB_POOL_MAX</code> is checked out. Windows from 1 to 120 minutes.</p>
+
+<p>Two limits it states on the screen rather than in a footnote. The counters live in memory, so <strong>it describes one API process</strong> — behind a load balancer each container keeps its own and neither knows about the other, which is why the tab names the instance at the top. And latencies come from a histogram, so each figure is the bound the sample fell under, not an exact number; past the last bucket it reports <code>&gt; 10 s</code> rather than inventing one.</p>
+
+<p>The split by audience is worth knowing before somebody asks why they cannot see a number you can: <strong>a tenant admin sees their own agents' push rates</strong> — which host is generating the load. The instance-wide figures, the rate-limit tally and the pool go only to an admin of the system tenant, because on an instance hosting more than one page they describe shared machinery no single customer should read.</p>
+
+<p>The pool figure comes from <code>pg_stat_activity</code>, filtered on this process's <code>application_name</code>. A database role that may not read that view gets zeroes and a warning in the log rather than a broken screen.</p>
+
+<p><strong>Logs</strong> itself is the audit trail: sign-ins, pairings, revocations, control edits, layout changes, mail tests, webhook changes, with actor, target, IP and a JSONB payload. It is written on the same connection as the change it records, so there is no queue to lose. It can be mirrored to a syslog collector — RFC 5424 or JSON, UDP or TCP — configured per tenant. Mirroring is best effort and never retried: a collector that is down must not make the action that produced the event fail.</p>
+
+<p>The <strong>Capacity</strong> screen computes what the deployment needs from what it measures and marks where the configured value is below it. It is the forecast; Monitoring is the measurement. <a href="https://github.com/lelabnet-creator/ternproject/blob/main/docs/operations.md#what-breaks-first">What breaks first, and in what order</a> is the list to read before it does.</p>
+
+<h3 id="the-process-log"><a class="anchor" href="#the-process-log">The process log</a></h3>
+
+<p><code>LOG_LEVEL</code> controls it. The logger removes <code>authorization</code>, <code>cookie</code> and <code>set-cookie</code> from every line — a log file is not a place to keep credentials. Background jobs log only when something actually happened, so a quiet instance does not produce a line per job per tick.</p>
+
+<div class="scroll-x"><pre data-language="bash"><code>docker compose -f docker-compose.prod.yml logs -f app
+docker compose -f docker-compose.prod.yml logs -f agent</code></pre></div>
+
+<h2 id="the-agents"><a class="anchor" href="#the-agents">The agents</a></h2>
+
+<p>Measurements reach TERN by being pushed. An agent is one way to push them; a generated script or an existing monitoring system through a webhook are the others. <a href="https://github.com/lelabnet-creator/ternproject/blob/main/docs/data-exchange.md">Data exchange</a> covers all of them.</p>
+
+<h3 id="agent-local-tern"><a class="anchor" href="#agent-local-tern"><code>Agent-local-tern</code></a></h3>
+
+<p>Every instance runs one agent for itself, so a fresh install does not sit at <code>unknown</code> until somebody deploys one. It is <strong>provisioned, not paired</strong> — no PIN, because the server issuing the invitation is the machine accepting it — and it appears in the fleet marked <em>this instance</em>.</p>
+
+<p>It cannot be revoked or deleted: the API answers 409 and the admin does not draw the button. Deleting it would leave an <code>agent.toml</code> on disk holding a key for an agent the server had forgotten, and the next reconcile would make a second one. <code>TERN_LOCAL_AGENT=false</code> is how you turn it off, and renaming it is fine — the name is only a label.</p>
+
+<p>In the production stack it is its own container, supervised by Docker's <code>restart: unless-stopped</code>, because the point of a separate process is that it keeps measuring and buffering while the API restarts. It shares the API container's network namespace, so <code>127.0.0.1:3011</code> genuinely is the API and the ingest key never touches a network interface. Two consequences: that container can publish no ports, and the only channel between the two containers is <code>agent.toml</code> on the shared <code>tern-data</code> volume. The agent starts with <code>--wait-for-config</code> and waits for that file, so it is safe to start on a brand new instance where nobody has run the wizard yet.</p>
+
+<p>It will not run without a binary. <code>clients/agent/bin</code> is populated by CI on <code>main</code>, so an image built from a checkout that has never run CI has none; the container says so plainly and exits. The instance still monitors through the in-process <code>local-probes</code> job, which is also what takes the work back if the agent goes quiet for longer than the staleness window.</p>
+
+<h3 id="adding-an-agent-elsewhere"><a class="anchor" href="#adding-an-agent-elsewhere">Adding an agent elsewhere</a></h3>
+
+<p>Generate a PIN in the admin, then on the host:</p>
+
+<div class="scroll-x"><pre data-language="sh"><code>curl -fsSL https://status.example.com/install.sh | sh -s -- --pin 4K7Q-92XB</code></pre></div>
+
+<p>The instance serves that script with its own address baked in, and serves the binaries too. It is written to be readable in one screen — no compression, no <code>eval</code>, no base64 — because piping a script into a shell deserves suspicion. Pairing hands the agent its probes, so there is no configuration to copy onto the host, and it asks again on every start: a control added in the admin is picked up after a restart.</p>
+
+<p><code>agent.toml</code> holds a live ingest key and is written 0600. If it leaks, revoke the agent — the key is useless for anything but pushing measurements to the controls in its scope, but that is enough to publish a lie on your status page.</p>
+
+<p>To diagnose one:</p>
+
+<div class="scroll-x"><pre data-language="sh"><code>tern-agent doctor    # config, permissions, queue, server, key, DNS, clock, ICMP
+tern-agent status    # what it runs, and how much is waiting
+tern-agent run --once</code></pre></div>
+
+<p><code>doctor</code> exits non-zero on a real failure, so it drops into a post-install step or a monitoring check unchanged. Two of its checks catch failures that are otherwise silent: a host whose <strong>clock</strong> is years out produces measurements the server clamps and that never appear, and <code>agent.toml</code> at 0644 in a directory somebody later archives is how a key leaks.</p>
+
+<p>For a network with no route to the internet, <code>tern-proxy</code> relays for the zone and speaks the same API, so an agent pointed at it is an ordinary agent. See <a href="https://github.com/lelabnet-creator/ternproject/blob/main/docs/data-exchange.md#the-proxy">data exchange → the proxy</a>.</p>
+
+<h2 id="behind-a-reverse-proxy"><a class="anchor" href="#behind-a-reverse-proxy">Behind a reverse proxy</a></h2>
+
+<p>Two settings and one routing rule.</p>
+
+<p>Set <code>PUBLIC_BASE_URL</code> to the external URL — it is the CORS origin, the passkey RP ID, and what is baked into every generated script and mail link. Set <code>TRUSTED_PROXIES</code> to the proxy's CIDR, or rate limits and the audit log key on the proxy's own address and every request looks like it came from one client. Leave it empty when the app is exposed directly: believing <code>X-Forwarded-For</code> from an untrusted source lets a caller pick its own IP.</p>
+
+<p><strong>The API serves more than <code>/api</code>.</strong> Route all of these to it, or the SPA's catch-all answers them with HTML:</p>
+
+<div class="scroll-x"><pre><code>/api/    /install.sh    /install.ps1    /badge/    /health</code></pre></div>
+
+<p>That failure is nastier than it looks. <code>curl … /install.sh | sh</code> then pipes a web page into a shell, and fails with a syntax error that says nothing about why.</p>
+
+<p>Badges are served from <code>/badge/:slug.svg</code> and <code>/badge/:slug/:key.svg</code> in five styles, cached 60 s with <code>stale-while-revalidate=300</code> so a CDN or GitHub's image proxy keeps serving the last render rather than a broken image. Unsubscribe links in mail point at <code>/api/v1/unsubscribe/&lt;ref&gt;</code>, which is under <code>/api/</code> and needs no separate rule.</p>
+
+<h2 id="mail-and-notifications"><a class="anchor" href="#mail-and-notifications">Mail and notifications</a></h2>
+
+<p>There are two layers, and knowing which one is in use is most of the troubleshooting.</p>
+
+<p><strong>The tenant's own SMTP settings</strong>, entered in the first-run wizard and editable in the admin, are used for every message sent to a person: incident and maintenance notifications, subscriber double opt-in, password recovery. The password is encrypted with <code>APP_SECRET</code>. A transporter is cached per tenant, so changing the settings closes and rebuilds it.</p>
+
+<p><strong><code>SMTP_HOST</code>, <code>SMTP_PORT</code>, <code>SMTP_USER</code>, <code>SMTP_PASSWORD</code>, <code>SMTP_SECURE</code> and <code>MAIL_FROM</code></strong> are the instance-level fallback, used only when the tenant has configured nothing. On an installation set up through the wizard — the normal case — they are unset and unused.</p>
+
+<p>The admin has a &quot;send a test&quot; button. Use it: it exercises the same settings the real messages use.</p>
+
+<p>If a relay still negotiates a 1024-bit Diffie-Hellman group, the handshake fails with <code>dh key too small</code> before a byte of mail moves. The tenant's mail settings carry an opt-in for that case, which lowers OpenSSL's security level to 1 — enough to accept the small group, not enough to accept broken ciphers or null encryption, and the TLS 1.2 floor is untouched. It is off unless asked for. A 1024-bit group is within reach of an adversary who can afford the precomputation; it is offered because on port 25 with opportunistic STARTTLS the honest alternative is not stronger TLS, it is no TLS.</p>
+
+<p>Notification delivery is a background job polling every ten seconds, with retries. Subscribers, incidents and maintenance windows generate the messages; outbound webhooks are signed over <code>&lt;timestamp&gt;.&lt;body&gt;</code> so a captured payload is not replayable forever.</p>
+
+<p>Every notification mail carries an unsubscribe link in the body and advertises <code>List-Unsubscribe</code> and <code>List-Unsubscribe-Post</code>. The address answers a GET with a one-button page — a GET must not unsubscribe anyone, because mail clients and security appliances prefetch links — and a POST with the unsubscribe itself, including the form encoding an RFC 8058 provider sends.</p>
+
+<h2 id="security-and-what-is-yours-to-do"><a class="anchor" href="#security-and-what-is-yours-to-do">Security, and what is yours to do</a></h2>
+
+<p>The <a href="https://github.com/lelabnet-creator/ternproject/blob/main/docs/security.md">security model</a> is the reference: three non-interchangeable credentials, three roles, what is encrypted with what, and the table of what an attacker gets from each thing they steal. What falls to you as the operator:</p>
+
+<ul>
+<li><strong>Terminate TLS in front, and keep the hostname.</strong> Nothing below works without it, and passkeys are bound to it.</li>
+<li><strong>Custody of <code>APP_SECRET</code>.</strong> Separately from the dump. Rotating it invalidates every session and makes every encrypted value unreadable; there is no re-encryption path.</li>
+<li><strong>Set <code>TRUSTED_PROXIES</code> correctly, or not at all.</strong> A wrong value is worse than an empty one.</li>
+<li><strong>Close the first-run window</strong>, by opening the admin immediately or by provisioning the account in advance.</li>
+<li><strong>Understand that there is no step-up re-authentication.</strong> A stolen admin session can do anything an admin can until it is revoked. Sessions are revocable in the admin; that is the lever.</li>
+<li><strong>Every secret TERN generates is shown exactly once.</strong> There is no &quot;show key&quot; anywhere, because only a hash is kept. A key that was not written down is a key to reissue.</li>
+<li><strong>Do not publish the database port.</strong> The production compose file publishes none. Adding one to debug something is a change to undo.</li>
+</ul>
+
+<p>The application process runs as the unprivileged <code>node</code> user inside the image, and the container is the security boundary you already have — the usual host hardening applies and TERN neither helps nor hinders it.</p>
+
+<p>Vulnerability reports go to <a href="https://github.com/lelabnet-creator/ternproject/blob/main/SECURITY.md"><code>SECURITY.md</code></a>.</p>
+
+<h2 id="when-something-is-wrong"><a class="anchor" href="#when-something-is-wrong">When something is wrong</a></h2>
+
+<h3 id="the-stack-will-not-start"><a class="anchor" href="#the-stack-will-not-start">The stack will not start</a></h3>
+
+<p><code>docker compose -f docker-compose.prod.yml logs app</code>. The most common causes, in the order they appear:</p>
+
+<ul>
+<li><strong><code>✗ Invalid environment:</code></strong> followed by a list. The configuration failed validation and the process exited on purpose. <code>APP_SECRET</code> under 32 characters or still the placeholder is the usual one.</li>
+<li><strong><code>✗ /var/lib/tern/app_secret is not writable</code></strong>. The <code>tern-data</code> volume is missing or not writable by the <code>node</code> user. Mount it, or supply <code>APP_SECRET</code> yourself.</li>
+<li><strong><code>✗ migrations failed after 10 attempts</code></strong>. The database did not become reachable. Check <code>logs db</code>; on a first start it may be initialising a cluster.</li>
+</ul>
+
+<h3 id="setup-sh-refuses-to-start"><a class="anchor" href="#setup-sh-refuses-to-start"><code>setup.sh</code> refuses to start</a></h3>
+
+<p>Either the Docker daemon is not answering, or standard input is not a terminal (you piped the script instead of downloading it), or the installation still holds its database in the container layer — see <a href="#if-you-installed-before-the-storage-fix">the storage fix</a>.</p>
+
+<p>If it starts the stack and then reports that the database does not seem to rest on a volume, stop. The instance works, and a <code>docker compose up -d</code> would destroy it. Compare the <code>db</code> service's <code>volumes:</code> block against the shipped compose file.</p>
+
+<h3 id="the-agent-container-restarts-or-never-reports"><a class="anchor" href="#the-agent-container-restarts-or-never-reports">The agent container restarts, or never reports</a></h3>
+
+<ul>
+<li><strong><code>✗ … tern-agent-… is missing</code></strong> — the image has no agent binary for this architecture. That is normal for an image built from a checkout that has never run CI. The instance still monitors through its in-process prober; the fleet screen shows the agent as never having reported.</li>
+<li><strong>From source</strong>, the API supervises the binary itself, and gives up after three exits inside five seconds with a line saying so. A binary older than the server is the usual cause.</li>
+<li><strong>A paired agent that stopped</strong> — run <code>tern-agent doctor</code> on the host. It checks the clock and the config permissions along with the obvious things.</li>
+</ul>
+
+<h3 id="the-public-page-trails-or-has-gaps"><a class="anchor" href="#the-public-page-trails-or-has-gaps">The public page trails, or has gaps</a></h3>
+
+<ul>
+<li><strong>429s in agent logs and gaps on the page</strong> — the ingest rate limit. Capacity predicts it; <code>INGEST_RATE_LIMIT_MAX</code> raises it. Remember that one agent sends one request per run, not one per probe.</li>
+<li><strong>Slow requests everywhere, not only ingest</strong> — the connection pool. Past about 40 the answer is a pooler rather than a bigger <code>DB_POOL_MAX</code>.</li>
+<li><strong>The public page trails the admin by minutes</strong> — aggregate refresh lag. Lengthen the probe interval before raising retention.</li>
+<li><strong>A control stuck at <code>unknown</code></strong> — it has an expected interval and has not reported within it. That is the staleness sweep doing its job, and it only runs while the API does.</li>
+</ul>
+
+<h3 id="mail-does-not-arrive"><a class="anchor" href="#mail-does-not-arrive">Mail does not arrive</a></h3>
+
+<p>Check which layer is sending. If the tenant has SMTP settings, they are what is used; if it does not, the environment variables are — and on a wizard-installed instance those are unset, so nothing goes anywhere. The test button exercises the real path. Password recovery deliberately reports success either way, so as not to reveal whether an address exists, which means the process log is where the failure is recorded.</p>
+
+<h3 id="install-sh-returns-html"><a class="anchor" href="#install-sh-returns-html"><code>/install.sh</code> returns HTML</a></h3>
+
+<p>The reverse proxy is not routing it to the API. See <a href="#behind-a-reverse-proxy">behind a reverse proxy</a>.</p>
+
+<h3 id="passkeys-are-not-offered"><a class="anchor" href="#passkeys-are-not-offered">Passkeys are not offered</a></h3>
+
+<p>The page is not in a secure context — plain http on something other than <code>localhost</code>. The interface hides the button rather than showing one that throws. If passkeys stopped working after a move, the hostname in <code>PUBLIC_BASE_URL</code> changed; the password and the emailed reset link are the way back in.</p>
+
+<h3 id="starting-over"><a class="anchor" href="#starting-over">Starting over</a></h3>
+
+<p><code>./scripts/reset.sh --prod</code> returns the instance to the state a first boot produces: schema migrated, no accounts, first-run wizard waiting. It is destructive — measurements, incidents, subscribers, agents and accounts — and it takes no backup of its own. Take the dump first.</p>
+
+<p>To empty one tenant without deleting it, the admin has a danger zone that removes what the tenant monitors and publishes while keeping what the tenant is: its address, branding, members and audit trail. Wiping the audit trail would erase the record of the wipe, which is the one entry somebody will certainly look for afterwards.</p>
+
+<h2 id="known-limitations-that-affect-operations"><a class="anchor" href="#known-limitations-that-affect-operations">Known limitations that affect operations</a></h2>
+
+<p>Recorded with reasoning in <a href="https://github.com/lelabnet-creator/ternproject/blob/main/BACKLOG.md"><code>BACKLOG.md</code></a>. The one an operator runs into:</p>
+
+<ul>
+<li><strong>Named metrics are not on the public page.</strong> They are ingested, stored and drawn in the admin, but the public page reads the daily rollups and the continuous aggregates do not roll up a JSONB map.</li>
+</ul>
+
+<p>And two properties that are not defects but are often mistaken for them: the Monitoring tab describes one API process rather than the deployment, and per-tenant retention runs as an application job because TimescaleDB's own retention policies act per hypertable — the 740-day policy on <code>checks</code> is only a backstop.</p>
+    </main>
+    <footer>
+      Rendered from <code>docs/admin-guide.md</code> by
+      <code>scripts/build-docs.mjs</code>. Edit the Markdown, not this file.
+    </footer>
+  </body>
+</html>

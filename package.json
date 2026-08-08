@@ -23,6 +23,7 @@
     "typecheck": "pnpm -r exec tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "docs:build": "node scripts/build-docs.mjs",
     "db:migrate": "pnpm -F @tern/db migrate",
     "db:seed": "pnpm -F @tern/db seed",
     "db:provision": "pnpm -F @tern/db provision",
