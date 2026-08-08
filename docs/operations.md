@@ -172,6 +172,31 @@ to that family — Debian ships `docker.io` and Arch ships `docker`, and swappin
 distribution-supported package for a third-party one there would be a regression
 dressed up as a fix.
 
+**On Arch the obstacle is the package database, not the package.** A cloud image
+ships one frozen on the day it was built, and the mirrors carry only current
+versions, so installing anything fails on a version they no longer have — 404 from
+every mirror, and pacman signs off with "Errors occurred, no packages were
+upgraded", which names nothing you can act on. There is no smaller fix than
+`-Syu`: `pacman -Sy` without `-u` is the documented way to break an Arch install,
+refreshing the database while leaving the system behind it, and Arch supports no
+partial upgrade. So the installer asks, in those words, because upgrading your
+whole system is a much larger thing than installing one package. Decline and the
+install proceeds; if the database really was stale, the failure carries one line
+saying so with the command.
+
+That upgrade has a consequence of its own, and it is the reason the installer
+sometimes stops and asks you to reboot. Replacing the kernel removes the running
+kernel's module directory, so until the machine restarts, nothing that is not
+already loaded can be loaded. Docker's failure in that state is spectacularly
+unhelpful — `iptables … Could not fetch rule set generation id: Invalid argument`,
+then `failed to register "bridge" driver`, which is `nf_tables` unable to load and
+names neither the kernel nor the reboot. The installer asks the direct question
+instead — is there a module directory for the kernel actually running? — after
+the upgrade and before starting the service, and says one sentence: this machine
+is running a kernel it no longer has the modules for; restart, then run this
+installer again. Both `/usr/lib/modules` and `/lib/modules` are checked, and no
+diagnosis is offered at all when `uname -r` does not answer.
+
 The repository file is fetched with `curl` into `/etc/yum.repos.d/docker-ce.repo`
 rather than through `dnf config-manager`, whose plugin is not always installed
 and whose subcommand dnf5 renamed; it is the same file either way. Which file is
@@ -378,6 +403,29 @@ rehearsed restore is a better answer than a reverse migration nobody has run.
 They are independent of the server's lifecycle: an agent whose server is
 unreachable keeps measuring and buffers to disk (5 000 points, oldest dropped
 first). Nothing needs restarting after a server upgrade.
+
+### When the instance has no TLS in front of it
+
+The agent refuses to talk plain HTTP to anything but localhost, because the API
+key it receives at pairing crosses the network in clear and does so again on
+every report. That refusal is right, and on its own it made the product
+contradict itself: the installer asks for a public URL, suggests the machine's
+own LAN address, accepts it — and the admin then handed you a pairing command
+the agent rejected.
+
+`TERN_ALLOW_PLAIN_HTTP=1` lifts it, and nothing else does; the variable is
+compared against exactly `1`, because a security control that turns itself off
+on a misspelling reads as enabled. You will rarely set it by hand: when
+`PUBLIC_BASE_URL` is plain HTTP, the generated `install.sh` and `install.ps1`
+set it themselves — for the pairing, and in the service unit, the launchd plist,
+the OpenRC script or Windows' persistent environment, because an agent that
+pairs once and then fails on every report is the failure a monitoring tool can
+least afford. Give the instance an `https://` address and it disappears from the
+generated scripts entirely.
+
+What it costs is worth stating plainly: on that network, anyone who can watch the
+traffic can read the ingest key and report false measurements as that agent. On a
+home or office LAN you may accept it; across the internet you should not.
 
 ### Surviving a reboot
 
