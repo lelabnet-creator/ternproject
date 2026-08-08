@@ -31,3 +31,9 @@ apps/web/public/docs/
 
 # Écrit par Playwright, jamais relu par un humain.
 e2e/.auth/
+
+# La trace des recettes de déploiement : des journaux, des captures et des
+# réponses d'API telles qu'elles sont arrivées. Les reformater changerait la
+# pièce à conviction — et l'une d'elles est une erreur réseau que le banc a
+# écrite dans un fichier .json, ce que rien ne peut analyser comme du JSON.
+deploy-tests/
