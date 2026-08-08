@@ -28,6 +28,10 @@ test-results/
 
 # Editors / OS
 .DS_Store
+# Windows writes this alongside a downloaded file to record where it came from.
+# The colon makes the name illegal on Windows itself, so one committed here
+# fails `git checkout` on a Windows runner before a build even starts.
+*:Zone.Identifier
 .idea/
 .vscode/*
 !.vscode/extensions.json
