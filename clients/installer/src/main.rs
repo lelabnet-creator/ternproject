@@ -818,21 +818,31 @@ fn ensure_docker_access(ctx: &Ctx) -> Result<(), Stop> {
     // us restart with the access rather than send somebody off to log out in
     // the middle of an install.
     //
+    // `newgrp` when `sg` is absent, which is not a detail: Arch ships shadow
+    // without the `sg` name, and there the installer walked all the way through
+    // a system upgrade, a reboot, Docker, Compose and the group — and then told
+    // the reader to log out and start again. The two are the same program under
+    // two names and take the same `-c`, measured rather than read in a manual,
+    // because `newgrp`'s own documentation does not mention the flag.
+    //
     // `TERN_REEXEC` stops the loop: if access is still missing after this, the
     // problem is not the membership, and it needs saying rather than repeating
     // for ever.
-    if std::env::var_os("TERN_REEXEC").is_none() && probe::has_command("sg") {
+    let opener = ["sg", "newgrp"]
+        .into_iter()
+        .find(|name| probe::has_command(name));
+    if let (None, Some(opener)) = (std::env::var_os("TERN_REEXEC"), opener) {
         if let Ok(exe) = std::env::current_exe() {
             cliclack::log::info(c.sock_reexec)?;
             let command = probe::shell_quote(&exe.display().to_string());
             ctx.journal
-                .line(&format!("re-executing under: sg docker -c {command}"));
+                .line(&format!("re-executing under: {opener} docker -c {command}"));
 
             use std::os::unix::process::CommandExt;
             // A real `exec`, as the shell had: this process becomes the new
             // one, so there is no parent left holding a terminal it no longer
             // drives. It only returns if the exec itself failed.
-            let error = Command::new("sg")
+            let error = Command::new(opener)
                 .args(["docker", "-c", &command])
                 .env("TERN_REEXEC", "1")
                 .exec();

@@ -186,7 +186,7 @@ dependencies = [
 
 [[package]]
 name = "tern-setup"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "cliclack",
  "console 0.15.11",
