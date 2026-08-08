@@ -4,6 +4,7 @@
 //!   TERN_LANG=fr cargo run --example render
 //!   cargo run --example render -- fail        (a run that stops)
 //!   cargo run --example render -- prompts     (the questions, frame by frame)
+//!   cargo run --example render -- states      (every state of a row at once)
 //!
 //! There is no safe way to run the real thing to check its appearance — it puts
 //! packages on the machine and starts containers — and appearance is exactly
@@ -19,13 +20,32 @@
 //! under `TERM=linux script -qec … /dev/null | cat -v` and look for `[2m`. A
 //! Linux console does not render dim, so anything still emitted that way is
 //! text nobody will ever read.
+//!
+//! `states` answers the second one. It drives a list into every state a row can
+//! be in — skipped, done, failed, running, pending — and then holds there,
+//! which no real install ever does: a real one shows the states one after the
+//! other, and the defect was that they looked the same *side by side*. Two ways
+//! to read it:
+//!
+//!   TERM=linux script -qec 'cargo run --example render -- states' /dev/null
+//!
+//! is the screen itself, redraws and all. And
+//!
+//!   CLICOLOR_FORCE=1 TERM=linux cargo run --example render -- states 2>&1 | cat -v
+//!
+//! is the same rows one per line with their escapes visible: `indicatif` draws
+//! nothing when stderr is not a terminal, so the checklist falls back to one
+//! plain line per state, and `CLICOLOR_FORCE` keeps the paint on. That is the
+//! form to read when the question is *which* escape carries a state, and the
+//! form to grep when the question is whether anything outside ASCII still
+//! does.
 
 use std::thread::sleep;
 use std::time::Duration;
 
 use cliclack::{StringCursor, Theme, ThemeState};
 use console::style;
-use tern_setup::checklist::{gutter_line, tail, Checklist, Failure};
+use tern_setup::checklist::{gutter_line, tail, Checklist, Failure, ELLIPSIS};
 use tern_setup::i18n::{self, fill, Catalog};
 use tern_setup::theme::TernTheme;
 
@@ -41,10 +61,63 @@ fn main() -> std::io::Result<()> {
 
     match mode.as_str() {
         "prompts" => prompts(c),
+        "states" => states(c),
         "docker" => docker(c),
         "fail" => run(c, true),
         _ => run(c, false),
     }
+}
+
+/// Every state a row can be in, on the screen at the same time.
+///
+/// A real install never shows this: the states arrive one after another, and a
+/// list that looks right in sequence can still be unreadable as a whole, which
+/// is precisely what was reported. So one of each is forced — a step there was
+/// nothing to do about, one that succeeded, one that stopped, the one being
+/// watched, and two nobody has reached — and the last of them is held long
+/// enough to be looked at.
+///
+/// The labels are the installer's own, from the catalog. Nothing here is
+/// written for the demonstration: a screen proved with strings that only exist
+/// in the proof is a screen that has not been proved.
+fn states(c: &'static Catalog) -> std::io::Result<()> {
+    cliclack::intro(style(format!(" {} ", c.title)).on_cyan().black())?;
+
+    let list = Checklist::new(
+        c,
+        c.head_install,
+        vec![
+            c.step_fetch_compose.to_string(),
+            c.step_write_config.to_string(),
+            c.step_pull.to_string(),
+            c.step_start.to_string(),
+            c.step_wait_api.to_string(),
+            c.step_check_volume.to_string(),
+        ],
+    );
+
+    list.skip(0, c.note_already);
+    let _ = list.run(1, || Ok(Some(fill(c.env_written, &[".env"]))));
+    let _ = list.run(2, || {
+        sleep(Duration::from_millis(300));
+        Ok(None)
+    });
+    let _ = list.run(3, || Err(Failure::new(c.start_failed, "")));
+
+    // The one being watched, held for long enough that the frame above it can
+    // be read whole rather than caught between two redraws.
+    let _ = list.run(4, || {
+        sleep(Duration::from_millis(4000));
+        Ok(None)
+    });
+    list.finish();
+
+    cliclack::log::info(c.secret_new)?;
+    cliclack::log::warning(c.docker_missing)?;
+    cliclack::log::error(c.start_failed)?;
+    cliclack::log::success(c.volume_ok)?;
+    cliclack::outro(fill(c.outro_ready, &[ADMIN]))?;
+    Ok(())
 }
 
 /// The other two checklists: the one that puts Docker on the machine, and the
@@ -63,8 +136,8 @@ fn docker(c: &'static Catalog) -> std::io::Result<()> {
         c.head_docker,
         vec![
             c.step_apt_update.to_string(),
-            fill(c.step_install_engine, &["…"]),
-            fill(c.step_install_compose, &["…"]),
+            fill(c.step_install_engine, &[ELLIPSIS.pick()]),
+            fill(c.step_install_compose, &[ELLIPSIS.pick()]),
             c.step_enable_service.to_string(),
         ],
     );
@@ -247,8 +320,16 @@ fn prompts(c: &'static Catalog) -> std::io::Result<()> {
     input_frames(&theme, c.q_trusted_proxies, c.q_proxies_none, "");
 
     cliclack::log::step(c.head_agent)?;
-    confirm_frames(&theme, c.docker_install_q, true);
-    confirm_frames(&theme, c.agent_q, false);
+
+    // All three of them, and each with the choice on either side. Which one is
+    // held has to be legible without knowing the question, and the only way to
+    // see that is to look at the two frames next to each other — the defect
+    // reported was not "the wrong one is highlighted" but "we cannot tell which
+    // one is".
+    for question in [c.docker_install_q, &fill(c.sock_add_q, &["ann"]), c.agent_q] {
+        confirm_frames(&theme, question, true);
+        confirm_frames(&theme, question, false);
+    }
 
     cliclack::outro(fill(c.outro_ready, &[ADMIN]))?;
     Ok(())

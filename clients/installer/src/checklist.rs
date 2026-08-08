@@ -33,6 +33,16 @@
 //! Each step's duration is measured here, at the moment it ends. `ProgressBar`
 //! reports the time since the bar was created, which for bars all created at
 //! the start means every line showing the same number.
+//!
+//! What tells the three states apart is the colour and the weight, not the
+//! mark: green for a step that is over, bold for the one running, grey for one
+//! nobody has reached. That order came from a Linux console, where `✓`, `○` and
+//! the spinner are all drawn as the same substitution glyph and the list read
+//! as nine identical lines. The marks are still there and still differ — they
+//! go to ASCII on such a screen, see `theme::charset` — but they are the second
+//! thing that says it, not the first. Colour and weight are also what survives
+//! the label being read at a glance from across a desk, which is how a list
+//! watched for four minutes actually gets read.
 
 use std::cell::{Cell, RefCell};
 use std::time::{Duration, Instant};
@@ -41,26 +51,57 @@ use console::{measure_text_width, style, Emoji, Style, Term};
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 
 use crate::i18n::{fill, Catalog};
-use crate::theme::{rule, secondary};
+use crate::theme::{done, rule, running, secondary, Glyph};
 
 /// The box, in the same characters cliclack draws its notes with — and with
 /// the same ASCII fallbacks, so the two never disagree about which alphabet
 /// this terminal reads.
+///
+/// These stay `Emoji`: box drawing is what a console font spends its cells on,
+/// and it is the one block the Linux console is certain to have.
 const BAR: Emoji = Emoji("│", "|");
 const RULE_H: Emoji = Emoji("─", "-");
 const CORNER_TOP_RIGHT: Emoji = Emoji("╮", "+");
 const CORNER_BOTTOM_RIGHT: Emoji = Emoji("╯", "+");
 const CONNECT_LEFT: Emoji = Emoji("├", "+");
-const STEP_SUBMIT: Emoji = Emoji("◇", "o");
 
-/// The step markers, and the ellipsis of a label too long for the box.
-const PENDING: Emoji = Emoji("○", "-");
-const DONE: Emoji = Emoji("✓", "+");
-const FAILED: Emoji = Emoji("■", "x");
-const ELLIPSIS: Emoji = Emoji("…", "..");
+/// The head of the box, the same shape cliclack puts in front of a step that is
+/// behind us.
+const STEP_SUBMIT: Glyph = Glyph("◇", "o");
+
+/// The five marks a row can carry, one column each, each with the stand-in used
+/// where the screen has no font behind it.
+///
+/// The ASCII half is not a transliteration of the shape but a second reading of
+/// the meaning: a full stop for what has not begun, an arrow for the one being
+/// watched, a plus for what is done, a dash for what there was nothing to do
+/// about, a cross for what stopped. Kept together, and read together, because
+/// the one property that matters is that no two of them look alike — which is
+/// exactly what `✓ ○ ◐` stopped having on the screen this came from.
+const PENDING: Glyph = Glyph("○", ".");
+const RUNNING: Glyph = Glyph("▸", ">");
+const DONE: Glyph = Glyph("✓", "+");
+const SKIPPED: Glyph = Glyph("✓", "-");
+const FAILED: Glyph = Glyph("■", "x");
+
+/// The ellipsis: a label cut to fit the box, and — from `main` — a step named
+/// after a package whose name is not knowable yet.
+///
+/// Public for the second of those. It is the one mark the installer draws from
+/// outside this module, and it has no business being the last lozenge left on a
+/// console screen.
+pub const ELLIPSIS: Glyph = Glyph("…", "..");
 
 /// The progress bar's own characters: filled, the leading edge, empty.
-const PROGRESS_CHARS: Emoji = Emoji("■■□", "##-");
+///
+/// `■` and `□` are the same substitution glyph on a console that has neither,
+/// which turns the bar into a row of identical blocks that never appears to
+/// move — a progress bar saying nothing about progress.
+const PROGRESS_CHARS: Glyph = Glyph("■■□", "##-");
+
+/// The spinner of the running step. Four frames and the first repeated, because
+/// the last character is the one `indicatif` leaves behind when the bar stops.
+const TICK_CHARS: Glyph = Glyph("◒◐◓◑◒", "|/-\\|");
 
 /// How many columns the right-hand column is allowed. `(12m34s)` is the
 /// longest duration anyone will read here, and `.env, mode 600` the longest
@@ -363,12 +404,14 @@ impl Checklist {
             // The spinner takes the marker's column, so the row keeps its width
             // and the right-hand border stays put. It lives in the template
             // rather than in the message because that is what `indicatif`
-            // animates.
+            // animates. The label is bold: on a screen where the spinner is
+            // four ASCII characters, the weight is what says "this is the one",
+            // and it says it whether or not the eye catches the animation.
             bar.set_style(running_style(&row_tail(
                 inner,
                 &self.labels[index],
                 "",
-                &Style::new(),
+                &running(),
             )));
             bar.set_message("");
             bar.enable_steady_tick(Duration::from_millis(90));
@@ -382,17 +425,23 @@ impl Checklist {
     fn paint_row(&self, index: usize, inner: usize) -> String {
         let rows = self.rows.borrow();
         let label = &self.labels[index];
+        // The style goes on the label as well as on the mark, and that is the
+        // point: on a sixteen-colour console the terminal's own foreground and
+        // the grey of `secondary` are the same light grey, so a done step left
+        // in the default colour and a pending one differ by their mark alone —
+        // which is exactly the channel that console does not have.
         let (marker, marker_style, label_style) = match rows[index].mark {
-            Mark::Done => (DONE, Style::new().green(), Style::new()),
-            Mark::Failed => (FAILED, Style::new().red(), Style::new()),
-            Mark::Skipped => (DONE, secondary(), secondary()),
+            Mark::Done => (DONE.pick(), done(), done()),
+            Mark::Failed => (FAILED.pick(), Style::new().red(), Style::new().red()),
+            Mark::Skipped => (SKIPPED.pick(), secondary(), secondary()),
             // A running step drawn as a plain row: the terminal-less fallback,
             // where there is no spinner to put in that column.
-            Mark::Pending | Mark::Running => (PENDING, secondary(), secondary()),
+            Mark::Running => (RUNNING.pick(), running(), running()),
+            Mark::Pending => (PENDING.pick(), secondary(), secondary()),
         };
         row(
             inner,
-            &marker.to_string(),
+            marker,
             &marker_style,
             label,
             &label_style,
@@ -475,7 +524,7 @@ fn header_line(inner: usize, title: &str) -> String {
     let dashes = (inner + 2).saturating_sub(measure_text_width(title));
     format!(
         "{symbol}  {title} {rule}{corner}",
-        symbol = style(STEP_SUBMIT).green(),
+        symbol = style(STEP_SUBMIT.pick()).green(),
         rule = rule().apply_to(RULE_H.to_string().repeat(dashes)),
         corner = rule().apply_to(CORNER_TOP_RIGHT),
     )
@@ -542,14 +591,7 @@ fn row_tail(inner: usize, label: &str, right: &str, label_style: &Style) -> Stri
 /// itself goes through `paint_row`, which knows what state each step is in.
 #[cfg(test)]
 fn pending_row(inner: usize, label: &str) -> String {
-    row(
-        inner,
-        &PENDING.to_string(),
-        &secondary(),
-        label,
-        &secondary(),
-        "",
-    )
+    row(inner, PENDING.pick(), &secondary(), label, &secondary(), "")
 }
 
 /// A label that does not fit, cut where the box ends rather than allowed to
@@ -558,8 +600,8 @@ fn clip(text: &str, room: usize) -> String {
     if measure_text_width(text) <= room {
         return text.to_string();
     }
-    let mark = ELLIPSIS.to_string();
-    let room = room.saturating_sub(measure_text_width(&mark));
+    let mark = ELLIPSIS.pick();
+    let room = room.saturating_sub(measure_text_width(mark));
 
     let mut kept = String::new();
     for ch in text.chars() {
@@ -568,7 +610,7 @@ fn clip(text: &str, room: usize) -> String {
         }
         kept.push(ch);
     }
-    kept + &mark
+    kept + mark
 }
 
 fn pad_to(text: &str, width: usize) -> String {
@@ -649,14 +691,12 @@ fn line_style() -> ProgressStyle {
 /// would be, and everything after it is already laid out.
 fn running_style(tail: &str) -> ProgressStyle {
     ProgressStyle::with_template(&format!(
-        "{bar}  {{spinner:.magenta}}{tail}   {bar}",
+        "{bar}  {{spinner:.magenta.bold}}{tail}   {bar}",
         bar = rule().apply_to(BAR),
         tail = escape_braces(tail),
     ))
     .expect("static template")
-    // The last character is the one indicatif leaves behind when the bar stops;
-    // repeating the first keeps the cycle even.
-    .tick_chars("◒◐◓◑◒")
+    .tick_chars(TICK_CHARS.pick())
 }
 
 /// The progress row, drawn by `indicatif` from a position we set ourselves.
@@ -666,7 +706,7 @@ fn progress_style() -> ProgressStyle {
         bar = rule().apply_to(BAR),
     ))
     .expect("static template")
-    .progress_chars(&PROGRESS_CHARS.to_string())
+    .progress_chars(PROGRESS_CHARS.pick())
 }
 
 /// A label is data, and a template is not. One brace in a package name would
@@ -696,6 +736,15 @@ mod tests {
     use super::*;
     use crate::i18n::{EN, FR};
 
+    /// Every test in this crate looks at what a real screen receives, so they
+    /// all agree that there is one. `measure_text_width` and
+    /// `strip_ansi_codes` see through the escapes, so a width can still be
+    /// measured with the paint on — and nothing here flips the shared global
+    /// the other way underneath a test running beside it.
+    fn on_a_terminal() {
+        console::set_colors_enabled(true);
+    }
+
     #[test]
     fn short_steps_say_nothing_about_their_duration() {
         assert_eq!(elapsed_note(Duration::from_millis(400)), "");
@@ -722,7 +771,7 @@ mod tests {
     /// wide, so no border moves while the list fills in.
     #[test]
     fn every_row_of_the_box_is_the_same_width() {
-        console::set_colors_enabled(false);
+        on_a_terminal();
         let inner = 44;
         let width = measure_text_width(&header_line(inner, "Installing TERN"));
 
@@ -730,7 +779,7 @@ mod tests {
             framed(&pending_row(inner, "Pulling the images")),
             framed(&row(
                 inner,
-                &DONE.to_string(),
+                DONE.pick(),
                 &Style::new(),
                 "Writing the configuration",
                 &Style::new(),
@@ -750,7 +799,7 @@ mod tests {
     /// which a box is no longer a box.
     #[test]
     fn a_renamed_step_gets_the_room_its_name_needs() {
-        console::set_colors_enabled(false);
+        on_a_terminal();
         let announced = vec![
             "Refreshing the package lists".to_string(),
             "Installing Docker Compose (…)".to_string(),
@@ -772,25 +821,25 @@ mod tests {
     /// step once it is known — is cut to the box rather than allowed to move it.
     #[test]
     fn a_label_too_long_for_the_box_is_cut_and_not_wrapped() {
-        console::set_colors_enabled(false);
+        on_a_terminal();
         let inner = 40;
         let long = "Installing Docker Compose (docker-compose-plugin-with-a-very-long-name)";
         let line = framed(&pending_row(inner, long));
 
         assert_eq!(measure_text_width(&line), inner + CHROME);
-        assert!(line.contains(&ELLIPSIS.to_string()));
+        assert!(line.contains(ELLIPSIS.pick()));
     }
 
     /// Room for the longest note the right-hand column can ever hold, so that
     /// `already there` and `(12m34s)` both land inside the frame.
     #[test]
     fn the_box_is_sized_for_the_notes_it_will_have_to_hold() {
-        console::set_colors_enabled(false);
+        on_a_terminal();
         let labels = vec!["Waiting for the API".to_string()];
         let inner = inner_width("Installing TERN", &labels, 12);
         let line = framed(&row(
             inner,
-            &DONE.to_string(),
+            DONE.pick(),
             &Style::new(),
             "Waiting for the API",
             &Style::new(),
@@ -819,5 +868,81 @@ mod tests {
     #[test]
     fn a_brace_in_a_label_never_reaches_the_template() {
         assert_eq!(escape_braces("gcc-{13}"), "gcc-{{13}}");
+    }
+
+    /// The defect itself, in the one form it can be caught in: a screen with no
+    /// font behind it gets characters it has, and no two of them alike.
+    ///
+    /// Two marks share a shape by design — a step that was skipped is a step
+    /// that is behind us — and they are the two that never appear without a
+    /// note beside them saying which. Everything else has to differ.
+    #[test]
+    fn the_marks_a_bare_console_gets_are_ascii_and_all_different() {
+        let stand_ins = [
+            ("pending", PENDING.1),
+            ("running", RUNNING.1),
+            ("done", DONE.1),
+            ("skipped", SKIPPED.1),
+            ("failed", FAILED.1),
+        ];
+
+        for (state, mark) in stand_ins {
+            assert!(mark.is_ascii(), "{state} is drawn with {mark:?}");
+            assert_eq!(measure_text_width(mark), 1, "{state} is not one column");
+        }
+        for (state, mark) in stand_ins {
+            let clashes = stand_ins.iter().filter(|(_, other)| *other == mark).count();
+            assert_eq!(clashes, 1, "{state} looks like another state");
+        }
+
+        // The rest of what a bare console is handed: the ellipsis, the spinner
+        // and the progress bar, whose two ends have to differ for the bar to
+        // read as a bar at all.
+        for text in [ELLIPSIS.1, TICK_CHARS.1, PROGRESS_CHARS.1] {
+            assert!(text.is_ascii(), "{text:?}");
+        }
+        let filled = PROGRESS_CHARS.1.chars().next().expect("a filled cell");
+        let empty = PROGRESS_CHARS.1.chars().last().expect("an empty cell");
+        assert_ne!(filled, empty);
+    }
+
+    /// Colour and weight, not the mark: the three states have to be told apart
+    /// by someone who cannot see the first column at all.
+    #[test]
+    fn the_three_states_differ_before_their_marks_do() {
+        on_a_terminal();
+        let paint = |style: &Style| style.apply_to("Pulling the images").to_string();
+
+        let pending = paint(&secondary());
+        let running = paint(&running());
+        let finished = paint(&done());
+
+        assert_ne!(pending, running);
+        assert_ne!(pending, finished);
+        assert_ne!(running, finished);
+
+        // And each is the thing it claims to be: grey 7, bold, green.
+        assert!(pending.contains("\u{1b}[37m"), "{pending:?}");
+        assert!(running.contains("\u{1b}[1m"), "{running:?}");
+        assert!(finished.contains("\u{1b}[32m"), "{finished:?}");
+    }
+
+    /// The label carries the state too, not just the column in front of it.
+    /// A row whose label is left in the terminal's own foreground is a row that
+    /// says nothing on a console where that foreground *is* the grey.
+    #[test]
+    fn a_finished_row_is_green_all_the_way_across() {
+        on_a_terminal();
+        let list = Checklist::new(
+            &EN,
+            "Installing TERN",
+            vec!["Pulling the images".to_string()],
+        );
+        list.rows.borrow_mut()[0].mark = Mark::Done;
+        let row = list.paint_row(0, 44);
+
+        let green_at = row.find("\u{1b}[32m").expect("no green in the row");
+        let label_at = row.find("Pulling").expect("no label in the row");
+        assert!(green_at < label_at, "the label is not painted: {row:?}");
     }
 }

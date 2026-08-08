@@ -26,6 +26,24 @@
 //! foreground instead. cliclack styles both through the same method, and
 //! neither is a footnote: one is what the person chose, the other is the panel
 //! that says where the instance now lives.
+//!
+//! The same console then took a second thing away, and it was not a colour.
+//! `TERM=linux` is a terminal whose font is a table of 256 or 512 cells loaded
+//! into the video adapter, not a font file with a Unicode map behind it. It has
+//! the box-drawing block — that is what those cells were spent on — and it does
+//! not have `✓`, `○`, `◐` or `●`. It draws all four as the same substitution
+//! glyph. A checklist whose states differ only by that glyph then reads as nine
+//! identical lines, and a yes/no whose selection is a `●` beside a `○` says
+//! nothing at all. The states were distinct in the code the whole time; they
+//! were being drawn through a channel this screen does not have.
+//!
+//! So the marks move to ASCII where the terminal is one of those, and the state
+//! is carried by colour and weight, which that console does have: green for
+//! done, bold for running, grey for what has not started. The symbol is left as
+//! reinforcement rather than as the signal. See [`charset`] for how a terminal is
+//! taken to be one of those, and `checklist` for the marks themselves.
+
+use std::sync::OnceLock;
 
 use cliclack::{Theme, ThemeState};
 use console::{style, Emoji, Style};
@@ -34,9 +52,102 @@ use crate::i18n::Catalog;
 
 /// The frame characters, with the same fallbacks cliclack uses when the
 /// terminal cannot be trusted with Unicode.
+///
+/// Left as `Emoji`, and deliberately: the box-drawing block is the one thing a
+/// Linux console is certain to have, and its own rule — does the locale declare
+/// UTF-8 — is the right one for characters that only fail when nothing outside
+/// ASCII can be encoded at all.
 const BAR: Emoji = Emoji("│", "|");
-const RADIO_ON: Emoji = Emoji("●", ">");
-const RADIO_OFF: Emoji = Emoji("○", " ");
+
+/// What this terminal can be asked to draw.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Charset {
+    /// Anything: there is a font behind this screen.
+    Unicode,
+    /// ASCII, plus the box-drawing block. Whatever a character was carrying has
+    /// to be carried by colour and weight instead.
+    Ascii,
+}
+
+/// What this terminal has said about itself.
+///
+/// Two declarations, read in order, and nothing guessed from a list of terminal
+/// names:
+///
+/// * the charset the locale declares. Anything but UTF-8 and nothing outside
+///   ASCII can be written down at all, let alone drawn.
+/// * the terminal type. `linux` is the one type that declares a screen whose
+///   glyphs are a table loaded into the video adapter rather than a font — the
+///   console of every VM and of every server without X, and the screen this was
+///   reported from. It is matched wherever it appears, so `linux-16color` and
+///   `screen.linux` are that console too. `dumb`, and no `TERM` at all, declare
+///   even less.
+///
+/// Every other terminal is taken at its word and given the characters. When
+/// that is wrong — a serial line answering to `vt220`, a console font stripped
+/// down to Latin-1 — `TERN_ASCII=1` settles it, and `TERN_ASCII=0` forces the
+/// characters back on. Having that escape hatch is what makes it honest to stop
+/// at one name: a list of terminal types is always one terminal out of date,
+/// and it is wrong in the direction nobody can fix from the outside.
+pub fn charset() -> Charset {
+    static DECIDED: OnceLock<Charset> = OnceLock::new();
+    *DECIDED.get_or_init(|| charset_from(|name| std::env::var(name).ok()))
+}
+
+/// The rule above, against a made-up environment.
+///
+/// The reader is a parameter for the same reason it is one in `i18n`: the
+/// process environment is global, and a test that sets it decides the answer
+/// for every other test running beside it.
+pub fn charset_from(read: impl Fn(&str) -> Option<String>) -> Charset {
+    match read("TERN_ASCII").as_deref() {
+        Some("1") => return Charset::Ascii,
+        Some("0") => return Charset::Unicode,
+        _ => {}
+    }
+
+    // The same order POSIX gives these, and the same order `i18n` reads them
+    // in: the first non-empty one decides.
+    let locale = ["LC_ALL", "LC_CTYPE", "LANG"]
+        .iter()
+        .filter_map(|name| read(name))
+        .find(|value| !value.is_empty())
+        .unwrap_or_default()
+        .to_ascii_uppercase();
+    if !(locale.contains("UTF-8") || locale.contains("UTF8")) {
+        return Charset::Ascii;
+    }
+
+    let term = read("TERM").unwrap_or_default();
+    if term.is_empty()
+        || term
+            .split(['-', '.'])
+            .any(|part| part == "linux" || part == "dumb")
+    {
+        return Charset::Ascii;
+    }
+    Charset::Unicode
+}
+
+/// A character, and what to draw instead where the screen has no font behind
+/// it.
+///
+/// The shape of `console::Emoji`, on purpose — the two sit side by side in this
+/// crate — but the question is a different one. `Emoji` asks whether the locale
+/// can encode the character; this asks whether the screen can draw it, which on
+/// a Linux console under a UTF-8 locale is not the same question at all.
+#[derive(Clone, Copy)]
+pub struct Glyph(pub &'static str, pub &'static str);
+
+impl Glyph {
+    /// The one this terminal can draw.
+    pub fn pick(self) -> &'static str {
+        match charset() {
+            Charset::Unicode => self.0,
+            Charset::Ascii => self.1,
+        }
+    }
+}
 
 /// The colour that replaces `dim` throughout.
 ///
@@ -45,6 +156,28 @@ const RADIO_OFF: Emoji = Emoji("○", " ");
 /// place.
 pub fn secondary() -> Style {
     Style::new().white()
+}
+
+/// A step that is over, and the mark beside it.
+///
+/// Green, and on the label as well as on the mark. The terminal's own
+/// foreground would have been the obvious choice for a line that is simply
+/// finished — but on a sixteen-colour console the default foreground and the
+/// grey of [`secondary`] are the same light grey, so a finished step and one
+/// that has not started would differ by their symbol alone, which is the whole
+/// defect this module is answering.
+pub fn done() -> Style {
+    Style::new().green()
+}
+
+/// The step being watched right now.
+///
+/// Bold. Not a colour: the two that mean something here are already spoken for,
+/// and weight is a second channel rather than a third shade — it survives a
+/// screen with no colour at all, and it is what the Linux console renders as
+/// bright white, which no other row on the list is.
+pub fn running() -> Style {
+    Style::new().bold()
 }
 
 /// The colour of the gutter and of the box rules — structure, not information.
@@ -107,12 +240,67 @@ impl Theme for TernTheme {
         }
     }
 
-    /// The `●` and `○` of a yes/no prompt.
+    /// The mark cliclack puts in front of a prompt, a note or a log line.
+    ///
+    /// `◆ ◇ ▲ ■` on a terminal that has them. On the console they are four
+    /// names for one substitution glyph, so they become four characters that
+    /// differ: a question that is open, a step that is done, something to look
+    /// at, something that stopped.
+    fn state_symbol(&self, state: &ThemeState) -> String {
+        let color = self.state_symbol_color(state);
+        match state {
+            ThemeState::Active => color.apply_to(Glyph("◆", "?").pick()),
+            ThemeState::Submit => color.apply_to(Glyph("◇", "o").pick()),
+            ThemeState::Cancel => color.apply_to(Glyph("■", "x").pick()),
+            ThemeState::Error(_) => color.apply_to(Glyph("▲", "!").pick()),
+        }
+        .to_string()
+    }
+
+    /// `log::info`, `log::warning`, `log::error` — three states of one gutter,
+    /// and on the console they arrived as one shape in three colours.
+    fn info_symbol(&self) -> String {
+        style(Glyph("●", "i").pick()).blue().to_string()
+    }
+
+    fn warning_symbol(&self) -> String {
+        style(Glyph("▲", "!").pick()).yellow().to_string()
+    }
+
+    fn error_symbol(&self) -> String {
+        style(Glyph("■", "x").pick()).red().to_string()
+    }
+
+    /// `log::success` — the same `+` the checklist crosses a step off with.
+    fn active_symbol(&self) -> String {
+        style(Glyph("◆", "+").pick()).green().to_string()
+    }
+
+    /// `log::step`, and the head of every box: one shape for "this is behind
+    /// us", shared with the checklist's own header.
+    fn submit_symbol(&self) -> String {
+        style(Glyph("◇", "o").pick()).green().to_string()
+    }
+
+    /// Nothing here reads a password yet; the day something does, it should not
+    /// be masked with a character the screen cannot draw.
+    fn password_mask(&self) -> char {
+        Glyph("▪", "*")
+            .pick()
+            .chars()
+            .next()
+            .expect("a mask is one char")
+    }
+
+    /// The mark in front of an option in a list.
+    ///
+    /// Not what a yes/no draws any more — see `format_confirm` — but a select
+    /// prompt would still come through here.
     fn radio_symbol(&self, state: &ThemeState, selected: bool) -> String {
         match state {
-            ThemeState::Active if selected => style(RADIO_ON).green(),
-            ThemeState::Active if !selected => secondary().apply_to(RADIO_OFF),
-            _ => style(Emoji("", "")),
+            ThemeState::Active if selected => style(Glyph("●", ">").pick()).green(),
+            ThemeState::Active if !selected => secondary().apply_to(Glyph("○", " ").pick()),
+            _ => style(""),
         }
         .to_string()
     }
@@ -128,24 +316,61 @@ impl Theme for TernTheme {
         }
     }
 
-    /// The two options of a confirmation, in the reader's language.
+    /// The two options of a confirmation, in the reader's language, with the
+    /// chosen one impossible to mistake.
     ///
-    /// The default implementation is this one with `"Yes"` and `"No"` written
-    /// into it. An installer that has just asked its question in French should
-    /// not answer it in English, and the override costs the same six lines.
+    /// cliclack draws this as `● Yes / ○ No`, and both circles come out of a
+    /// Linux console as the same lozenge: `◆ Yes / ◆ No`, a question with two
+    /// identical answers. The report was the plainest kind — "we cannot tell
+    /// whether the green circle or the lozenge is the one that validates".
+    ///
+    /// So the choice is no longer a symbol. It is the option itself, in reverse
+    /// video and between brackets, against the other one in grey. Three things
+    /// say it at once and they are independent: the bracket survives a screen
+    /// with no attributes at all — a redirected run, a `NO_COLOR` — reverse
+    /// video is the one attribute every terminal ever built renders, and the
+    /// grey is the same grey the rest of this installer uses for what is not
+    /// the point. None of it needs a legend, which was the requirement: the
+    /// person reading it has never seen this program before.
+    ///
+    /// The two options keep the same total width whichever is chosen, so
+    /// nothing shifts sideways under the arrow keys.
     fn format_confirm(&self, state: &ThemeState, confirm: bool) -> String {
-        let yes = self.radio_item(state, confirm, self.c.yes, "");
-        let no = self.radio_item(state, !confirm, self.c.no, "");
-
-        let divider = match state {
-            ThemeState::Active => self.placeholder_style(state).apply_to(" / ").to_string(),
-            _ => String::new(),
+        let line = match state {
+            // The question is open: both answers, one of them held.
+            ThemeState::Active | ThemeState::Error(_) => {
+                format!(
+                    "{}  {}",
+                    option(self.c.yes, confirm),
+                    option(self.c.no, !confirm)
+                )
+            }
+            // Answered: what is left on the screen is the answer, plainly, the
+            // way an answered input leaves the text that was typed.
+            _ => {
+                let answer = if confirm { self.c.yes } else { self.c.no };
+                self.input_style(state).apply_to(answer).to_string()
+            }
         };
 
-        format!(
-            "{bar}  {yes}{divider}{no}\n",
-            bar = self.bar_color(state).apply_to(BAR)
-        )
+        format!("{bar}  {line}\n", bar = self.bar_color(state).apply_to(BAR))
+    }
+}
+
+/// One of the two answers, held or not.
+///
+/// The brackets are part of the word's box rather than decoration around it:
+/// `[ Yes ]` and `  Yes  ` are the same width, so the pair does not move when
+/// the choice does.
+fn option(label: &str, picked: bool) -> String {
+    if picked {
+        Style::new()
+            .reverse()
+            .bold()
+            .apply_to(format!("[ {label} ]"))
+            .to_string()
+    } else {
+        secondary().apply_to(format!("  {label}  ")).to_string()
     }
 }
 
@@ -153,6 +378,7 @@ impl Theme for TernTheme {
 mod tests {
     use super::*;
     use crate::i18n::{EN, FR};
+    use console::measure_text_width;
 
     const DIM: &str = "\u{1b}[2m";
 
@@ -222,5 +448,137 @@ mod tests {
             assert!(line.contains("Yes"), "{line:?}");
             assert!(line.contains("No"), "{line:?}");
         }
+    }
+
+    /// The one that validates, said three ways at once: brackets, reverse
+    /// video, and the other one greyed.
+    #[test]
+    fn the_held_answer_is_bracketed_reversed_and_the_other_greyed() {
+        on_a_terminal();
+        let theme = TernTheme { c: &EN };
+
+        let yes = theme.format_confirm(&ThemeState::Active, true);
+        assert!(yes.contains("[ Yes ]"), "{yes:?}");
+        assert!(yes.contains("  No  "), "{yes:?}");
+        assert!(yes.contains("\u{1b}[7m"), "no reverse video: {yes:?}");
+
+        let no = theme.format_confirm(&ThemeState::Active, false);
+        assert!(no.contains("[ No ]"), "{no:?}");
+        assert!(no.contains("  Yes  "), "{no:?}");
+    }
+
+    /// Stripped of every attribute — a redirected run, `NO_COLOR`, a terminal
+    /// that ignores reverse video — the brackets are still there, and they
+    /// still say which one it is.
+    #[test]
+    fn the_choice_is_readable_with_no_attributes_at_all() {
+        on_a_terminal();
+        let line = TernTheme { c: &FR }.format_confirm(&ThemeState::Active, false);
+        let bare = console::strip_ansi_codes(&line);
+        assert!(bare.contains("[ Non ]"), "{bare:?}");
+        assert!(bare.contains("  Oui  "), "{bare:?}");
+    }
+
+    /// Neither option moves sideways when the choice moves.
+    #[test]
+    fn the_pair_of_options_keeps_its_width() {
+        on_a_terminal();
+        let theme = TernTheme { c: &FR };
+        assert_eq!(
+            measure_text_width(&theme.format_confirm(&ThemeState::Active, true)),
+            measure_text_width(&theme.format_confirm(&ThemeState::Active, false))
+        );
+    }
+
+    /// Once answered, the line says the answer and nothing else — no leftover
+    /// option, no bracket around a question that is over.
+    #[test]
+    fn an_answered_confirmation_shows_only_the_answer() {
+        on_a_terminal();
+        let line = TernTheme { c: &EN }.format_confirm(&ThemeState::Submit, false);
+        let bare = console::strip_ansi_codes(&line);
+        assert!(bare.contains("No"), "{bare:?}");
+        assert!(!bare.contains("Yes"), "{bare:?}");
+        assert!(!bare.contains('['), "{bare:?}");
+    }
+
+    /// The two declarations the decision rests on, and the escape hatch.
+    #[test]
+    fn a_terminal_is_taken_at_its_word() {
+        let env = |pairs: &[(&str, &str)]| {
+            let owned: Vec<(String, String)> = pairs
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect();
+            move |name: &str| {
+                owned
+                    .iter()
+                    .find(|(key, _)| key == name)
+                    .map(|(_, value)| value.clone())
+            }
+        };
+
+        // The console of a VM: UTF-8 everywhere, and a font that is a table.
+        for term in ["linux", "linux-16color", "linux.something"] {
+            assert_eq!(
+                charset_from(env(&[("LANG", "en_US.UTF-8"), ("TERM", term)])),
+                Charset::Ascii,
+                "{term}"
+            );
+        }
+        // No TERM at all, and the terminal that declares it can do nothing.
+        assert_eq!(charset_from(env(&[("LANG", "C.UTF-8")])), Charset::Ascii);
+        assert_eq!(
+            charset_from(env(&[("LANG", "C.UTF-8"), ("TERM", "dumb")])),
+            Charset::Ascii
+        );
+        // A locale that cannot even encode the characters.
+        assert_eq!(
+            charset_from(env(&[
+                ("LANG", "en_US.ISO-8859-1"),
+                ("TERM", "xterm-256color")
+            ])),
+            Charset::Ascii
+        );
+        assert_eq!(
+            charset_from(env(&[("TERM", "xterm-256color")])),
+            Charset::Ascii
+        );
+
+        // Anything else is believed.
+        for term in ["xterm-256color", "screen-256color", "tmux-256color", "st"] {
+            assert_eq!(
+                charset_from(env(&[("LANG", "fr_FR.UTF-8"), ("TERM", term)])),
+                Charset::Unicode,
+                "{term}"
+            );
+        }
+        // LC_ALL outranks LANG here as it does everywhere else.
+        assert_eq!(
+            charset_from(env(&[
+                ("LC_ALL", "fr_FR.utf8"),
+                ("LANG", "fr_FR.ISO-8859-1"),
+                ("TERM", "xterm")
+            ])),
+            Charset::Unicode
+        );
+
+        // And the last word belongs to whoever is in front of the screen.
+        assert_eq!(
+            charset_from(env(&[
+                ("TERN_ASCII", "1"),
+                ("LANG", "fr_FR.UTF-8"),
+                ("TERM", "xterm-256color")
+            ])),
+            Charset::Ascii
+        );
+        assert_eq!(
+            charset_from(env(&[
+                ("TERN_ASCII", "0"),
+                ("LANG", "POSIX"),
+                ("TERM", "linux")
+            ])),
+            Charset::Unicode
+        );
     }
 }

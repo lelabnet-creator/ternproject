@@ -16,7 +16,7 @@ use std::time::Duration;
 
 use console::style;
 
-use tern_setup::checklist::{gutter_line, tail, Checklist, Failure};
+use tern_setup::checklist::{gutter_line, tail, Checklist, Failure, ELLIPSIS};
 use tern_setup::envfile::{self, Settings};
 use tern_setup::i18n::{self, fill, Catalog};
 use tern_setup::journal::Journal;
@@ -415,8 +415,9 @@ fn install_docker(ctx: &Ctx) -> Result<(), Stop> {
     // asks for it. Announcing a guess instead and correcting it would be worse:
     // `docker-ce` and `docker.io` are different answers, and the wrong one on
     // the screen for a minute is a wrong one somebody may write down.
-    labels.push(fill(c.step_install_engine, &["…"]));
-    labels.push(fill(c.step_install_compose, &["…"]));
+    let unknown = ELLIPSIS.pick();
+    labels.push(fill(c.step_install_engine, &[unknown]));
+    labels.push(fill(c.step_install_compose, &[unknown]));
     labels.push(c.step_enable_service.to_string());
 
     let base = usize::from(refresh);
