@@ -340,13 +340,38 @@ UNIT_EOF
   else
     systemctl --user daemon-reload
     systemctl --user enable --now tern-agent.service
+
     # Without lingering, a user unit stops when the last session closes and
     # does not come back until somebody logs in — which on a server is never.
+    # So it is asked for twice and then verified, because whether it worked
+    # decides which of two different sentences is true below.
+    #
+    # Twice, because polkit answers differently from one distribution to the
+    # next: Ubuntu grants an active session its own linger, Arch refuses it
+    # without a password and the unprivileged call fails silently. The -n on
+    # sudo matters too: this script is often piped into a shell, and a
+    # password prompt with no terminal behind it hangs instead of asking.
+    LINGER=no
     if command -v loginctl >/dev/null 2>&1; then
-      loginctl enable-linger "$(id -un)" 2>/dev/null \\
-        || echo "  ⚠ Could not enable lingering. Run: sudo loginctl enable-linger $(id -un)"
+      loginctl enable-linger "$(id -un)" >/dev/null 2>&1 \\
+        || sudo -n loginctl enable-linger "$(id -un)" >/dev/null 2>&1 \\
+        || true
+      loginctl show-user "$(id -un)" -p Linger 2>/dev/null | grep -q 'Linger=yes' && LINGER=yes
     fi
-    echo "✓ Registered as a systemd user service — starts at boot."
+
+    # And the truth about it, rather than the sentence we would like to write.
+    # This claimed "starts at boot" unconditionally — directly under its own
+    # warning that lingering had failed — so the reader saw a ⚠ and a ✓ and
+    # believed the ✓. On a server that is the worst kind of wrong: nothing is
+    # noticed until a reboot, and then nothing reports, quietly.
+    if [ "$LINGER" = yes ]; then
+      echo "✓ Registered as a systemd user service — starts at boot."
+    else
+      echo "⚠ Registered as a systemd user service, but it will NOT start at boot."
+      echo "  A user service needs lingering, and enabling it needs root:"
+      echo "      sudo loginctl enable-linger $(id -un)"
+      echo "  Until then it starts when $(id -un) logs in, and stops at the last logout."
+    fi
     echo "  Status: systemctl --user status tern-agent"
     echo "  Logs:   journalctl --user -u tern-agent -f"
   fi

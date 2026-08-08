@@ -64,6 +64,23 @@ describe('the shell installer', () => {
   it('can be told not to touch the boot configuration', () => {
     expect(script).toContain('--no-service')
   })
+
+  it('does not promise a user service starts at boot until lingering is verified', () => {
+    // Measured on Arch: `loginctl enable-linger` failed — polkit refuses it
+    // without a password there, where Ubuntu grants it to an active session —
+    // and the script printed its own warning and then "starts at boot" anyway.
+    // The reader sees a ⚠ and a ✓ and believes the ✓; the agent then does not
+    // come back from the next reboot, quietly.
+    expect(script).toContain('sudo -n loginctl enable-linger')
+    expect(script).toContain('-p Linger')
+    expect(script).toContain('will NOT start at boot')
+
+    // The claim exists, but only on the branch where lingering was confirmed.
+    const claim = script.indexOf('✓ Registered as a systemd user service')
+    const check = script.indexOf('$LINGER" = yes')
+    expect(check).toBeGreaterThan(-1)
+    expect(check).toBeLessThan(claim)
+  })
 })
 
 describe('the PowerShell installer', () => {
