@@ -5,15 +5,54 @@ For whoever has to keep this running.
 ## Installing
 
 ```bash
-./scripts/setup.sh
+curl -fsSL -o setup.sh https://raw.githubusercontent.com/lelabnet-creator/ternproject/main/scripts/setup.sh
+sh setup.sh
 ```
 
 Asks for the published port, the public URL and the trusted-proxy CIDRs, writes
-`.env`, builds the image and starts `docker-compose.prod.yml`. The page name,
-the administrator account and the mail server are not asked here: they are set
-at the first visit to the admin, by the person in front of it, so no password
-has to pass through a file on disk. Rerunning the script keeps any variable you
-added to `.env` by hand.
+`.env`, pulls the image and starts `docker-compose.prod.yml`. The page name, the
+administrator account and the mail server are not asked here: they are set at
+the first visit to the admin, by the person in front of it, so no password has
+to pass through a file on disk. Running it again keeps any variable you added to
+`.env` by hand.
+
+It speaks English, or French when the system does. `TERN_LANG=fr` or `en`
+overrides that.
+
+### What actually runs
+
+`setup.sh` installs nothing itself. It fetches `tern-setup` — a ~670 KB Rust
+binary built by CI for five targets — checks its SHA-256 against the release's
+`SHA256SUMS`, and hands over. `TERN_SETUP_VERSION=v1.4.2` pins a version instead
+of taking the latest.
+
+That is a trade, and it is worth naming. A script can be read before it is run;
+a binary cannot, which is exactly the argument this project uses to refuse
+`curl … get.docker.com | sh`. Three things carry the weight: the bootstrap stays
+short enough to read in one screen, the checksum is verified against the same
+release that published the binary — with no hashing tool on the machine it stops
+rather than pretending — and the sources are in this repository under
+`clients/installer/`.
+
+What it buys is the thing a shell script could not: a list of steps that fills
+itself in, with the ones still to come visible from the start, and **no command
+output scrolling past**. Everything `apt-get`, `docker` and `curl` say goes to
+`tern-setup.log` beside the `.env` — every command, its exit code, its full
+output, and the answers given, with secrets replaced by a character count. On a
+failure the step turns red, the last useful lines appear, and the log path is
+printed. That file is what to attach to a bug report.
+
+```
+┌  TERN — setting up an instance
+│
+│  ✓  Checking Docker                                              (2s)
+│  ✓  Installing Docker                                           (34s)
+│  ✓  Fetching the compose file                           already there
+│  ✓  Writing the configuration                 .env written (mode 600)
+│  ◐  Pulling the images
+│  ○  Starting the services
+│  ○  Waiting for the API
+```
 
 ### If Docker is missing
 

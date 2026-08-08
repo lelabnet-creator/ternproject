@@ -1,0 +1,28 @@
+[package]
+name = "tern-setup"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.82"
+license = "AGPL-3.0-or-later"
+description = "TERN installer — asks what it needs, then puts an instance on this machine."
+repository = "https://github.com/lelabnet-creator/ternproject"
+
+[[bin]]
+name = "tern-setup"
+path = "src/main.rs"
+
+[lib]
+name = "tern_setup"
+path = "src/lib.rs"
+
+[dependencies]
+cliclack = "0.3"
+console = "0.15"
+indicatif = "0.18.4"
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

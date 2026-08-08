@@ -145,6 +145,24 @@ jobs:
       - name: Test and conformance
         run: cargo test
 
+      # L'installateur, aux mêmes exigences.
+      #
+      # Il n'a pas de fixtures de conformité à rejouer — il ne parle a personne
+      # — mais c'est le premier programme qu'une nouvelle installation execute,
+      # et le seul que personne ne relit avant de le lancer. Format, clippy et
+      # tests y valent au moins autant qu'ailleurs.
+      - name: Installer - format
+        working-directory: clients/installer
+        run: cargo fmt --check
+
+      - name: Installer - clippy
+        working-directory: clients/installer
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Installer - tests
+        working-directory: clients/installer
+        run: cargo test
+
   binaries:
     name: Binaries
     # Only on main: five targets on every pull request costs minutes nobody is
@@ -208,23 +226,43 @@ jobs:
             cargo build --release --locked --target ${{ matrix.target }}
           fi
 
-      # Both binaries, not just the agent: a release that ships tern-agent and
-      # leaves tern-proxy behind is one an isolated network cannot install.
+      # L'installateur, construit pour les mêmes cibles et par le même chemin.
+      #
+      # Son propre crate plutôt qu'un troisième binaire de `clients/agent` :
+      # l'agent tourne sur la machine surveillée et n'a aucune raison de porter
+      # une interface d'installation, ni les dépendances qui vont avec. Deux
+      # `cargo build` coûtent une minute de cache partagé ; les mélanger
+      # coûterait à chaque agent déployé.
+      - name: Build the installer for ${{ matrix.target }}
+        working-directory: clients/installer
+        shell: bash
+        run: |
+          if [ "${{ matrix.cross }}" = "true" ]; then
+            cross build --release --locked --target ${{ matrix.target }}
+          else
+            cargo build --release --locked --target ${{ matrix.target }}
+          fi
+
+      # Les trois binaires, pas seulement l'agent : une release qui livre
+      # tern-agent et laisse tern-proxy derrière est une release qu'un réseau
+      # isolé ne peut pas installer, et sans tern-setup il n'y a plus
+      # d'installation du tout.
       - name: Collect
-        working-directory: clients/agent
         shell: bash
         run: |
           mkdir -p dist
           for bin in tern-agent tern-proxy; do
-            cp "target/${{ matrix.target }}/release/$bin${{ matrix.suffix }}" \
+            cp "clients/agent/target/${{ matrix.target }}/release/$bin${{ matrix.suffix }}" \
                "dist/$bin-${{ matrix.target }}${{ matrix.suffix }}"
           done
+          cp "clients/installer/target/${{ matrix.target }}/release/tern-setup${{ matrix.suffix }}" \
+             "dist/tern-setup-${{ matrix.target }}${{ matrix.suffix }}"
           ls -l dist
 
       - uses: actions/upload-artifact@v4
         with:
           name: tern-${{ matrix.target }}
-          path: clients/agent/dist/*
+          path: dist/*
           if-no-files-found: error
 
   collect:
