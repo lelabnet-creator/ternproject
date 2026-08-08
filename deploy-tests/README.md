@@ -1,76 +1,72 @@
-# Recette de déploiement
+# Recette de déploiement — trois distributions, sorties de leur boîte
 
-Ce que TERN fait sur une machine où il n'a jamais tourné, sur trois
-distributions, mesuré plutôt qu'annoncé.
+Ce dossier porte la trace d'installations qui ont réellement eu lieu : des
+machines virtuelles vierges, le script d'amorçage récupéré depuis GitHub comme
+n'importe qui le ferait, et la suite conduite comme une personne la conduirait —
+les questions lues à mesure qu'elles arrivent, les réponses tapées, rien de
+déposé à l'avance.
 
-## Pourquoi ce banc existe
+Ce que la recette vérifie, dans l'ordre : que Docker est bien absent au départ,
+que l'installateur le pose lui-même, que l'empreinte du binaire est vérifiée
+avant qu'il ne s'exécute, que la pile démarre, que la fenêtre de premier
+lancement s'ouvre puis se referme derrière le premier compte, qu'un agent
+s'ajoute et s'inscrit au démarrage, qu'une cible publique est mesurée — et, en
+dernier, que tout cela revient après un redémarrage.
 
-`scripts/setup.sh` installe désormais Docker quand il manque, et il le fait
-différemment selon le gestionnaire de paquets. Ce chemin ne s'exerce nulle part
-ailleurs : les tests unitaires et d'intégration tournent sur une machine où
-Docker est déjà là, et la suite end-to-end démarre une pile sur cette même
-machine. Un défaut dans la branche `dnf` ne se verrait qu'au premier
-utilisateur sous Rocky.
+Les scripts qui produisent tout ceci sont dans `.vm-lab/` à la racine du dépôt.
+Sans eux, ce dossier ne serait qu'une affirmation.
 
-Trois systèmes, trois gestionnaires, un déroulé identique :
+## Mots de passe
 
-| Distribution     | Gestionnaire | Trace                |
-| ---------------- | ------------ | -------------------- |
-| Ubuntu 24.04 LTS | `apt-get`    | [`ubuntu/`](ubuntu/) |
-| Rocky Linux 9    | `dnf`        | [`rocky/`](rocky/)   |
-| Arch Linux       | `pacman`     | [`arch/`](arch/)     |
+Écrits en clair, parce que c'est exactement ce qu'ils sont : les identifiants de
+machines jetables, sans accès entrant, détruites à la fin de la recette. Un
+secret qu'il faudrait protéger n'aurait rien à faire dans un banc de test.
 
-## Images cloud, et non ISO d'installation
+| Quoi | Identifiant | Mot de passe |
+|---|---|---|
+| Compte système des VM | `tern` | `tern-lab-2026` |
+| Administrateur TERN | `admin@lab.example` | `tern-lab-admin-2026` |
 
-Ce qui est testé ici est l'installation de TERN sur un système fraîchement
-posé — pas les installateurs d'Ubuntu, de Rocky et d'Arch. Scripter
-`autoinstall`, un `kickstart` et un `pacstrap` aurait ajouté trois programmes à
-déboguer sans rien valider du produit, et aurait rendu le banc plus fragile que
-la chose qu'il mesure.
+La page créée s'appelle `Lab` (slug `lab`), et la cible supervisée est
+`https://example.com/` — choisie parce qu'elle existe pour cela, ne demande pas
+d'authentification et répond partout.
 
-Les images cloud sont les mêmes systèmes, publiés par les mêmes projets, sans
-paquet supplémentaire. Docker est absent des trois au départ, et la trace le
-constate avant de commencer.
+## Ce que contient chaque dossier
 
-## Le déroulé, sur chacune
+```
+<distribution>/
+  logs/         le dialogue complet de l'installation, l'état de la pile,
+                les journaux de démarrage de l'application, le service de
+                l'agent, le résumé de la page publique
+  screenshots/  la console de la VM aux moments qui comptent
+  resultats.json  chaque étape, son verdict, et les identifiants ci-dessus
+```
 
-1. La VM démarre, cloud-init pose un compte, SSH répond.
-2. **Docker est absent** — vérifié, pas supposé.
-3. `setup.sh` est lancé. Il détecte le gestionnaire, demande avant d'installer,
-   installe le moteur et le greffon Compose v2, active le service.
-4. Il **s'arrête** : le compte courant n'appartient pas encore au groupe
-   `docker`. C'est voulu, et la trace garde le message.
-5. La commande donnée est exécutée telle quelle, puis `setup.sh` est relancé.
-   Il pose ses questions, écrit `.env`, tire l'image publiée et démarre la pile.
-6. L'instance répond sur `/health`, **depuis l'hôte**, à travers la redirection
-   de port — donc le port publié fonctionne réellement.
-7. La fenêtre de premier lancement est ouverte ; un compte administrateur et une
-   page sont créés ; la fenêtre se referme derrière eux.
-8. Un contrôle HTTP est créé sur une **cible publique** (`https://example.com/`).
-9. Un agent est installé par `install.sh` et appairé par code PIN.
-10. La cible remonte `operational`, et la page publique sert son résumé.
+`ubuntu/v0.1.1-defauts-trouves/` garde la trace de la campagne précédente. Elle
+est conservée parce que c'est elle qui a trouvé les défauts corrigés depuis, et
+qu'un banc qui n'archive que ses succès ne prouve rien.
 
-Chaque étape est enregistrée dans `<distribution>/resultats.json`, avec les
-journaux complets dans `<distribution>/logs/` et les captures d'écran de la
-console dans `<distribution>/screenshots/`.
+## Ce que cette campagne a trouvé
 
-## Les identifiants
+Aucun de ces défauts n'était visible depuis un poste de développement. Tous
+l'étaient depuis une machine vierge.
 
-Ils sont en clair, ici et dans les traces, et c'est délibéré : ce sont ceux de
-machines virtuelles jetables, sans accès entrant depuis autre chose que l'hôte,
-détruites à la fin de la recette. Un secret qui mériterait d'être protégé
-n'aurait rien à faire dans un banc de test.
+| Défaut | Où il se voyait | Correction |
+|---|---|---|
+| Rocky : aucun paquet Docker dans les dépôts de base | l'installation s'arrêtait sur un refus correct et une impasse | le dépôt de Docker est proposé, jamais supposé |
+| Arch : base de paquets plus ancienne que les miroirs | 404 sur chaque miroir, « no packages were upgraded » | la mise à jour du système est proposée avant l'installation |
+| Docker installé mais pas activé au démarrage | rien ne revenait après un redémarrage | la question est posée quand `is-enabled` dit non |
+| L'agent refusait l'adresse que le produit lui donnait | ajout d'un agent sur un LAN sans TLS | autorisation explicite, posée par l'installateur généré |
+| Cadre et états illisibles sur une console | seize couleurs, pas de police semi-graphique | marques ASCII, couleur portée par le libellé, gouttière visible |
 
-| Quoi                    | Utilisateur         | Mot de passe          |
-| ----------------------- | ------------------- | --------------------- |
-| Compte système de la VM | `tern`              | `tern-lab-2026`       |
-| Administrateur TERN     | `admin@lab.example` | `tern-lab-admin-2026` |
-
-## Rejouer
+## Rejouer la recette
 
 ```sh
 python3 .vm-lab/run.py ubuntu     # ou rocky, ou arch
+python3 .vm-lab/console.py ubuntu # le rendu sur une vraie console
 ```
 
-Le banc lui-même est dans `.vm-lab/`, ignoré par git : il contient des disques
-de plusieurs gigaoctets. Seule la trace est conservée.
+Il faut QEMU avec KVM, un pont `br0` déclaré dans `/etc/qemu/bridge.conf`, et
+les images cloud des trois distributions dans `.vm-lab/images/`. Chaque exécution
+repart d'une copie neuve de l'image : une VM déjà installée donnerait un
+résultat qui ne prouve rien.

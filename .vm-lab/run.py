@@ -143,6 +143,37 @@ def main(name: str) -> int:
         (logs / "setup.log").write_text(dialogue)
         screenshot(name, "02-installation")
 
+        # L'installateur peut s'arrêter en demandant un redémarrage : sur Arch,
+        # sa propre mise à jour du système remplace le noyau, et Docker ne peut
+        # plus charger ses modules réseau tant que la machine n'a pas redémarré.
+        #
+        # Alors on redémarre et on relance, parce que c'est ce qu'une personne
+        # fait quand on le lui demande — et parce que c'est la seule façon de
+        # vérifier que le message est actionnable. Une fois : si l'installateur
+        # le redemande après un redémarrage, il a tort et il faut le voir.
+        if "no longer has the modules" in dialogue or "n'a plus les modules" in dialogue:
+            step("L'installateur demande un redémarrage plutôt qu'un échec obscur", True)
+            ssh(name, "sudo systemctl reboot || sudo reboot", timeout=30)
+            time.sleep(10)
+            if not step("La VM redémarre à sa demande", wait_port(t["ssh_port"], 300)):
+                raise Incomplete()
+            for _ in range(30):
+                if ssh(name, "true", timeout=20).returncode == 0:
+                    break
+                time.sleep(5)
+
+            code, second = drive(
+                ["ssh", "-tt", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null",
+                 "-o", "LogLevel=ERROR", "-i", str(LAB / "id_lab"), "-p", str(t["ssh_port"]),
+                 f"{VM_USER}@127.0.0.1", "cd ~ && sh setup.sh"],
+                answers, timeout=3000, idle_hint=300,
+            )
+            (logs / "setup-2.log").write_text(second)
+            dialogue += second
+            step("La reprise après redémarrage va au bout",
+                 "no longer has the modules" not in second and "n'a plus les modules" not in second,
+                 second[-400:])
+
         installed = ssh(name, "command -v docker && docker --version").returncode == 0
         step(f"L'installateur pose Docker via {t['pkg']}", installed, dialogue[-600:])
 
@@ -172,7 +203,7 @@ def main(name: str) -> int:
         # not found » là où elle croyait lire l'état de la pile.
         ps = ssh(name, "docker compose -f docker-compose.prod.yml ps")
         (logs / "compose-ps.txt").write_text(ps.stdout + ps.stderr)
-        step("La pile tourne (app, db, agent)", ps.stdout.count("tern-prod") >= 3, ps.stddialogue[-400:])
+        step("La pile tourne (app, db, agent)", ps.stdout.count("tern-prod") >= 3, ps.stdout[-400:])
 
         base = f"http://127.0.0.1:{t['http_port']}"
         healthy = False

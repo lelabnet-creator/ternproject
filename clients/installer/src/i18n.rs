@@ -136,6 +136,11 @@ pub struct Catalog {
     pub sock_just_added: &'static str,
     pub sock_relogin: &'static str,
 
+    /// A kernel upgrade takes the running kernel's modules with it, and nothing
+    /// looks wrong until something needs to load one.
+    pub kernel_stale: &'static str,
+    pub kernel_stale_why: &'static str,
+
     /// Arch installs against a database that a cloud image ships already stale,
     /// and it supports no upgrade smaller than the whole system.
     pub pacman_sync_why: &'static str,
@@ -302,6 +307,11 @@ pub static EN: Catalog = Catalog {
     sock_reexec: "Picking the install back up with the rights just granted…",
     sock_just_added: "Your account has just been added to the docker group.",
     sock_relogin: "Close this session, open a new one, and run this installer again.",
+
+    kernel_stale: "This machine is running a kernel it no longer has the modules for.",
+    kernel_stale_why: "A kernel upgrade replaced them. Until this machine restarts, Docker cannot\n\
+         load the network modules it needs, and it fails on an iptables error that\n\
+         says nothing about the kernel. Restart, then run this installer again.",
 
     pacman_sync_why: "Arch installs against a local package database. If it is older than\n\
          the mirrors, installing anything fails on a version they no longer\n\
@@ -500,6 +510,12 @@ pub static FR: Catalog = Catalog {
     sock_reexec: "Reprise de l'installation avec les droits acquis…",
     sock_just_added: "Votre compte vient d'être ajouté au groupe docker.",
     sock_relogin: "Fermez cette session, rouvrez-en une, et relancez cet installateur.",
+
+    kernel_stale: "Cette machine tourne sur un noyau dont elle n'a plus les modules.",
+    kernel_stale_why: "Une mise à jour du noyau les a remplacés. Tant que cette machine n'a pas\n\
+         redémarré, Docker ne peut pas charger les modules réseau dont il a besoin,\n\
+         et il échoue sur une erreur iptables qui ne dit rien du noyau. Redémarrez,\n\
+         puis relancez cet installateur.",
 
     pacman_sync_why: "Arch installe à partir d'une base de paquets locale. Si elle est plus\n\
          ancienne que les miroirs, toute installation échoue sur une version\n\

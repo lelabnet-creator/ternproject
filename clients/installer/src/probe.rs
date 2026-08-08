@@ -219,6 +219,59 @@ pub fn kernel() -> String {
         .unwrap_or_else(|| "unknown".to_string())
 }
 
+/// Is the machine running a kernel whose modules are no longer on disk?
+///
+/// A package upgrade that replaces the kernel removes `/usr/lib/modules/<old>`
+/// and puts `<new>` there instead, while the machine keeps running `<old>` until
+/// it is restarted. Nothing appears to be wrong: userspace is fine, `uname`
+/// answers, the shell works. But no module that is not already loaded can be
+/// loaded any more, and that is a failure with no resemblance to its cause.
+///
+/// Measured on Arch, after this installer's own `-Syu`: running `7.1.5-arch1-2`,
+/// modules present for `7.1.6-arch1-1` only, and dockerd dying on
+///
+/// ```text
+/// iptables v1.8.13 (nf_tables): Could not fetch rule set generation id
+/// failed to register "bridge" driver
+/// ```
+///
+/// which is `nf_tables` failing to load, three removes from anything the reader
+/// did. The check is the direct question instead: is there a module directory
+/// for the kernel actually running?
+///
+/// Both paths, because the merged-`/usr` transition is not finished everywhere:
+/// `/usr/lib/modules` on Arch and Fedora, `/lib/modules` where it is still a
+/// real directory rather than a symlink. Either one existing is an answer.
+///
+/// The reader is a parameter so the decision can be exercised without a kernel
+/// upgrade to hand.
+pub fn kernel_modules_missing_for(release: &str, exists: impl Fn(&Path) -> bool) -> bool {
+    if release.is_empty() {
+        // No release means `uname -r` did not answer, and inventing a diagnosis
+        // from that would be worse than staying quiet.
+        return false;
+    }
+    !exists(&PathBuf::from("/usr/lib/modules").join(release))
+        && !exists(&PathBuf::from("/lib/modules").join(release))
+}
+
+/// The rule above, against this machine.
+pub fn kernel_modules_missing() -> bool {
+    kernel_modules_missing_for(&kernel_release(), |path| path.is_dir())
+}
+
+/// `uname -r` — the kernel actually running, which after an upgrade is not the
+/// kernel that is installed.
+pub fn kernel_release() -> String {
+    Command::new("uname")
+        .arg("-r")
+        .output()
+        .ok()
+        .and_then(|out| String::from_utf8(out.stdout).ok())
+        .map(|text| text.trim().to_string())
+        .unwrap_or_default()
+}
+
 /// Is systemd the init here, rather than merely installed?
 ///
 /// `systemctl` can exist without systemd running the machine — containers, WSL
@@ -348,6 +401,35 @@ pub fn install_root(compose_file: &str) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The state measured on Arch after this installer's own `-Syu`: running
+    /// `7.1.5-arch1-2`, modules on disk for `7.1.6-arch1-1` and nothing else.
+    #[test]
+    fn a_kernel_whose_modules_the_upgrade_removed_is_noticed() {
+        let after_upgrade = |path: &Path| path.ends_with("7.1.6-arch1-1");
+        assert!(kernel_modules_missing_for("7.1.5-arch1-2", after_upgrade));
+        assert!(!kernel_modules_missing_for("7.1.6-arch1-1", after_upgrade));
+    }
+
+    /// `/lib/modules` where the merged-`/usr` transition has not happened, and
+    /// `/usr/lib/modules` where it has. Either one is an answer.
+    #[test]
+    fn either_module_directory_counts() {
+        let old_layout = |path: &Path| path.starts_with("/lib/modules");
+        assert!(!kernel_modules_missing_for("6.1.0-generic", old_layout));
+
+        let merged = |path: &Path| path.starts_with("/usr/lib/modules");
+        assert!(!kernel_modules_missing_for("6.1.0-generic", merged));
+
+        assert!(kernel_modules_missing_for("6.1.0-generic", |_| false));
+    }
+
+    /// Silence rather than a diagnosis invented out of nothing: if `uname -r`
+    /// did not answer, this knows nothing about the kernel.
+    #[test]
+    fn no_release_is_not_an_accusation() {
+        assert!(!kernel_modules_missing_for("", |_| false));
+    }
 
     /// Rocky is the machine this was written for: it names itself, and it names
     /// the two bases it derives from.

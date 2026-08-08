@@ -493,6 +493,13 @@ fn install_docker(ctx: &Ctx) -> Result<(), Stop> {
             }
         })
         .map_err(|failure| stop_from(failure, ctx))?;
+
+        // And now the upgrade's own consequence, before it turns into something
+        // unreadable. See `needs_reboot`.
+        if probe::kernel_modules_missing() {
+            list.finish();
+            return Err(needs_reboot(ctx));
+        }
     }
 
     let engine = probe::first_available(&ctx.journal, manager, &engine_names);
@@ -554,6 +561,34 @@ fn install_docker(ctx: &Ctx) -> Result<(), Stop> {
 
     cliclack::log::success(c.docker_ready)?;
     Ok(())
+}
+
+/// The machine is running a kernel it no longer has the modules for.
+///
+/// Docker's failure in this state is spectacularly unhelpful. Measured on Arch,
+/// after this installer's own `-Syu` replaced `7.1.5-arch1-2` with
+/// `7.1.6-arch1-1`:
+///
+///     iptables v1.8.13 (nf_tables): Could not fetch rule set generation id:
+///     Invalid argument
+///     failed to register "bridge" driver
+///
+/// That is `nf_tables` unable to load, because the running kernel's module
+/// directory was deleted by the upgrade — three removes from anything the reader
+/// did, and it names neither the kernel nor the reboot.
+///
+/// Said as one sentence instead, and said *before* the service is started rather
+/// than after it fails: what stopped, why, and the two words that fix it.
+fn needs_reboot(ctx: &Ctx) -> Stop {
+    let c = ctx.c;
+    ctx.journal.line(&format!(
+        "running kernel {} has no module directory — reboot required",
+        probe::kernel_release()
+    ));
+    Stop::new(c.kernel_stale)
+        .hint(c.kernel_stale_why)
+        .hint(c.then_rerun)
+        .logged(&ctx.journal)
 }
 
 /// Arch's system upgrade, which on Arch is not optional the way it sounds.
