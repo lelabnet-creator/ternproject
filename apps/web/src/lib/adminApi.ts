@@ -165,7 +165,6 @@ export interface Incident {
   updates: { id: string; status: IncidentStatus; body: string; createdAt: string }[]
 }
 
-
 export type MaintenanceStatus = 'scheduled' | 'in_progress' | 'completed' | 'cancelled'
 
 export interface Maintenance {
@@ -200,7 +199,6 @@ export interface MaintenancePatch {
   isPublic?: boolean
   remindersBeforeMin?: number[]
 }
-
 
 export interface ClassFigures {
   requests: number

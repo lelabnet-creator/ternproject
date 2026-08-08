@@ -9,7 +9,17 @@ import {
   type IncidentSeverity,
   type IncidentStatus,
 } from '../../lib/adminApi'
-import { Banner, Button, Card, EmptyState, Field, Input } from '../../components/ui'
+import {
+  Banner,
+  Button,
+  Card,
+  EmptyState,
+  Field,
+  Input,
+  Select,
+  Textarea,
+  Toggle,
+} from '../../components/ui'
 import type { IncidentImpactValue } from '@tern/shared/status'
 
 /**
@@ -307,17 +317,16 @@ function DeclareIncident({
           </Field>
 
           <Field label="Severity" hint="How much of the service this takes with it.">
-            <select
+            <Select
               value={severity}
               onChange={(e) => setSeverity(e.target.value as IncidentSeverity)}
-              style={SELECT_STYLE}
             >
               {SEVERITIES.map((s) => (
                 <option key={s.id} value={s.id}>
                   {s.label} — {s.hint}
                 </option>
               ))}
-            </select>
+            </Select>
           </Field>
 
           <Field
@@ -325,12 +334,11 @@ function DeclareIncident({
             hint="Markdown. This is the text subscribers receive and the page shows."
             error={errors.body}
           >
-            <textarea
+            <Textarea
               value={body}
               rows={5}
               placeholder="We are seeing elevated error rates on checkout and are investigating."
               onChange={(e) => setBody(e.target.value)}
-              style={TEXTAREA_STYLE}
             />
           </Field>
 
@@ -534,17 +542,13 @@ function PostUpdate({
         )}
 
         <Field label="Status" hint="Where the investigation stands as of this update.">
-          <select
-            value={status}
-            onChange={(e) => setStatus(e.target.value as IncidentStatus)}
-            style={SELECT_STYLE}
-          >
+          <Select value={status} onChange={(e) => setStatus(e.target.value as IncidentStatus)}>
             {STATUSES.map((s) => (
               <option key={s.id} value={s.id}>
                 {s.label} — {s.hint}
               </option>
             ))}
-          </select>
+          </Select>
         </Field>
 
         {resolving && (
@@ -555,12 +559,11 @@ function PostUpdate({
         )}
 
         <Field label="Update" hint="Markdown." error={error}>
-          <textarea
+          <Textarea
             value={body}
             rows={4}
             placeholder="We have identified a bad deploy and are rolling it back."
             onChange={(e) => setBody(e.target.value)}
-            style={TEXTAREA_STYLE}
           />
         </Field>
 
@@ -686,12 +689,11 @@ function Postmortem({
               hint="Markdown. What broke, why, and what changes."
               error={error}
             >
-              <textarea
+              <Textarea
                 value={value}
                 rows={12}
                 placeholder="## What happened&#10;&#10;## Why&#10;&#10;## What we are changing"
                 onChange={(e) => setBody(e.target.value)}
-                style={TEXTAREA_STYLE}
               />
             </Field>
 
@@ -777,18 +779,18 @@ function ImpactPicker({
               <span>{control.name}</span>
             </label>
             {current && (
-              <select
+              <Select
                 value={current.impact}
                 aria-label={`Impact on ${control.name}`}
                 onChange={(e) => set(control.id, e.target.value as IncidentImpactValue)}
-                style={{ ...SELECT_STYLE, width: 'auto', minWidth: '12rem' }}
+                style={{ width: 'auto', minWidth: '12rem' }}
               >
                 {IMPACTS.map((i) => (
                   <option key={i.id} value={i.id}>
                     {i.label}
                   </option>
                 ))}
-              </select>
+              </Select>
             )}
           </div>
         )
@@ -817,60 +819,6 @@ const IMPACTS = [
   { id: 'partial', label: 'Partial outage — some of it is down' },
   { id: 'major', label: 'Major outage — all of it is down' },
 ] as const satisfies readonly { id: IncidentImpactValue; label: string }[]
-
-/** Matches `Input`'s styling — a `<select>` inherits none of it. */
-const SELECT_STYLE: React.CSSProperties = {
-  background: 'var(--color-bg)',
-  color: 'var(--color-fg)',
-  border: '1px solid var(--color-border-strong)',
-  borderRadius: 'var(--radius-sm)',
-  padding: 'var(--space-2) var(--space-3)',
-  fontSize: 'var(--text-base)',
-  fontFamily: 'inherit',
-  minHeight: 44,
-  width: '100%',
-}
-
-const TEXTAREA_STYLE: React.CSSProperties = {
-  width: '100%',
-  background: 'var(--color-bg)',
-  color: 'var(--color-fg)',
-  border: '1px solid var(--color-border-strong)',
-  borderRadius: 'var(--radius-sm)',
-  padding: 'var(--space-2) var(--space-3)',
-  fontSize: 'var(--text-base)',
-  fontFamily: 'inherit',
-}
-
-function Toggle({
-  checked,
-  onChange,
-  label,
-  hint,
-}: {
-  checked: boolean
-  onChange: (next: boolean) => void
-  label: string
-  hint: string
-}) {
-  return (
-    <label style={{ display: 'grid', gap: 'var(--space-1)' }}>
-      <span style={{ display: 'flex', gap: 'var(--space-2)', alignItems: 'center' }}>
-        <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} />
-        <span style={{ fontSize: 'var(--text-sm)', fontWeight: 600 }}>{label}</span>
-      </span>
-      <span
-        style={{
-          fontSize: 'var(--text-xs)',
-          color: 'var(--color-fg-subtle)',
-          paddingLeft: 'var(--space-5)',
-        }}
-      >
-        {hint}
-      </span>
-    </label>
-  )
-}
 
 /** State as a word first — the colour is a second channel, never the only one. */
 function StatusTag({ status }: { status: IncidentStatus }) {
