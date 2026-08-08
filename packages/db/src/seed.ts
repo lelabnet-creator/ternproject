@@ -34,6 +34,17 @@ interface ControlSpec {
   incidents?: number
   slaTarget?: number
   value?: { base: number; amplitude: number; unit: string; label: string }
+  /**
+   * Which visualisation this component gets.
+   *
+   * Set on every one, and deliberately all seven of them across the list: the
+   * seed is the only place most people meet the widget catalogue, and twelve
+   * identical uptime ribbons — which is what a missing default produced — shows
+   * a product with one chart.
+   *
+   * A `value`-shaped widget needs a `value` spec beside it or it draws nothing.
+   */
+  widget?: string
 }
 
 const GROUPS = [
@@ -44,9 +55,99 @@ const GROUPS = [
   { key: 'internal', name: 'Internal services', parent: null },
 ] as const
 
+/**
+ * The wall the demo ships with.
+ *
+ * A `custom` layout is the free arrangement the backlog turned down as a drag
+ * editor — the operator writes it, so their own media queries answer the
+ * question of what a four-column wall becomes on a phone, and a textarea is
+ * reachable from a keyboard where two-dimensional dragging is not.
+ *
+ * Worth knowing, and the reason the widget assignments above still matter: in
+ * `custom` mode TERN draws none of its own widgets. The document is handed the
+ * data and paints it. Switch the page to `grid` and the seven widgets appear;
+ * leave it here and this does. The demo ships on `custom` because that is the
+ * mode nothing else demonstrates.
+ */
+const DASHBOARD = {
+  html: `<div class="wall">
+  <header>
+    <h1>Acme Corp</h1>
+    <p id="summary">…</p>
+  </header>
+  <section id="tiles" class="tiles"></section>
+  <section id="notes" class="notes"></section>
+</div>`,
+
+  css: `:root { color-scheme: dark }
+* { box-sizing: border-box }
+body {
+  margin: 0;
+  padding: 24px;
+  background: #0d1117;
+  color: #e6edf3;
+  font: 14px/1.5 system-ui, sans-serif;
+}
+.wall { display: grid; gap: 20px }
+header h1 { margin: 0; font-size: 20px; letter-spacing: -0.01em }
+header p { margin: 4px 0 0; color: #9198a1 }
+
+/* Four across on a wall, and however many fit anywhere else. No breakpoint to
+   keep in sync with anything — the minimum decides. */
+.tiles { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)) }
+.tile {
+  padding: 14px;
+  border: 1px solid #30363d;
+  border-radius: 10px;
+  background: #161b22;
+  border-left-width: 3px;
+}
+.tile b { display: block; font-size: 12px; color: #9198a1; font-weight: 500 }
+.tile .state { font-size: 15px; font-weight: 600; text-transform: capitalize }
+.tile .metric { margin-top: 6px; font-size: 12px; color: #9198a1; font-variant-numeric: tabular-nums }
+
+/* State is a word first. The rule on the edge is a second channel, never the
+   only one — the same rule the rest of this product follows. */
+.operational { border-left-color: #22a15c }
+.degraded    { border-left-color: #eab308 }
+.partial     { border-left-color: #ea580c }
+.down        { border-left-color: #be123c }
+.maintenance { border-left-color: #0369a1 }
+.unknown     { border-left-color: #6b7280 }
+
+.notes { display: grid; gap: 10px }
+.note { padding: 12px 14px; border: 1px solid #30363d; border-left: 3px solid #eab308; border-radius: 8px }
+.note h2 { margin: 0 0 4px; font-size: 14px }
+.note p { margin: 0; color: #9198a1; font-size: 13px }`,
+
+  js: `tern.onUpdate(function (data) {
+  var operational = data.components.filter(function (c) { return c.status === 'operational' }).length
+  document.getElementById('summary').textContent =
+    operational + ' of ' + data.components.length + ' components operational'
+
+  document.getElementById('tiles').innerHTML = data.components.map(function (c) {
+    var metric = c.value != null
+      ? c.value.toFixed(0) + ' ' + (c.valueUnit || '')
+      : c.latencyMs != null ? c.latencyMs + ' ms' : ''
+    return '<div class="tile ' + c.status + '">' +
+      '<b>' + c.name + '</b>' +
+      '<span class="state">' + c.status + '</span>' +
+      (metric ? '<div class="metric">' + metric + '</div>' : '') +
+    '</div>'
+  }).join('')
+
+  var notes = data.incidents.concat(data.maintenances)
+  document.getElementById('notes').innerHTML = notes.map(function (n) {
+    var body = n.latestUpdate ? n.latestUpdate.body : (n.body || '')
+    return '<div class="note"><h2>' + n.title + '</h2><p>' + body + '</p></div>'
+  }).join('')
+})`,
+}
+
 const CONTROLS: ControlSpec[] = [
   {
     key: 'website',
+    widget: 'uptime-ribbon',
     name: 'Marketing website',
     description: 'Public website and documentation',
     group: 'edge',
@@ -57,6 +158,7 @@ const CONTROLS: ControlSpec[] = [
   },
   {
     key: 'cdn',
+    widget: 'availability-calendar',
     name: 'CDN',
     description: 'Static asset delivery',
     group: 'edge',
@@ -67,6 +169,7 @@ const CONTROLS: ControlSpec[] = [
   },
   {
     key: 'api-gateway',
+    widget: 'latency-band',
     name: 'API gateway',
     description: 'Public REST and GraphQL entry point',
     group: 'edge',
@@ -77,6 +180,7 @@ const CONTROLS: ControlSpec[] = [
   },
   {
     key: 'auth',
+    widget: 'status-swimlane',
     name: 'Authentication',
     description: 'Login, tokens and session issuance',
     group: 'core',
@@ -87,6 +191,7 @@ const CONTROLS: ControlSpec[] = [
   },
   {
     key: 'billing',
+    widget: 'stat-tile',
     name: 'Billing',
     description: 'Subscriptions, invoicing and payment capture',
     group: 'core',
@@ -97,6 +202,7 @@ const CONTROLS: ControlSpec[] = [
   },
   {
     key: 'db-eu-west',
+    widget: 'latency-band',
     name: 'Database cluster (Paris)',
     description: 'Primary PostgreSQL cluster',
     group: 'eu-west',
@@ -107,6 +213,7 @@ const CONTROLS: ControlSpec[] = [
   },
   {
     key: 'cache-eu-west',
+    widget: 'stat-tile',
     name: 'Cache (Paris)',
     description: 'Redis cache tier',
     group: 'eu-west',
@@ -116,6 +223,7 @@ const CONTROLS: ControlSpec[] = [
   },
   {
     key: 'db-us-east',
+    widget: 'status-swimlane',
     name: 'Database cluster (Virginia)',
     description: 'Read replica cluster',
     group: 'us-east',
@@ -126,15 +234,20 @@ const CONTROLS: ControlSpec[] = [
   },
   {
     key: 'object-storage',
+    widget: 'live-sparkline',
     name: 'Object storage',
     description: 'Uploads and generated exports',
     group: 'us-east',
     baseLatencyMs: 220,
     targetUptime: 0.9992,
     incidents: 2,
+    // A sparkline is value-shaped: without a measurement beside it the widget
+    // renders an empty box, which is the failure the control editor warns about.
+    value: { base: 820, amplitude: 40, unit: 'GB', label: 'Stored' },
   },
   {
     key: 'queue-depth',
+    widget: 'value-bullet',
     name: 'Job queue depth',
     description: 'Pending background jobs — a measurement, not an up/down state',
     group: 'internal',
@@ -144,6 +257,7 @@ const CONTROLS: ControlSpec[] = [
   },
   {
     key: 'backup',
+    widget: 'uptime-ribbon',
     name: 'Nightly backup',
     description: 'Heartbeat from the backup job — internal only',
     group: 'internal',
@@ -154,6 +268,7 @@ const CONTROLS: ControlSpec[] = [
   },
   {
     key: 'smtp-relay',
+    widget: 'availability-calendar',
     name: 'Mail relay',
     description: 'Outbound transactional email',
     group: 'internal',
@@ -191,6 +306,20 @@ async function main() {
         branding: { accent: '#22C55E', footer: 'Acme Corp — status.acme.example' },
         subscriberDisclaimer:
           'We use your address only to send status notifications. Unsubscribe at any time.',
+
+        /*
+         * Everything here is generated, so the page says so and opens its admin
+         * to anyone. The two flags are meant to travel together: `isDemo` lets a
+         * stranger in, `readOnly` is what makes that safe, and a demo tenant
+         * without it would be a public page anybody could edit.
+         */
+        isDemo: true,
+        readOnly: true,
+
+        layout: 'custom',
+        customHtml: DASHBOARD.html,
+        customCss: DASHBOARD.css,
+        customJs: DASHBOARD.js,
       })
       .returning()
     if (!tenant) throw new Error('tenant insert returned no row')
@@ -263,6 +392,7 @@ async function main() {
           valueLabel: spec.value?.label ?? null,
           slaTarget: spec.slaTarget ?? null,
           isPublic: spec.isPublic ?? true,
+          ...(spec.widget && { widget: spec.widget }),
           position: index,
         })
         .returning()

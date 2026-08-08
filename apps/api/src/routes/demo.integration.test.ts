@@ -95,3 +95,23 @@ describe('an ordinary page', () => {
     }
   })
 })
+
+describe('what the public page of a demo shows', () => {
+  it('keeps internal components off it, even though the demo admin lists them', async () => {
+    // The demo visitor holds `status:read:all` so the admin screens they are
+    // invited to walk through have something in them. On the public summary
+    // that would show a component marked internal to anyone — a demo
+    // demonstrating the opposite of the feature it exists to show.
+    const summary = (
+      await fx.app.inject({ method: 'GET', url: `/api/v1/public/${fx.slug}/summary.json` })
+    ).json() as { components: { id: string }[] }
+
+    const ids = summary.components.map((c) => c.id)
+    expect(ids).toContain(fx.controls.publicId)
+    expect(ids).not.toContain(fx.controls.privateId)
+
+    // And the admin list, reached without a session, still has both.
+    const controls = (await get('/controls')).json() as { id: string }[]
+    expect(controls.map((c) => c.id)).toContain(fx.controls.privateId)
+  })
+})

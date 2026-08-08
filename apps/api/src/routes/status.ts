@@ -186,7 +186,17 @@ const routes: FastifyPluginAsyncZod = async (app) => {
     },
     async (req, reply) => {
       const tenant = req.tenant!
-      const seeAll = req.can('status:read:all')
+      /*
+       * Membership, not merely the permission.
+       *
+       * A demo visitor holds `status:read:all` so the admin screens they are
+       * invited to walk through have something in them. On *this* endpoint that
+       * would put components marked internal on the public page — a demo
+       * demonstrating the opposite of the feature it exists to show. Whoever is
+       * reading the public summary of a page they do not belong to sees what
+       * the public sees.
+       */
+      const seeAll = req.can('status:read:all') && req.role !== 'demo'
 
       const [tenantRow] = await app.db
         .select()

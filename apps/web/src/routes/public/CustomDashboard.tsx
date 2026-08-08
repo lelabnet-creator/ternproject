@@ -103,17 +103,34 @@ const BRIDGE = `
       try { fn(event.data.payload) } catch (e) { console.error(e) }
     })
   })
+  /*
+   * Measured on the body element, not on the document root.
+   *
+   * A ResizeObserver on the root does not fire when its children
+   * change — the root's own box is the viewport, which the frame fixes — so the
+   * first version reported the height of an empty document once and never
+   * again. The dashboard drew twelve tiles into a frame still sized for none of
+   * them.
+   *
+   * A MutationObserver beside it covers the case the ResizeObserver still
+   * misses: content replaced with content of the same height, which is what
+   * every twenty-second refresh does.
+   */
   function reportHeight() {
-    var h = Math.max(
-      document.documentElement.scrollHeight,
-      document.body ? document.body.scrollHeight : 0
-    )
-    parent.postMessage({ type: 'tern:height', height: h }, '*')
+    requestAnimationFrame(function () {
+      var body = document.body
+      if (!body) return
+      var h = Math.max(body.scrollHeight, body.getBoundingClientRect().height)
+      if (h > 0) parent.postMessage({ type: 'tern:height', height: h }, '*')
+    })
   }
   window.addEventListener('load', reportHeight)
   window.addEventListener('resize', reportHeight)
-  if (window.ResizeObserver) {
-    new ResizeObserver(reportHeight).observe(document.documentElement)
+  if (window.ResizeObserver && document.body) {
+    new ResizeObserver(reportHeight).observe(document.body)
+  }
+  if (window.MutationObserver && document.body) {
+    new MutationObserver(reportHeight).observe(document.body, { childList: true, subtree: true })
   }
 })()
 </script>`
