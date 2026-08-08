@@ -91,6 +91,11 @@ pub struct Catalog {
     pub journal_hint: &'static str,
     pub journal_hint_fail: &'static str,
 
+    /// The two answers to every yes/no question. cliclack writes them itself,
+    /// in English; the theme takes them from here instead.
+    pub yes: &'static str,
+    pub no: &'static str,
+
     pub docker_required: &'static str,
     pub docker_macos: &'static str,
     pub docker_os_unknown: &'static str,
@@ -144,18 +149,29 @@ pub struct Catalog {
     pub step_wait_api: &'static str,
     pub step_check_volume: &'static str,
     pub note_already: &'static str,
+    /// The row at the foot of the checklist: `Step 4 of 9`.
+    pub step_counter: &'static str,
 
+    pub head_docker: &'static str,
     pub head_install: &'static str,
     pub curl_required: &'static str,
     pub download_failed: &'static str,
 
     pub head_access: &'static str,
+    /// The default on offer, shown in the field itself. cliclack appends its
+    /// own English `(default)` when it builds this hint; spelling it out here
+    /// is what keeps a French install from answering in English.
+    pub default_hint: &'static str,
     pub q_port: &'static str,
     pub bad_port: &'static str,
     pub q_public_url: &'static str,
     pub localhost_warn: &'static str,
     pub proxy_hint: &'static str,
     pub q_trusted_proxies: &'static str,
+    /// What the empty answer means, said out loud. There is no sensible value
+    /// to propose here, and a blank line where a default belongs reads as a
+    /// question with no way out.
+    pub q_proxies_none: &'static str,
 
     pub head_agent: &'static str,
     pub agent_intro: &'static str,
@@ -193,8 +209,14 @@ pub struct Catalog {
     pub volume_ok: &'static str,
 
     pub done_panel_title: &'static str,
+    /// What is true of this machine now that the run is over — not a repeat of
+    /// the checklist, which has just been read.
+    pub done_state: &'static str,
     pub done_admin: &'static str,
+    pub done_public: &'static str,
     pub done_body: &'static str,
+    /// The one thing on that screen that cannot wait until tomorrow.
+    pub done_first_admin: &'static str,
     pub stop_label: &'static str,
     pub logs_label: &'static str,
     pub outro_ready: &'static str,
@@ -206,8 +228,11 @@ pub static EN: Catalog = Catalog {
     no_tty: "This installer is interactive: download it, then run it (no pipe).",
     docker_docs: "Install guide: https://docs.docker.com/engine/install/",
     then_rerun: "Then run this installer again.",
-    journal_hint: "Full log: {}",
+    journal_hint: "Setup log     : {}",
     journal_hint_fail: "The whole run, command by command, is in {}",
+
+    yes: "Yes",
+    no: "No",
 
     docker_required: "Docker is required.",
     docker_macos:
@@ -265,12 +290,15 @@ pub static EN: Catalog = Catalog {
     step_wait_api: "Waiting for the API",
     step_check_volume: "Checking database storage",
     note_already: "already there",
+    step_counter: "Step {} of {}",
 
+    head_docker: "Installing Docker",
     head_install: "Installing TERN",
     curl_required: "curl is required to fetch {}.",
     download_failed: "Download failed: {}",
 
     head_access: "HTTP access",
+    default_hint: "{} (default)",
     q_port: "Port published on the host",
     bad_port: "A port is a number between 1 and 65535.",
     q_public_url: "Public URL (the one a browser uses)",
@@ -281,6 +309,7 @@ pub static EN: Catalog = Catalog {
     proxy_hint: "Behind a reverse proxy or a domain name, give the external URL —\n\
          that is the one reused everywhere.",
     q_trusted_proxies: "Trusted proxy CIDRs (empty for direct access)",
+    q_proxies_none: "none — this instance is reached directly",
 
     head_agent: "What the agent should be able to watch",
     agent_intro: "By default it sees the internet and this instance, but neither this\n\
@@ -293,7 +322,7 @@ pub static EN: Catalog = Catalog {
     agent_container: "The agent will probe from its container. Changeable later: the\n\
          Agents screen says what to change.",
 
-    env_written: "{} written (mode 600)",
+    env_written: "{}, mode 600",
     secret_new: "APP_SECRET generated locally, never transmitted",
     env_head: "# Written by the TERN installer — do not commit (.gitignore blocks .env*).",
     env_db: "# ── Database ────────────────────────────────────────────────────────────────",
@@ -347,14 +376,19 @@ pub static EN: Catalog = Catalog {
     volume_ok: "Database on the db-data volume — it survives a container recreation.",
 
     done_panel_title: "Installation complete",
-    done_admin: "Admin console",
-    done_body: "Open it now: there you will name the page, create the administrator\n\
-         account and set up the outgoing mail server.\n\
-         \n\
-         Until that account exists, the first person to open this address\n\
-         becomes its administrator.",
-    stop_label: "Stop    : docker compose -f {} down",
-    logs_label: "Logs    : docker compose -f {} logs -f app",
+    done_state: "TERN is up on this machine: the API, its agent and the database,\n\
+         each in its own container, restarted with the machine. The whole\n\
+         configuration is in .env, which this installer can replay to change\n\
+         any of it.",
+    done_admin: "Admin console : {}",
+    done_public: "Public page   : {}",
+    done_body: "Open the admin console now: the page is named there, the\n\
+         administrator account is created there, and the outgoing mail server\n\
+         is set up there. The public page stays empty until it is.",
+    done_first_admin: "Until that administrator account exists, the first person to open\n\
+         the admin address becomes the administrator of this instance.",
+    stop_label: "Stop          : docker compose -f {} down",
+    logs_label: "Logs          : docker compose -f {} logs -f app",
     outro_ready: "Ready — {}",
 };
 
@@ -364,8 +398,11 @@ pub static FR: Catalog = Catalog {
     no_tty: "Installateur interactif : téléchargez-le puis exécutez-le (pas de pipe).",
     docker_docs: "Installation : https://docs.docker.com/engine/install/",
     then_rerun: "Puis relancez cet installateur.",
-    journal_hint: "Journal  : {}",
+    journal_hint: "Rapport        : {}",
     journal_hint_fail: "Toute l'exécution, commande par commande, est dans {}",
+
+    yes: "Oui",
+    no: "Non",
 
     docker_required: "Docker est requis.",
     docker_macos:
@@ -423,12 +460,15 @@ pub static FR: Catalog = Catalog {
     step_wait_api: "Attente de l'API",
     step_check_volume: "Vérification du stockage de la base",
     note_already: "déjà là",
+    step_counter: "Étape {} sur {}",
 
+    head_docker: "Installation de Docker",
     head_install: "Installation de TERN",
     curl_required: "curl est requis pour récupérer {}.",
     download_failed: "Téléchargement impossible : {}",
 
     head_access: "L'accès HTTP",
+    default_hint: "{} (par défaut)",
     q_port: "Port publié sur l'hôte",
     bad_port: "Un port est un nombre entre 1 et 65535.",
     q_public_url: "URL publique (celle qu'un navigateur utilise)",
@@ -439,6 +479,7 @@ pub static FR: Catalog = Catalog {
     proxy_hint: "Derrière un reverse proxy ou un nom de domaine, indiquez l'URL externe —\n\
          c'est elle qui sera reprise partout.",
     q_trusted_proxies: "CIDR des proxys de confiance (vide si accès direct)",
+    q_proxies_none: "aucun — cette instance est jointe directement",
 
     head_agent: "Ce que l'agent doit pouvoir surveiller",
     agent_intro: "Par défaut il voit Internet et cette instance, mais pas les services de\n\
@@ -451,7 +492,7 @@ pub static FR: Catalog = Catalog {
     agent_container: "L'agent mesurera depuis son conteneur. Modifiable plus tard :\n\
          l'écran Agents indique quoi changer.",
 
-    env_written: "{} écrit (permissions 600)",
+    env_written: "{}, mode 600",
     secret_new: "APP_SECRET généré localement, jamais transmis",
     env_head: "# Écrit par l'installateur TERN — ne pas committer (.gitignore bloque .env*).",
     env_db: "# ── Base de données ─────────────────────────────────────────────────────────",
@@ -504,14 +545,20 @@ pub static FR: Catalog = Catalog {
     volume_ok: "Base sur le volume db-data — elle survit à une recréation du conteneur.",
 
     done_panel_title: "Installation terminée",
-    done_admin: "Administration",
-    done_body: "Ouvrez-la maintenant : vous y nommerez la page, créerez le compte\n\
-         administrateur et réglerez le serveur d'envoi.\n\
-         \n\
-         Tant que ce compte n'existe pas, la première personne à ouvrir cette\n\
-         adresse en devient l'administrateur.",
-    stop_label: "Arrêt    : docker compose -f {} down",
-    logs_label: "Journaux : docker compose -f {} logs -f app",
+    done_state: "TERN tourne sur cette machine : l'API, son agent et la base, chacun\n\
+         dans son conteneur, redémarrés avec la machine. Toute la configuration\n\
+         est dans .env, que cet installateur sait rejouer pour en changer\n\
+         n'importe quelle valeur.",
+    done_admin: "Administration : {}",
+    done_public: "Page publique  : {}",
+    done_body: "Ouvrez l'administration maintenant : c'est là que la page se nomme,\n\
+         que le compte administrateur se crée et que le serveur d'envoi se\n\
+         règle. La page publique reste vide tant que ce n'est pas fait.",
+    done_first_admin: "Tant que ce compte administrateur n'existe pas, la première personne\n\
+         à ouvrir l'adresse d'administration devient l'administrateur de cette\n\
+         instance.",
+    stop_label: "Arrêt          : docker compose -f {} down",
+    logs_label: "Journaux       : docker compose -f {} logs -f app",
     outro_ready: "Prêt — {}",
 };
 
@@ -571,6 +618,52 @@ mod tests {
             detect(env(&[("LC_ALL", ""), ("LC_MESSAGES", "fr_FR")])),
             Lang::Fr
         );
+    }
+
+    /// A message that carries values has to carry the same number of them in
+    /// both languages, or one of the two loses a value on the screen.
+    #[test]
+    fn both_catalogs_take_the_same_values() {
+        for (english, french) in [
+            (EN.step_counter, FR.step_counter),
+            (EN.done_admin, FR.done_admin),
+            (EN.done_public, FR.done_public),
+            (EN.stop_label, FR.stop_label),
+            (EN.logs_label, FR.logs_label),
+            (EN.journal_hint, FR.journal_hint),
+        ] {
+            assert_eq!(
+                english.matches("{}").count(),
+                french.matches("{}").count(),
+                "{english:?} / {french:?}"
+            );
+        }
+        assert_eq!(EN.step_counter.matches("{}").count(), 2);
+    }
+
+    /// The closing panel puts its labels in a column. The padding is part of
+    /// the wording, so each language keeps its own, and each has to be even.
+    #[test]
+    fn the_closing_panel_lines_up_its_labels() {
+        for catalog in [&EN, &FR] {
+            let widths: Vec<usize> = [
+                catalog.done_admin,
+                catalog.done_public,
+                catalog.stop_label,
+                catalog.logs_label,
+                catalog.journal_hint,
+            ]
+            .iter()
+            // Counted in characters and not in bytes: `Arrêt` is five columns
+            // wide and six bytes long, and it is columns that line up.
+            .map(|line| line.chars().take_while(|c| *c != ':').count())
+            .collect();
+
+            assert!(
+                widths.windows(2).all(|pair| pair[0] == pair[1]),
+                "columns do not line up: {widths:?}"
+            );
+        }
     }
 
     #[test]

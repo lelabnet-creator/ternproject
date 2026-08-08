@@ -24,3 +24,4 @@ pub mod i18n;
 pub mod journal;
 pub mod probe;
 pub mod run;
+pub mod theme;

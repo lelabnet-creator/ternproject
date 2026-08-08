@@ -22,6 +22,7 @@ use tern_setup::i18n::{self, fill, Catalog};
 use tern_setup::journal::Journal;
 use tern_setup::probe::{self, PackageManager};
 use tern_setup::run;
+use tern_setup::theme;
 
 /// The compose file is the only other file an install needs, and this binary
 /// fetches it when it is missing. Cloning the repository is only worth it in
@@ -63,6 +64,10 @@ const VOLUME_PROBE: &str =
 
 fn main() -> std::process::ExitCode {
     let catalog = i18n::detect_from_env().catalog();
+    // Before anything is drawn: every prompt, log line and note below goes
+    // through the theme, and the default one writes its defaults in ink a
+    // server console does not render. See `theme`.
+    theme::install(catalog);
 
     match install(catalog) {
         Ok(()) => std::process::ExitCode::SUCCESS,
@@ -256,22 +261,39 @@ fn install(c: &'static Catalog) -> Result<(), Stop> {
     build_and_start(&ctx, &settings, previous.as_deref())?;
 
     // --- the panel ---------------------------------------------------------
-    // The address in plain sight, and the warning with it. Until the
-    // administrator account exists, that page creates it for whoever opens it.
-    // It is a window, it closes on the first account created, and it is the one
-    // thing on this screen that cannot wait until tomorrow — hence the box.
     if fresh_secret {
         cliclack::log::info(c.secret_new)?;
     }
     cliclack::log::success(c.volume_ok)?;
 
-    let admin = format!("{}/app", answers.public_base_url.trim_end_matches('/'));
-    let mut body = format!(
-        "{}   {}\n\n{}\n\n",
-        c.done_admin,
-        style(&admin).cyan(),
-        c.done_body
-    );
+    let public = answers.public_base_url.trim_end_matches('/').to_string();
+    let admin = format!("{public}/app");
+    cliclack::note(c.done_panel_title, closing_panel(&ctx, &admin, &public))?;
+    cliclack::outro(fill(c.outro_ready, &[&admin]))?;
+    ctx.journal.line("run finished: success");
+    Ok(())
+}
+
+/// The last thing on the screen, and the only one anybody will still have in
+/// front of them tomorrow.
+///
+/// Not a repeat of the checklist — that was read a second ago, step by step.
+/// What this says is what is true now that the run is over: what is running,
+/// the two addresses that exist because of it, where the record of the install
+/// is, and the two commands anyone will actually need. Then the warning, which
+/// is the one item here with a deadline: the admin page hands the instance to
+/// whoever opens it first, and it does so exactly once.
+fn closing_panel(ctx: &Ctx, admin: &str, public: &str) -> String {
+    let c = ctx.c;
+    let mut body = String::new();
+
+    body.push_str(c.done_state);
+    body.push_str("\n\n");
+
+    body.push_str(&fill(c.done_admin, &[&style(admin).cyan().to_string()]));
+    body.push('\n');
+    body.push_str(&fill(c.done_public, &[&style(public).cyan().to_string()]));
+    body.push('\n');
     body.push_str(&fill(c.stop_label, &[COMPOSE_FILE]));
     body.push('\n');
     body.push_str(&fill(c.logs_label, &[COMPOSE_FILE]));
@@ -283,10 +305,24 @@ fn install(c: &'static Catalog) -> Result<(), Stop> {
         ));
     }
 
-    cliclack::note(c.done_panel_title, body)?;
-    cliclack::outro(fill(c.outro_ready, &[&admin]))?;
-    ctx.journal.line("run finished: success");
-    Ok(())
+    body.push_str("\n\n");
+    body.push_str(c.done_body);
+    body.push_str("\n\n");
+    body.push_str(&warning_block(c.done_first_admin));
+    body
+}
+
+/// Paints a paragraph line by line.
+///
+/// A note draws its own gutter between the lines of its body, and that gutter
+/// carries a colour reset with it: a single style wrapped around the whole
+/// paragraph would end at the first line break. So each line is painted on its
+/// own, which is what makes a multi-line warning stay yellow all the way down.
+fn warning_block(text: &str) -> String {
+    text.lines()
+        .map(|line| style(line).yellow().to_string())
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 // --- Docker, when it is missing ----------------------------------------------
@@ -375,13 +411,16 @@ fn install_docker(ctx: &Ctx) -> Result<(), Stop> {
     // The exact package names are not knowable yet — on apt, nothing can be
     // queried before the lists have been refreshed. The two steps are announced
     // with a placeholder and renamed the moment the answer exists; the list
-    // never gains or loses a line.
+    // never gains or loses a line, and the box widens once if the real name
+    // asks for it. Announcing a guess instead and correcting it would be worse:
+    // `docker-ce` and `docker.io` are different answers, and the wrong one on
+    // the screen for a minute is a wrong one somebody may write down.
     labels.push(fill(c.step_install_engine, &["…"]));
     labels.push(fill(c.step_install_compose, &["…"]));
     labels.push(c.step_enable_service.to_string());
 
     let base = usize::from(refresh);
-    let mut list = Checklist::new(labels);
+    let mut list = Checklist::new(c, c.head_docker, labels);
 
     // The package lists first, on apt: without them there is nothing to query,
     // and the install would fail on a package this machine does in fact know.
@@ -560,7 +599,7 @@ fn ensure_docker_access(ctx: &Ctx) -> Result<(), Stop> {
 
     run::prime_sudo(&ctx.journal, ctx.uid);
 
-    let list = Checklist::new(vec![fill(c.step_join_group, &[&ctx.user])]);
+    let list = Checklist::new(c, c.sock_title, vec![fill(c.step_join_group, &[&ctx.user])]);
     let joined = list.run(0, || {
         let outcome = run::run(
             &ctx.journal,
@@ -628,8 +667,12 @@ fn ask(ctx: &Ctx, previous: Option<&str>) -> Result<Answers, Stop> {
 
     cliclack::log::step(c.head_access)?;
 
+    // The hint is given rather than left to cliclack, which would build it
+    // with an English "(default)" whatever language the question was asked in.
+    let port_default = existing("TERN_HTTP_PORT").unwrap_or_else(|| "8080".into());
     let http_port: String = cliclack::input(c.q_port)
-        .default_input(&existing("TERN_HTTP_PORT").unwrap_or_else(|| "8080".into()))
+        .default_input(&port_default)
+        .placeholder(&fill(c.default_hint, &[&port_default]))
         .validate(|value: &String| match value.trim().parse::<u16>() {
             Ok(port) if port > 0 => Ok(()),
             _ => Err(c.bad_port),
@@ -647,6 +690,7 @@ fn ask(ctx: &Ctx, previous: Option<&str>) -> Result<Answers, Stop> {
 
     let public_base_url: String = cliclack::input(c.q_public_url)
         .default_input(&default_url)
+        .placeholder(&fill(c.default_hint, &[&default_url]))
         .interact()?;
     let public_base_url = public_base_url.trim().to_string();
     ctx.journal.answer("PUBLIC_BASE_URL", &public_base_url);
@@ -659,10 +703,19 @@ fn ask(ctx: &Ctx, previous: Option<&str>) -> Result<Answers, Stop> {
         cliclack::log::info(c.proxy_hint)?;
     }
 
-    let trusted_proxies: String = cliclack::input(c.q_trusted_proxies)
-        .default_input(&existing("TRUSTED_PROXIES").unwrap_or_default())
-        .required(false)
-        .interact()?;
+    // The one question with no sensible value to propose: a machine reached
+    // directly has no trusted proxy, and inventing a CIDR would be worse than
+    // leaving it empty. But `default_input("")` offers the bare word
+    // "(default)" attached to nothing, which reads as a question with no way
+    // out — so the empty answer is spelled out instead.
+    let previous_proxies = existing("TRUSTED_PROXIES").unwrap_or_default();
+    let mut proxies_question = cliclack::input(c.q_trusted_proxies)
+        .default_input(&previous_proxies)
+        .required(false);
+    if previous_proxies.is_empty() {
+        proxies_question = proxies_question.placeholder(c.q_proxies_none);
+    }
+    let trusted_proxies: String = proxies_question.interact()?;
     let trusted_proxies = trusted_proxies.trim().to_string();
     ctx.journal.answer("TRUSTED_PROXIES", &trusted_proxies);
 
@@ -826,20 +879,24 @@ fn build_and_start(ctx: &Ctx, settings: &Settings, previous: Option<&str>) -> Re
         None => cliclack::log::info(c.build_hint)?,
     }
 
-    cliclack::log::step(c.head_install)?;
-
-    let list = Checklist::new(vec![
-        c.step_fetch_compose.to_string(),
-        c.step_write_config.to_string(),
-        if building {
-            c.step_build.to_string()
-        } else {
-            c.step_pull.to_string()
-        },
-        c.step_start.to_string(),
-        c.step_wait_api.to_string(),
-        c.step_check_volume.to_string(),
-    ]);
+    // The heading is the box's own: a `log::step` line above it would say the
+    // same thing twice, in the same symbol.
+    let list = Checklist::new(
+        c,
+        c.head_install,
+        vec![
+            c.step_fetch_compose.to_string(),
+            c.step_write_config.to_string(),
+            if building {
+                c.step_build.to_string()
+            } else {
+                c.step_pull.to_string()
+            },
+            c.step_start.to_string(),
+            c.step_wait_api.to_string(),
+            c.step_check_volume.to_string(),
+        ],
+    );
 
     // 1. The compose file, when it is not here. It is the only file this binary
     //    does not carry, and fetching it saves cloning 40 MB of sources for an
