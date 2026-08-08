@@ -16,8 +16,10 @@ interface Strings {
   updated: string
   resolved: string
   postmortem: string
+  maintenanceScheduled: string
   maintenanceStarted: string
   maintenanceCompleted: string
+  maintenanceCancelled: string
   maintenanceReminder: string
   viewStatus: string
   unsubscribe: string
@@ -28,8 +30,10 @@ const EN: Strings = {
   updated: 'Incident update',
   resolved: 'Incident resolved',
   postmortem: 'Postmortem published',
+  maintenanceScheduled: 'Maintenance scheduled',
   maintenanceStarted: 'Maintenance started',
   maintenanceCompleted: 'Maintenance completed',
+  maintenanceCancelled: 'Maintenance cancelled',
   maintenanceReminder: 'Upcoming maintenance',
   viewStatus: 'View status page',
   unsubscribe: 'Unsubscribe',
@@ -40,8 +44,10 @@ const FR: Strings = {
   updated: 'Mise à jour d’incident',
   resolved: 'Incident résolu',
   postmortem: 'Analyse post-incident publiée',
+  maintenanceScheduled: 'Maintenance planifiée',
   maintenanceStarted: 'Maintenance démarrée',
   maintenanceCompleted: 'Maintenance terminée',
+  maintenanceCancelled: 'Maintenance annulée',
   maintenanceReminder: 'Maintenance à venir',
   viewStatus: 'Voir la page de statut',
   unsubscribe: 'Se désabonner',
@@ -52,8 +58,10 @@ const PREFIXES: Record<string, keyof Strings> = {
   'incident.updated': 'updated',
   'incident.resolved': 'resolved',
   'incident.postmortem': 'postmortem',
+  'maintenance.scheduled': 'maintenanceScheduled',
   'maintenance.started': 'maintenanceStarted',
   'maintenance.completed': 'maintenanceCompleted',
+  'maintenance.cancelled': 'maintenanceCancelled',
   'maintenance.reminder': 'maintenanceReminder',
 }
 

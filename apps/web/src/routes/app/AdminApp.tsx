@@ -19,6 +19,7 @@ import type { CheckStatusValue } from '@tern/shared/status'
 import { api } from '../../lib/api'
 import { LayoutScreen } from './LayoutScreen'
 import { IncidentsScreen } from './IncidentsScreen'
+import { MaintenancesScreen } from './MaintenancesScreen'
 import { FleetScreen } from './FleetScreen'
 import { OptionsScreen } from './OptionsScreen'
 import { LogsScreen } from './LogsScreen'
@@ -225,6 +226,8 @@ export function AdminApp({ slug }: { slug: string }) {
       <main className="admin-main">
         {section === 'incidents' ? (
           <IncidentsScreen slug={slug} canWrite={canWrite} />
+        ) : section === 'maintenance' ? (
+          <MaintenancesScreen slug={slug} canWrite={canWrite} />
         ) : section === 'layout' ? (
           <LayoutScreen slug={slug} canWrite={canWrite} />
         ) : section === 'agents' ? (
@@ -252,6 +255,7 @@ const SECTIONS = [
   // Second, not buried: declaring an incident is the thing this product exists
   // to do, and it is reached under pressure.
   { id: 'incidents', label: 'Incidents', icon: 'Siren' },
+  { id: 'maintenance', label: 'Maintenance', icon: 'CalendarClock' },
   { id: 'layout', label: 'Page layout', icon: 'LayoutGrid' },
   { id: 'agents', label: 'Agents', icon: 'Radar' },
   { id: 'logs', label: 'Logs', icon: 'ScrollText' },

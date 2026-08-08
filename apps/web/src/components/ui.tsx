@@ -149,6 +149,78 @@ export function Input(props: React.InputHTMLAttributes<HTMLInputElement>) {
   )
 }
 
+/**
+ * The same box as `Input`, for the two elements that inherit none of its
+ * styling.
+ *
+ * A `<select>` and a `<textarea>` are different elements, so every screen that
+ * needed one restated the whole declaration block — three of them do, and they
+ * have already drifted on `minHeight`. One definition here is the fix.
+ */
+const BOX: CSSProperties = {
+  background: 'var(--color-bg)',
+  color: 'var(--color-fg)',
+  border: '1px solid var(--color-border-strong)',
+  borderRadius: 'var(--radius-sm)',
+  padding: 'var(--space-2) var(--space-3)',
+  // 16px minimum, or iOS zooms the whole page on focus.
+  fontSize: 'var(--text-base)',
+  fontFamily: 'inherit',
+  width: '100%',
+}
+
+export function Select(props: React.SelectHTMLAttributes<HTMLSelectElement>) {
+  return <select {...props} style={{ ...BOX, minHeight: 44, ...props.style }} />
+}
+
+export function Textarea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
+  return <textarea {...props} style={{ ...BOX, ...props.style }} />
+}
+
+/**
+ * A checkbox with its own label and a reason underneath.
+ *
+ * The reason is not optional: every one of these switches something the reader
+ * cannot see the consequence of — whether mail goes out, whether alerting stays
+ * quiet — and a bare label leaves them guessing.
+ */
+export function Toggle({
+  checked,
+  onChange,
+  label,
+  hint,
+  disabled,
+}: {
+  checked: boolean
+  onChange: (next: boolean) => void
+  label: string
+  hint: string
+  disabled?: boolean
+}) {
+  return (
+    <label style={{ display: 'grid', gap: 'var(--space-1)', opacity: disabled ? 0.6 : 1 }}>
+      <span style={{ display: 'flex', gap: 'var(--space-2)', alignItems: 'center' }}>
+        <input
+          type="checkbox"
+          checked={checked}
+          disabled={disabled}
+          onChange={(e) => onChange(e.target.checked)}
+        />
+        <span style={{ fontSize: 'var(--text-sm)', fontWeight: 600 }}>{label}</span>
+      </span>
+      <span
+        style={{
+          fontSize: 'var(--text-xs)',
+          color: 'var(--color-fg-subtle)',
+          paddingLeft: 'var(--space-5)',
+        }}
+      >
+        {hint}
+      </span>
+    </label>
+  )
+}
+
 export function Banner({
   tone,
   children,
