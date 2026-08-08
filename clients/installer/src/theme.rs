@@ -182,11 +182,38 @@ pub fn running() -> Style {
 
 /// The colour of the gutter and of the box rules — structure, not information.
 ///
-/// Bright black, because that is what cliclack paints its own gutter once a
-/// step is submitted, and the checklist has to sit inside that gutter without a
-/// seam. Nothing readable is ever drawn in it.
+/// Bright black on a terminal that has a bright black: it is what cliclack
+/// paints its own gutter once a step is submitted, and the checklist has to sit
+/// inside that gutter without a seam. Nothing readable is ever drawn in it.
+///
+/// On the console it is blue, and this is the same defect as the dim ink this
+/// module was written for, one shade further along. Colour 8 is the console's
+/// idea of a grey that recedes; it renders as the background itself, so the
+/// gutter and the box around the checklist were not faint but absent —
+/// photographed on a real console, the marks floated at the left margin with
+/// nothing joining them, and the closing panel had no frame at all. A frame
+/// that was asked for and is not drawn is worse than no frame, because
+/// everything inside it is positioned as though it were there.
+///
+/// Blue rather than the grey of [`secondary`]: at a sixteen-colour console's
+/// brightness, grey 7 puts the rules at the weight of the words beside them,
+/// and structure that competes with the text is the other way to lose it. Blue
+/// is dark, never carries a word body anywhere in this installer, and leaves
+/// the gutter reading as one thing with the `i` that already sits in it.
 pub fn rule() -> Style {
-    Style::new().black().bright()
+    rule_for(charset())
+}
+
+/// The rule above, for a charset chosen by the caller.
+///
+/// Split out for the same reason `charset_from` is: `charset()` reads a process
+/// environment that a test cannot change without deciding the answer for every
+/// other test running beside it.
+pub fn rule_for(charset: Charset) -> Style {
+    match charset {
+        Charset::Unicode => Style::new().black().bright(),
+        Charset::Ascii => Style::new().blue(),
+    }
 }
 
 /// cliclack's theme, with the invisible ink taken out.
@@ -217,6 +244,24 @@ pub fn install(c: &'static Catalog) {
 }
 
 impl Theme for TernTheme {
+    /// The gutter, in the four states cliclack draws it in.
+    ///
+    /// Three of them are already visible anywhere — cyan while a question is
+    /// open, red on a cancel, yellow on an error. The fourth is the one that
+    /// covers most of a finished screen, and cliclack paints it bright black:
+    /// invisible on a console. It goes through [`rule`] so that the gutter and
+    /// the checklist's own frame stay the same colour whichever terminal is
+    /// reading them — they meet, and a seam there would be the one place the
+    /// eye is drawn to.
+    fn bar_color(&self, state: &ThemeState) -> Style {
+        match state {
+            ThemeState::Submit => rule(),
+            ThemeState::Active => Style::new().cyan(),
+            ThemeState::Cancel => Style::new().red(),
+            ThemeState::Error(_) => Style::new().yellow(),
+        }
+    }
+
     /// The text of an answer, and the body of every note: cliclack routes both
     /// through here. Left at the terminal's own foreground.
     fn input_style(&self, state: &ThemeState) -> Style {
@@ -410,6 +455,52 @@ mod tests {
         }
 
         assert!(!drawn.contains(DIM), "dim survives in: {drawn:?}");
+    }
+
+    /// A frame drawn in the background colour is not a faint frame, it is no
+    /// frame — and everything inside it is still laid out as though it were
+    /// there. Colour 8 is exactly that on a console.
+    #[test]
+    fn the_frame_is_not_painted_in_the_console_background() {
+        on_a_terminal();
+
+        let console = rule_for(Charset::Ascii).apply_to("|").to_string();
+        assert!(
+            !console.contains("\u{1b}[90m") && !console.contains("38;5;8"),
+            "the console frame is bright black: {console:?}"
+        );
+        assert!(console.contains("\u{1b}["), "unpainted: {console:?}");
+
+        // And unchanged where bright black is a grey rather than the ground:
+        // there the seam with cliclack's own gutter is what matters.
+        let terminal = rule_for(Charset::Unicode).apply_to("|").to_string();
+        assert!(terminal.contains("38;5;8"), "{terminal:?}");
+    }
+
+    /// The gutter cliclack paints and the frame the checklist paints meet on
+    /// the screen. They have to be one colour, or the seam is the first thing
+    /// the eye lands on.
+    #[test]
+    fn the_gutter_of_a_finished_prompt_is_the_colour_of_the_frame() {
+        on_a_terminal();
+        let theme = TernTheme { c: &EN };
+
+        let gutter = theme
+            .bar_color(&ThemeState::Submit)
+            .apply_to("|")
+            .to_string();
+        assert_eq!(gutter, rule().apply_to("|").to_string());
+
+        // The three states that were already visible everywhere keep the
+        // colours that say which one they are.
+        for (name, state, code) in [
+            ("active", ThemeState::Active, "\u{1b}[36m"),
+            ("cancel", ThemeState::Cancel, "\u{1b}[31m"),
+            ("error", ThemeState::Error(String::new()), "\u{1b}[33m"),
+        ] {
+            let bar = theme.bar_color(&state).apply_to("|").to_string();
+            assert!(bar.contains(code), "{name}: {bar:?}");
+        }
     }
 
     /// The default value an input offers is the one thing this whole module
