@@ -147,6 +147,59 @@ confirm() {
   eval "$_cvar=\$_canswer"
 }
 
+# Un cadre, quand on peut en dessiner un.
+#
+# `printf` sait tracer une boîte à condition de compter les caractères à la
+# main, ce qui se voit dès qu'un accent ou une largeur de terminal s'en mêle.
+# gum la dessine à la bonne taille sans qu'on ait à savoir laquelle.
+panel() {
+  if [ -n "$GUM" ]; then
+    gum style --border rounded --border-foreground 212 --padding "1 3" --margin "1 0" "$@"
+  else
+    printf '\n%s┌───────────────────────────────────────────────────────────┐%s\n' "$B" "$R"
+    for _line in "$@"; do printf '  %s\n' "$_line"; done
+    printf '%s└───────────────────────────────────────────────────────────┘%s\n' "$B" "$R"
+  fi
+}
+
+# Une attente qui montre qu'elle avance.
+#
+# Trois opérations de ce script prennent des minutes sans rien afficher : la
+# pose des paquets, le tirage de l'image, et la venue de l'API. Un terminal
+# muet pendant trois minutes ressemble à un blocage, et c'est le moment où l'on
+# interrompt une installation qui se serait très bien terminée.
+#
+# La sortie de la commande est gardée en cas d'échec — un joli tourniquet qui
+# avale le message d'erreur ne rend service à personne.
+#
+# `as_root true` avant de lancer le tourniquet : si sudo doit demander un mot de
+# passe, il faut que la question soit visible. Posée derrière une animation,
+# elle donne une installation qui semble figée pour une raison invisible.
+# `as_root` est traduit en commande réelle avant d'arriver ici : `gum spin --`
+# exécute un programme, pas une fonction du shell, et lui passer `as_root`
+# donnerait un « command not found » au moment précis où l'on installe.
+spin() {
+  _spin_msg=$1; shift
+
+  if [ "$1" = as_root ]; then
+    shift
+    if [ "$(id -u)" -ne 0 ]; then
+      # Le mot de passe est demandé maintenant, en clair à l'écran. Derrière un
+      # tourniquet, l'invite est invisible et l'installation paraît figée sans
+      # raison.
+      sudo -v 2>/dev/null || true
+      set -- sudo "$@"
+    fi
+  fi
+
+  if [ -n "$GUM" ]; then
+    gum spin --spinner dot --title "$_spin_msg" --show-error -- "$@"
+  else
+    note "$_spin_msg"
+    "$@"
+  fi
+}
+
 random_hex() {
   if command -v openssl >/dev/null 2>&1; then
     openssl rand -hex 32
@@ -271,11 +324,11 @@ pkg_install() {
   case "$PKG" in
     apt)
       note "apt-get install -y $*"
-      as_root apt-get install -y "$@"
+      spin "Installation de $*" as_root apt-get install -y "$@"
       ;;
     dnf)
       note "dnf install -y $*"
-      as_root dnf install -y "$@"
+      spin "Installation de $*" as_root dnf install -y "$@"
       ;;
     yum)
       note "yum install -y $*"
@@ -287,7 +340,7 @@ pkg_install() {
       # que l'installation aboutisse, c'est un `pacman -Syu` qu'il faut, et
       # celui-là ne se lance pas au nom de quelqu'un d'autre.
       note "pacman -S --needed --noconfirm $*"
-      as_root pacman -S --needed --noconfirm "$@"
+      spin "Installation de $*" as_root pacman -S --needed --noconfirm "$@"
       ;;
   esac
 }
@@ -593,8 +646,10 @@ if [ ! -f "$COMPOSE_FILE" ]; then
   note "récupéré dans $(pwd)"
 fi
 
-printf '%s\n' "$B┌─ TERN — installation ─────────────────────────────────────────┐$R"
-note "Entrée pour accepter la valeur entre crochets."
+panel "TERN — installation d'une instance" \
+      "" \
+      "Quelques questions, puis la pile démarre." \
+      "Entrée accepte la valeur proposée."
 
 # --- l'accès -----------------------------------------------------------------
 say "L'accès HTTP"
@@ -842,7 +897,8 @@ if [ -n "${TERN_IMAGE:-}" ]; then
   # Écrit dans .env pour que les `docker compose` suivants visent la même image
   # que ce démarrage-ci.
   printf '\nTERN_IMAGE=%s\n' "$TERN_IMAGE" >> "$ENV_FILE"
-  if ! docker compose -f "$COMPOSE_FILE" pull app; then
+  if ! spin "Récupération de l'image (quelques minutes)" \
+      docker compose -f "$COMPOSE_FILE" pull app; then
     die "Image introuvable : $TERN_IMAGE"
   fi
   _up='up -d'
@@ -913,18 +969,21 @@ if ! docker compose -f "$COMPOSE_FILE" exec -T db \
 fi
 note "Base sur le volume db-data — elle survit à une recréation du conteneur."
 
-printf '\n%s%s Prêt.%s\n' "$OK" "$B" "$R"
-printf '    Administration   %s/app\n\n' "$PUBLIC_BASE_URL"
+# L'adresse en évidence, et l'avertissement avec elle.
+#
+# Tant que le compte administrateur n'existe pas, cette page le crée pour qui
+# l'ouvre. C'est une fenêtre, elle se ferme à la première création, et c'est la
+# seule chose de cet écran qui ne peut pas attendre demain — d'où le cadre.
+panel "✓ Prêt." \
+      "" \
+      "Administration   $PUBLIC_BASE_URL/app" \
+      "" \
+      "Ouvrez-la maintenant : vous y nommerez la page, créerez le" \
+      "compte administrateur et réglerez le serveur d'envoi." \
+      "" \
+      "Tant que ce compte n'existe pas, la première personne à ouvrir" \
+      "cette adresse en devient l'administrateur."
 
-# Dit tout de suite, et en premier : tant que le compte n'existe pas, la page
-# d'administration crée le compte pour qui l'ouvre. C'est une fenêtre, et elle
-# se ferme à la première création.
-printf '%s%s Ouvrez l'"'"'administration maintenant.%s\n' "$OK" "$B" "$R"
-note "Vous y nommerez la page, créerez le compte administrateur"
-note "et réglerez le serveur d'envoi."
-note "Tant que ce compte n'existe pas, la première personne à ouvrir"
-note "cette adresse devient l'administrateur."
-printf '\n'
 note "Arrêt      : docker compose -f $COMPOSE_FILE down"
 note "Journaux   : docker compose -f $COMPOSE_FILE logs -f app"
 printf '\n'
