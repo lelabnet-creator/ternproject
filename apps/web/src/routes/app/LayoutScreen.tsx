@@ -19,7 +19,7 @@ import {
 import { CSS } from '@dnd-kit/utilities'
 import { adminApi, ApiError, type Control } from '../../lib/adminApi'
 import { api } from '../../lib/api'
-import { Banner, Button, Card, EmptyState } from '../../components/ui'
+import { Banner, Button, Card, CodeBlock, EmptyState, Field, Textarea } from '../../components/ui'
 import { Tabs } from '../../components/Tabs'
 
 /**
@@ -41,6 +41,11 @@ const DENSITIES: { id: PageLayout; label: string; hint: string }[] = [
   { id: 'list', label: 'List', hint: 'One component per row. The most readable on a phone.' },
   { id: 'grid', label: 'Grid', hint: 'Cards side by side. Good for a wall display.' },
   { id: 'compact', label: 'Compact', hint: 'Tight rows for a long list of components.' },
+  {
+    id: 'custom',
+    label: 'Custom',
+    hint: 'You write the page. The three densities stop applying.',
+  },
 ]
 
 export function LayoutScreen({ slug, canWrite }: { slug: string; canWrite: boolean }) {
@@ -57,6 +62,7 @@ export function LayoutScreen({ slug, canWrite }: { slug: string; canWrite: boole
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
   const [view, setView] = useState('order')
+  const [custom, setCustom] = useState<{ html: string; css: string; js: string } | null>(null)
 
   // The server is the source of truth until the first edit; after that the
   // local draft is, or a background refetch would undo a move mid-edit.
@@ -69,6 +75,14 @@ export function LayoutScreen({ slug, canWrite }: { slug: string; canWrite: boole
   useEffect(() => {
     if (summary.data && density === null) setDensity(summary.data.tenant.layout)
   }, [summary.data, density])
+
+  // Only served while the layout is `custom`, so an operator switching to it
+  // starts from an empty document rather than from whatever the last one was.
+  useEffect(() => {
+    if (summary.data && custom === null) {
+      setCustom(summary.data.tenant.custom ?? { html: '', css: '', js: '' })
+    }
+  }, [summary.data, custom])
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -84,6 +98,13 @@ export function LayoutScreen({ slug, canWrite }: { slug: string; canWrite: boole
       adminApi.updateLayout(slug, {
         layout: density ?? 'list',
         order: (order ?? []).map((control) => ({ controlId: control.id })),
+        // Sent whatever the mode: an operator who tried `custom`, went back to
+        // `list` and returned should find their document where they left it.
+        ...(custom && {
+          customHtml: custom.html,
+          customCss: custom.css,
+          customJs: custom.js,
+        }),
       }),
     onSuccess: async () => {
       setError(null)
@@ -195,9 +216,13 @@ export function LayoutScreen({ slug, canWrite }: { slug: string; canWrite: boole
         onChange={setView}
         tabs={[
           { id: 'order', label: 'Order' },
+          ...(density === 'custom' ? [{ id: 'document', label: 'Document' }] : []),
           { id: 'preview', label: 'Preview' },
         ]}
       >
+        {view === 'document' && custom && (
+          <CustomDocumentEditor value={custom} onChange={setCustom} />
+        )}
         {view === 'preview' && <LayoutPreview slug={slug} density={density} order={order} />}
         {view === 'order' && (
           <div>
@@ -535,6 +560,101 @@ function SortableRow({
 }
 
 /** A miniature of the arrangement, so the choice is made on a shape, not a word. */
+/**
+ * Three editors for one document.
+ *
+ * Plain textareas rather than a code editor: pulling in CodeMirror for three
+ * fields is a megabyte of dependency for syntax colouring, and the thing an
+ * operator writes here is usually pasted from somewhere that already had one.
+ *
+ * The note above them is not decoration. Somebody arriving at a box marked
+ * "JavaScript" on a public status page deserves to be told, in the place they
+ * are typing, exactly how far it reaches.
+ */
+function CustomDocumentEditor({
+  value,
+  onChange,
+}: {
+  value: { html: string; css: string; js: string }
+  onChange: (next: { html: string; css: string; js: string }) => void
+}) {
+  const set = (key: 'html' | 'css' | 'js') => (next: string) => onChange({ ...value, [key]: next })
+
+  return (
+    <div style={{ display: 'grid', gap: 'var(--space-4)' }}>
+      <Banner tone="maintenance">
+        This document renders in a sandboxed frame with no access to the page around it: no cookies,
+        no session, no network. It is handed the status data through <code>tern.onUpdate(fn)</code>{' '}
+        and cannot fetch anything, which is what makes running your script here safe rather than
+        reckless. It arranges pixels; it cannot reach anything else.
+      </Banner>
+
+      <Field
+        label="HTML"
+        hint="The body of the document. Give the elements your script will fill ids or classes."
+      >
+        <Textarea
+          value={value.html}
+          rows={12}
+          spellCheck={false}
+          placeholder={'<div class="wall">\n  <div id="components"></div>\n</div>'}
+          onChange={(e) => set('html')(e.target.value)}
+          style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-sm)' }}
+        />
+      </Field>
+
+      <Field label="CSS" hint="Applies inside the frame only. Nothing here can affect the admin.">
+        <Textarea
+          value={value.css}
+          rows={12}
+          spellCheck={false}
+          placeholder={'.wall { display: grid; grid-template-columns: repeat(4, 1fr); }'}
+          onChange={(e) => set('css')(e.target.value)}
+          style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-sm)' }}
+        />
+      </Field>
+
+      <Field
+        label="JavaScript"
+        hint="Runs on every refresh of the data. tern.data holds the latest summary."
+      >
+        <Textarea
+          value={value.js}
+          rows={12}
+          spellCheck={false}
+          placeholder={
+            'tern.onUpdate(function (data) {\n' +
+            "  document.getElementById('components').textContent =\n" +
+            "    data.components.map(function (c) { return c.name + ': ' + c.status }).join('\\n')\n" +
+            '})'
+          }
+          onChange={(e) => set('js')(e.target.value)}
+          style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-sm)' }}
+        />
+      </Field>
+
+      <details>
+        <summary style={{ cursor: 'pointer', fontSize: 'var(--text-sm)', fontWeight: 600 }}>
+          What the document is given
+        </summary>
+        <CodeBlock label="tern.data">
+          {`{
+  overall:      { status, affectedCount },
+  groups:       [{ id, parentId, name, position, status }],
+  components:   [{ id, key, name, description, groupId, status,
+                   latencyMs, value, valueUnit, valueLabel, lastCheckAt }],
+  incidents:    [{ id, title, severity, status, startedAt,
+                   latestUpdate: { status, body, createdAt } | null, impacts }],
+  maintenances: [{ id, title, body, status,
+                   scheduledStart, scheduledEnd, controlIds }],
+  generatedAt:  string
+}`}
+        </CodeBlock>
+      </details>
+    </div>
+  )
+}
+
 function DensityGlyph({ layout }: { layout: PageLayout }) {
   const bar = (width: string, height: number) => (
     <span

@@ -28,5 +28,22 @@ export default tseslint.config(
       'no-console': ['warn', { allow: ['warn', 'error'] }],
     },
   },
+  {
+    /*
+     * Build scripts run in Node, from a terminal.
+     *
+     * `process` and `console` are the two things a script of this kind is made
+     * of, and the browser-shaped defaults call both undefined. Scoped to
+     * `scripts/` rather than relaxed globally, so the application code keeps
+     * being told when it reaches for a global it does not have.
+     */
+    files: ['scripts/**/*.{js,mjs}'],
+    languageOptions: {
+      globals: { process: 'readonly', console: 'readonly', URL: 'readonly' },
+    },
+    rules: {
+      'no-console': 'off',
+    },
+  },
   prettier,
 )

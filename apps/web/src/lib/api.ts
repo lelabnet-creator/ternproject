@@ -43,6 +43,8 @@ export interface StatusSummary {
     defaultTimezone: string
     subscriberDisclaimer: string | null
     layout: 'list' | 'grid' | 'compact' | 'custom'
+    /** The document a `custom` layout renders; null for every other layout. */
+    custom: { html: string; css: string; js: string } | null
     branding: Record<string, unknown>
   }
   overall: { status: CheckStatusValue; affectedCount: number }

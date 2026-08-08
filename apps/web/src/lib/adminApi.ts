@@ -411,7 +411,13 @@ export const adminApi = {
 
   updateLayout: (
     slug: string,
-    body: { layout: 'list' | 'grid' | 'compact' | 'custom'; order: { controlId: string }[] },
+    body: {
+      layout: 'list' | 'grid' | 'compact' | 'custom'
+      order: { controlId: string }[]
+      customHtml?: string
+      customCss?: string
+      customJs?: string
+    },
   ) => request<{ ok: boolean; reordered: number }>('PATCH', `/api/v1/${slug}/layout`, body),
 
   incidents: (slug: string, limit = 50) =>

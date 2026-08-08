@@ -87,14 +87,19 @@ function renderInline(text, sourceDir) {
     return `\u0000${spans.length - 1}\u0000`
   })
 
-  return escapeHtml(held)
-    .replace(
-      /\[([^\]]+)\]\(([^)\s]+)\)/g,
-      (_m, label, href) => `<a href="${resolveHref(href, sourceDir)}">${label}</a>`,
-    )
-    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-    .replace(/(^|[^\w])_([^_]+)_(?!\w)/g, '$1<em>$2</em>')
-    .replace(/\u0000(\d+)\u0000/g, (_m, index) => spans[Number(index)])
+  return (
+    escapeHtml(held)
+      .replace(
+        /\[([^\]]+)\]\(([^)\s]+)\)/g,
+        (_m, label, href) => `<a href="${resolveHref(href, sourceDir)}">${label}</a>`,
+      )
+      .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+      .replace(/(^|[^\w])_([^_]+)_(?!\w)/g, '$1<em>$2</em>')
+      // NUL stands in for an extracted code span precisely because Markdown
+      // can never contain one, which is what makes it a safe placeholder.
+      // eslint-disable-next-line no-control-regex
+      .replace(/\u0000(\d+)\u0000/g, (_m, index) => spans[Number(index)])
+  )
 }
 
 // ── blocks ───────────────────────────────────────────────────────────────────

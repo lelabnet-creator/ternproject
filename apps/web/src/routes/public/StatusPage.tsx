@@ -12,6 +12,7 @@ import { STATUS_PRESENTATION } from '../../lib/status'
 import { rememberPage } from '../../lib/recentPages'
 import { SponsorButton } from '../../components/SponsorButton'
 import { SiteFooter } from '../../components/SiteFooter'
+import { CustomDashboard } from './CustomDashboard'
 
 /**
  * The public status page.
@@ -129,38 +130,48 @@ export function StatusPage({ slug }: { slug: string }) {
           timeZone={timeZone}
         />
 
-        {groupTree(data, preview.order).map(({ group, components }) => (
-          <section key={group?.id ?? 'ungrouped'} className="page-group">
-            {group && (
-              <h2
-                style={{
-                  fontSize: 'var(--text-sm)',
-                  fontWeight: 600,
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.06em',
-                  color: 'var(--color-fg-subtle)',
-                  margin: '0 0 var(--space-3)',
-                }}
-              >
-                {group.name}
-              </h2>
-            )}
+        {/*
+          A custom layout replaces the component grid and nothing else. The
+          header, the pulse and the incidents above it are the page's own voice
+          and stay whatever the tenant writes below — a status page that could
+          be made to hide its own incidents would not be one.
+        */}
+        {layout === 'custom' ? (
+          <CustomDashboard data={data} />
+        ) : (
+          groupTree(data, preview.order).map(({ group, components }) => (
+            <section key={group?.id ?? 'ungrouped'} className="page-group">
+              {group && (
+                <h2
+                  style={{
+                    fontSize: 'var(--text-sm)',
+                    fontWeight: 600,
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.06em',
+                    color: 'var(--color-fg-subtle)',
+                    margin: '0 0 var(--space-3)',
+                  }}
+                >
+                  {group.name}
+                </h2>
+              )}
 
-            <div style={layoutStyle(layout)}>
-              {components.map((component) => (
-                <ComponentCard
-                  key={component.id}
-                  component={component}
-                  days={uptime.data?.days.filter((d) => d.controlId === component.id) ?? []}
-                  showRibbon={data.tenant.retentionMode === 'historical'}
-                  locale={locale}
-                  timeZone={timeZone}
-                  layout={layout}
-                />
-              ))}
-            </div>
-          </section>
-        ))}
+              <div style={layoutStyle(layout)}>
+                {components.map((component) => (
+                  <ComponentCard
+                    key={component.id}
+                    component={component}
+                    days={uptime.data?.days.filter((d) => d.controlId === component.id) ?? []}
+                    showRibbon={data.tenant.retentionMode === 'historical'}
+                    locale={locale}
+                    timeZone={timeZone}
+                    layout={layout}
+                  />
+                ))}
+              </div>
+            </section>
+          ))
+        )}
       </div>
 
       {/* Outside the card: this says who made the page, not what it reports. */}

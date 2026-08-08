@@ -122,6 +122,18 @@ const routes: FastifyPluginAsyncZod = async (app) => {
               /** Consent text for the subscribe form; null when unset. */
               subscriberDisclaimer: z.string().nullable(),
               layout: z.enum(['list', 'grid', 'compact', 'custom']),
+              /**
+               * The document a `custom` layout renders, and null for every
+               * other layout — there is no reason to put a hundred kilobytes of
+               * someone's unused draft on the path every visitor hits.
+               */
+              custom: z
+                .object({
+                  html: z.string(),
+                  css: z.string(),
+                  js: z.string(),
+                })
+                .nullable(),
               branding: z.record(z.string(), z.unknown()),
             }),
             overall: z.object({
@@ -354,6 +366,14 @@ const routes: FastifyPluginAsyncZod = async (app) => {
           defaultTimezone: tenantRow.defaultTimezone,
           subscriberDisclaimer: tenantRow.subscriberDisclaimer,
           layout: tenantRow.layout,
+          custom:
+            tenantRow.layout === 'custom'
+              ? {
+                  html: tenantRow.customHtml ?? '',
+                  css: tenantRow.customCss ?? '',
+                  js: tenantRow.customJs ?? '',
+                }
+              : null,
           branding: tenantRow.branding,
         },
         overall: {

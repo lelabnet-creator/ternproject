@@ -360,6 +360,19 @@ const routes: FastifyPluginAsyncZod = async (app) => {
         params: z.object({ slug: z.string() }),
         body: z.object({
           layout: z.enum(['list', 'grid', 'compact', 'custom']).optional(),
+          /*
+           * The document a `custom` layout renders.
+           *
+           * Bounded, and that is the only validation there is. Nothing here
+           * parses or sanitises it: it is rendered inside a sandboxed frame
+           * with no same-origin and no network, so what it may do is decided by
+           * the sandbox rather than by a filter someone will eventually find a
+           * way around. A validator here would suggest a safety it is not the
+           * one providing.
+           */
+          customHtml: z.string().max(200_000).nullable().optional(),
+          customCss: z.string().max(200_000).nullable().optional(),
+          customJs: z.string().max(200_000).nullable().optional(),
           order: z
             .array(
               z.object({
@@ -392,10 +405,16 @@ const routes: FastifyPluginAsyncZod = async (app) => {
       }
 
       await app.db.transaction(async (tx) => {
-        if (req.body.layout) {
+        const document = {
+          ...(req.body.customHtml !== undefined && { customHtml: req.body.customHtml }),
+          ...(req.body.customCss !== undefined && { customCss: req.body.customCss }),
+          ...(req.body.customJs !== undefined && { customJs: req.body.customJs }),
+        }
+
+        if (req.body.layout || Object.keys(document).length > 0) {
           await tx
             .update(schema.tenants)
-            .set({ layout: req.body.layout })
+            .set({ ...(req.body.layout && { layout: req.body.layout }), ...document })
             .where(eq(schema.tenants.id, tenantId))
         }
 
