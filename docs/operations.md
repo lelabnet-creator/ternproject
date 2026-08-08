@@ -159,10 +159,25 @@ someone's behalf.
 
 What it installs comes from the repositories already configured on the machine
 (`docker.io` or `docker-ce`, `moby-engine`, `docker`) plus the Compose v2 plugin
-as a separate package. It does **not** pipe `get.docker.com` into a shell, and it
-does not add Docker's own repository. Both would trade a file you can read
-before running it for one you cannot, and the second is a decision about where
-your packages come from.
+as a separate package. It does **not** pipe `get.docker.com` into a shell: that
+would trade a file you can read before running it for one you cannot.
+
+On RHEL, Rocky and Alma there is nothing to install — their answer to containers
+is Podman, and they publish no Docker package at all. There the installer offers
+to add Docker's own repository, and says what that means before you answer: a
+repository outlives the installation, and from then on the machine takes those
+packages from Docker rather than from its distribution. Say no and you get the
+old refusal, with the link; nothing is lost by declining. The offer is confined
+to that family — Debian ships `docker.io` and Arch ships `docker`, and swapping a
+distribution-supported package for a third-party one there would be a regression
+dressed up as a fix.
+
+The repository file is fetched with `curl` into `/etc/yum.repos.d/docker-ce.repo`
+rather than through `dnf config-manager`, whose plugin is not always installed
+and whose subcommand dnf5 renamed; it is the same file either way. Which file is
+decided by `ID` then `ID_LIKE` in `/etc/os-release` — Fedora has its own,
+everything RHEL-derived shares the CentOS one, and a distribution that declares
+neither is left alone rather than guessed at.
 
 It then enables and starts the service when systemd is the init (checked through
 `/run/systemd/system`, not merely a `systemctl` binary on the PATH), verifies
@@ -170,10 +185,25 @@ that `docker compose version` answers, and tells you the exact `usermod -aG
 docker` line if your account cannot reach the socket — along with the fact that
 group membership is only read at login, so a new terminal will not do.
 
+**Docker at boot is checked separately**, and this matters more than it sounds.
+The closing panel promises the containers come back with the machine; that is
+true of the compose file, where every service carries `restart: unless-stopped`,
+and it is only true of the machine if the Docker daemon itself is enabled. When
+Docker was already installed — the common case, and the systematic one on Arch,
+where `pacman -S docker` never enables the service — nothing used to check. So if
+`systemctl is-enabled docker` says otherwise, the installer asks, and a refusal
+is answered with `sudo systemctl enable docker` and a plain statement that the
+instance will not come back on its own.
+
+The failure this avoids is worth naming: with `docker.socket` enabled but
+`docker.service` disabled, nothing starts at boot and the whole stack springs to
+life the moment anyone runs a Docker command. It therefore looks healthy to
+whoever logs in to investigate, and stays dark for everyone who only opens the
+page.
+
 Anything else it refuses rather than guesses, pointing at
 <https://docs.docker.com/engine/install/>: macOS, where the engine ships as
-Docker Desktop and not as a package; RHEL, Rocky and Alma, whose base
-repositories carry no Docker at all; an unknown package manager; a missing
+Docker Desktop and not as a package; an unknown package manager; a missing
 `sudo` when not running as root; and of course a plain "no".
 
 The container's entrypoint settles `APP_SECRET`, applies the migrations and

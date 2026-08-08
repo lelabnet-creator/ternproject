@@ -430,12 +430,41 @@ fn install_docker(ctx: &Ctx) -> Result<(), Stop> {
     // question cannot be asked through a checklist that is redrawing itself.
     offer_docker_repo(ctx, manager, &engine_names)?;
 
-    // The list, settled before the first line of it runs. Refreshing the
-    // package lists is an apt-only step: the others query their metadata live.
-    let refresh = manager == PackageManager::Apt;
+    // Whether anything has to happen to this machine's package metadata before
+    // a single package can be installed, and what.
+    //
+    // apt cannot answer a question about a package before its lists have been
+    // refreshed, so that one is unconditional. Arch is the case this grew for,
+    // and it is not the same case at all: measured on a stock cloud image, the
+    // database that shipped with it lists `docker-1:29.6.2-1`, a version the
+    // mirrors have already replaced — every mirror answers 404 and pacman gives
+    // up with "Errors occurred, no packages were upgraded", which names nothing
+    // anyone can act on.
+    //
+    // The fix is a full `-Syu` and cannot be anything less: Arch supports no
+    // partial upgrade, and `-Sy` alone — syncing the database without upgrading
+    // what it describes — is the documented way to break the machine. So it is
+    // asked, in those words, because upgrading somebody's entire system is a
+    // far larger thing than installing one package and pretending otherwise
+    // would be dishonest. dnf and yum need none of this: they query their
+    // metadata live.
+    let refresh = match manager {
+        PackageManager::Apt => Some((
+            c.step_apt_update.to_string(),
+            vec!["apt-get", "update"],
+            c.apt_update_failed,
+        )),
+        PackageManager::Pacman if ask_pacman_sync(ctx)? => Some((
+            c.step_pacman_sync.to_string(),
+            vec!["pacman", "-Syu", "--noconfirm"],
+            c.pacman_sync_failed,
+        )),
+        _ => None,
+    };
+
     let mut labels = Vec::new();
-    if refresh {
-        labels.push(c.step_apt_update.to_string());
+    if let Some((label, _, _)) = &refresh {
+        labels.push(label.clone());
     }
     // The exact package names are not knowable yet — on apt, nothing can be
     // queried before the lists have been refreshed. The two steps are announced
@@ -449,17 +478,18 @@ fn install_docker(ctx: &Ctx) -> Result<(), Stop> {
     labels.push(fill(c.step_install_compose, &[unknown]));
     labels.push(c.step_enable_service.to_string());
 
-    let base = usize::from(refresh);
+    let base = usize::from(refresh.is_some());
     let mut list = Checklist::new(c, c.head_docker, labels);
 
-    // The package lists first, on apt: without them there is nothing to query,
-    // and the install would fail on a package this machine does in fact know.
-    if refresh {
+    // The metadata first: without it there is nothing to query on apt, and on
+    // Arch the install would fail on a version the mirrors no longer carry.
+    if let Some((_, argv, failed)) = &refresh {
+        let (program, args) = argv.split_first().expect("a command has a name");
         list.run(0, || {
-            let outcome = run::run(&ctx.journal, run::as_root(ctx.uid, "apt-get", &["update"]));
+            let outcome = run::run(&ctx.journal, run::as_root(ctx.uid, program, args));
             match outcome.ok {
                 true => Ok(None),
-                false => Err(Failure::new(c.apt_update_failed, outcome.output())),
+                false => Err(Failure::new(*failed, outcome.output())),
             }
         })
         .map_err(|failure| stop_from(failure, ctx))?;
@@ -524,6 +554,38 @@ fn install_docker(ctx: &Ctx) -> Result<(), Stop> {
 
     cliclack::log::success(c.docker_ready)?;
     Ok(())
+}
+
+/// Arch's system upgrade, which on Arch is not optional the way it sounds.
+///
+/// A cloud image ships a package database frozen on the day it was built, and
+/// the mirrors carry only current versions. Installing one package against a
+/// stale database therefore fails on a 404 rather than on anything to do with
+/// the package — measured on a stock image, `docker-1:29.6.2-1` was gone from
+/// every mirror, and pacman's own summary was "Errors occurred, no packages were
+/// upgraded".
+///
+/// There is no smaller fix. `pacman -Sy` without `-u` is the documented way to
+/// break an Arch install: it refreshes the database while leaving the system
+/// behind it, and the next package pulled in links against libraries the machine
+/// does not have. Arch supports no partial upgrade, so the honest choice is
+/// between a full one and not installing.
+///
+/// Which is why it is asked, and asked before the checklist exists — a question
+/// cannot be put through a display that is redrawing itself. Declining is a real
+/// option: the install goes ahead, and if the database really was stale, the
+/// failure now carries a hint saying so in one line.
+fn ask_pacman_sync(ctx: &Ctx) -> Result<bool, Stop> {
+    let c = ctx.c;
+    ctx.journal.section("pacman database");
+    cliclack::log::info(c.pacman_sync_why)?;
+    let yes = cliclack::confirm(c.pacman_sync_q)
+        .initial_value(true)
+        .interact()?;
+    if !yes {
+        ctx.journal.line("declined: system not upgraded");
+    }
+    Ok(yes)
 }
 
 /// Docker's own repository, on the one family of distributions that has no
@@ -641,7 +703,17 @@ fn install_package(
         }
     })
     .map(|_| ())
-    .map_err(|failure| stop_from(failure, ctx))
+    .map_err(|failure| {
+        let stop = stop_from(failure, ctx);
+        // pacman's own account of this — "Errors occurred, no packages were
+        // upgraded" — names nothing that can be acted on, and the 404s above it
+        // look like a broken mirror rather than a stale database. One line, and
+        // only on the manager where it is the likely cause.
+        match manager {
+            PackageManager::Pacman => stop.hint(ctx.c.pacman_stale_hint),
+            _ => stop,
+        }
+    })
 }
 
 // --- access to the socket ----------------------------------------------------

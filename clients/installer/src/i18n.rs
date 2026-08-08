@@ -136,6 +136,14 @@ pub struct Catalog {
     pub sock_just_added: &'static str,
     pub sock_relogin: &'static str,
 
+    /// Arch installs against a database that a cloud image ships already stale,
+    /// and it supports no upgrade smaller than the whole system.
+    pub pacman_sync_why: &'static str,
+    pub pacman_sync_q: &'static str,
+    pub step_pacman_sync: &'static str,
+    pub pacman_sync_failed: &'static str,
+    pub pacman_stale_hint: &'static str,
+
     /// The RPM family publishes no Docker at all, so the choice there is
     /// between adding a repository and not installing.
     pub repo_absent: &'static str,
@@ -294,6 +302,14 @@ pub static EN: Catalog = Catalog {
     sock_reexec: "Picking the install back up with the rights just granted…",
     sock_just_added: "Your account has just been added to the docker group.",
     sock_relogin: "Close this session, open a new one, and run this installer again.",
+
+    pacman_sync_why: "Arch installs against a local package database. If it is older than\n\
+         the mirrors, installing anything fails on a version they no longer\n\
+         carry — and Arch supports no upgrade smaller than the whole system.",
+    pacman_sync_q: "Upgrade the system first (pacman -Syu)?",
+    step_pacman_sync: "Upgrading the system",
+    pacman_sync_failed: "The system upgrade failed.",
+    pacman_stale_hint: "If the errors above are 404s, the package database is older than the mirrors: run sudo pacman -Syu, then run this installer again.",
 
     repo_absent: "This distribution publishes no Docker package of its own.",
     repo_why: "Docker publishes one, in its own repository:\n\
@@ -484,6 +500,15 @@ pub static FR: Catalog = Catalog {
     sock_reexec: "Reprise de l'installation avec les droits acquis…",
     sock_just_added: "Votre compte vient d'être ajouté au groupe docker.",
     sock_relogin: "Fermez cette session, rouvrez-en une, et relancez cet installateur.",
+
+    pacman_sync_why: "Arch installe à partir d'une base de paquets locale. Si elle est plus\n\
+         ancienne que les miroirs, toute installation échoue sur une version\n\
+         qu'ils ne portent plus — et Arch ne connaît pas de mise à jour plus\n\
+         petite que le système entier.",
+    pacman_sync_q: "Mettre le système à jour d'abord (pacman -Syu) ?",
+    step_pacman_sync: "Mise à jour du système",
+    pacman_sync_failed: "La mise à jour du système a échoué.",
+    pacman_stale_hint: "Si les erreurs ci-dessus sont des 404, la base de paquets est plus ancienne que les miroirs : lancez sudo pacman -Syu, puis relancez cet installateur.",
 
     repo_absent: "Cette distribution ne publie aucun paquet Docker qui lui soit propre.",
     repo_why: "Docker en publie un, dans son propre dépôt :\n\
