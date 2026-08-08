@@ -21,10 +21,16 @@ overrides that.
 
 ### What actually runs
 
-`setup.sh` installs nothing itself. It fetches `tern-setup` — a ~670 KB Rust
-binary built by CI for five targets — checks its SHA-256 against the release's
-`SHA256SUMS`, and hands over. `TERN_SETUP_VERSION=v1.4.2` pins a version instead
+`setup.sh` installs nothing itself. It fetches `tern-setup` — a ~800 KB Rust
+binary, statically linked against musl and built by CI for x86-64 and arm64
+Linux — checks its SHA-256 against the release's `SHA256SUMS`, and hands over. `TERN_SETUP_VERSION=v1.4.2` pins a version instead
 of taking the latest.
+
+Linux only, and macOS deliberately not: the engine arrives there inside Docker
+Desktop, which this installer cannot place and would only ask for. A binary
+whose first act is to tell you to go and install something else is not worth
+downloading. With Docker Desktop already present it does the rest perfectly
+well, so the bootstrap points at the sources rather than simply refusing.
 
 That is a trade, and it is worth naming. A script can be read before it is run;
 a binary cannot, which is exactly the argument this project uses to refuse

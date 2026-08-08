@@ -233,19 +233,22 @@ jobs:
       # une interface d'installation, ni les dépendances qui vont avec. Deux
       # `cargo build` coûtent une minute de cache partagé ; les mélanger
       # coûterait à chaque agent déployé.
-      # Pas sur Windows, et ce n'est pas un contournement de compilation.
+      # Linux seulement, et c'est une decision sur ce qu'on publie, pas une
+      # limite de compilation.
       #
       # Cet installateur pose Docker par `apt-get`, `dnf` ou `pacman`, active un
       # service systemd, ajoute un compte au groupe `docker` et se relance sous
-      # `sg` — rien de tout cela n'existe la-bas. `scripts/setup.sh`, qui choisit
-      # le binaire, ne propose d'ailleurs aucune cible Windows : un `.sh` ne s'y
-      # execute pas davantage.
+      # `sg`. Rien de tout cela n'existe sur Windows. Sur macOS, le moteur
+      # arrive avec Docker Desktop, que ce programme refuse d'installer et se
+      # contente de reclamer — un binaire qui commence par dire d'aller
+      # installer autre chose ne merite pas d'etre publie.
       #
-      # Publier un binaire Windows reviendrait a livrer un programme qui refuse
-      # tout ce qu'on lui demande. L'agent, lui, continue d'y etre construit :
-      # il surveille des machines, ce qui est une autre affaire.
+      # `scripts/setup.sh` n'offre donc que ces deux cibles, et renvoie aux
+      # sources pour le reste. L'agent, lui, garde ses cinq cibles : il surveille
+      # des machines, y compris des Mac et des serveurs Windows, ce qui est une
+      # tout autre affaire.
       - name: Build the installer for ${{ matrix.target }}
-        if: matrix.os != 'windows-latest'
+        if: contains(matrix.target, 'linux')
         working-directory: clients/installer
         shell: bash
         run: |

@@ -59,14 +59,30 @@ die() { printf '%s==> %s%s\n' "$ERR" "$1" "$R" >&2; exit 1; }
 
 command -v curl >/dev/null 2>&1 || die "curl est requis pour récupérer l'installateur."
 
-# La cible, nommée comme Rust la nomme. Les cinq que la CI publie, et un refus
-# net pour tout le reste : proposer un binaire qui ne s'exécutera pas est pire
-# que dire qu'il n'y en a pas.
+# La cible, nommée comme Rust la nomme.
+#
+# Linux seulement, et musl plutôt que glibc : un seul binaire tourne alors sur
+# n'importe quelle distribution, y compris Alpine, alors qu'une compilation
+# glibc échoue sur l'image minimale où personne ne veut déboguer.
+#
+# macOS n'est pas publié, et ce n'est pas un oubli. Le moteur y arrive avec
+# Docker Desktop, que cet installateur ne sait pas poser et se contenterait de
+# réclamer : un binaire qui commence par dire d'aller installer autre chose ne
+# vaut pas d'être téléchargé. Avec Docker Desktop déjà là, le programme fait
+# très bien le reste — d'où le renvoi aux sources plutôt qu'un simple refus.
+#
+# Proposer un binaire qui ne s'exécutera pas est pire que dire qu'il n'y en a
+# pas : l'un envoie lire une page d'installation, l'autre produit un
+# « Exec format error » que personne ne sait interpréter.
 case "$(uname -s)-$(uname -m)" in
   Linux-x86_64 | Linux-amd64) TARGET=x86_64-unknown-linux-musl ;;
   Linux-aarch64 | Linux-arm64) TARGET=aarch64-unknown-linux-musl ;;
-  Darwin-arm64) TARGET=aarch64-apple-darwin ;;
-  Darwin-x86_64) TARGET=x86_64-apple-darwin ;;
+  Darwin-*)
+    die "Pas d'installateur publié pour macOS.
+    Installez Docker Desktop, puis construisez l'installateur depuis les
+    sources : clonez le dépôt et lancez cargo build --release dans
+    clients/installer."
+    ;;
   *)
     die "Pas d'installateur publié pour $(uname -s) $(uname -m).
     Construisez-le : clonez le dépôt, puis cargo build --release dans clients/installer."
