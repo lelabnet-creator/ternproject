@@ -216,6 +216,9 @@ fn install(c: &'static Catalog) -> Result<(), Stop> {
     // that cannot talk to it. The remedy was known and not offered.
     ensure_docker_access(&ctx)?;
 
+    // And Docker running now is not Docker running on Tuesday. See below.
+    ensure_docker_at_boot(&ctx)?;
+
     if !run::succeeds(&ctx.journal, "docker", &["compose", "version"]) {
         return Err(Stop::new(c.compose_required).logged(&ctx.journal));
     }
@@ -651,6 +654,83 @@ fn ensure_docker_access(ctx: &Ctx) -> Result<(), Stop> {
     Err(Stop::new(c.sock_just_added)
         .hint(c.sock_relogin)
         .logged(&ctx.journal))
+}
+
+// --- Docker after the next reboot --------------------------------------------
+/// Whether Docker comes back with the machine, which is not the same question
+/// as whether it is running.
+///
+/// The closing panel of this installer says the containers are "restarted with
+/// the machine". That sentence is true of the compose file — every service
+/// carries `restart: unless-stopped` — and it is only true of the machine if
+/// the Docker daemon itself is enabled. When this installer put Docker down
+/// itself, it is: `systemctl enable --now docker` is one of its steps. When
+/// Docker was already here, nobody ever checked.
+///
+/// Measured rather than reasoned about, on a VM: with `docker.service`
+/// disabled, an instance that answered on `/health` before the reboot answered
+/// nothing after it. And with `docker.socket` still enabled — the usual state
+/// of a machine where somebody ran `systemctl disable docker` — it is worse
+/// than a clean failure: nothing starts at boot, and the whole stack springs to
+/// life the moment anyone types a Docker command. So it looks healthy to the
+/// person who logs in to investigate, and stays down for everyone who only ever
+/// opens the page. `pacman` never enables the service in the first place.
+///
+/// Asked rather than done, for the reason `install_docker` gives at length:
+/// enabling a service at boot is not a decision an installer takes on somebody
+/// else's machine. Declined, it says plainly what that costs — this is the one
+/// case where the panel two screens further down would otherwise promise
+/// something untrue.
+fn ensure_docker_at_boot(ctx: &Ctx) -> Result<(), Stop> {
+    let c = ctx.c;
+
+    // No systemd, nothing to enable: the init in front of us has its own way of
+    // starting things, and guessing at it is how an installer breaks a machine
+    // it does not understand.
+    if !probe::systemd_is_init() {
+        return Ok(());
+    }
+    // `is-enabled` answers zero for every state that comes up on its own —
+    // enabled, static, indirect, generated — and non-zero for disabled and
+    // masked. It is the question itself, and it needs no parsing.
+    if run::succeeds(
+        &ctx.journal,
+        "systemctl",
+        &["is-enabled", "--quiet", "docker"],
+    ) {
+        return Ok(());
+    }
+
+    ctx.journal.section("docker at boot");
+    cliclack::log::warning(c.boot_title)?;
+    cliclack::log::info(c.boot_why)?;
+
+    if !cliclack::confirm(c.boot_enable_q)
+        .initial_value(true)
+        .interact()?
+    {
+        ctx.journal.line("declined: docker not enabled at boot");
+        cliclack::log::warning(c.boot_declined)?;
+        return Ok(());
+    }
+
+    run::prime_sudo(&ctx.journal, ctx.uid);
+    // `enable` and not `enable --now`: the daemon is already running — that is
+    // how we got here — and `--now` would restart nothing but would make this
+    // step able to fail for a reason that has nothing to do with the boot.
+    let outcome = run::run(
+        &ctx.journal,
+        run::as_root(ctx.uid, "systemctl", &["enable", "docker"]),
+    );
+    if outcome.ok {
+        cliclack::log::success(c.boot_enabled)?;
+    } else {
+        // Not fatal. The instance installs and runs; what it loses is the next
+        // reboot, and saying so beats refusing to install over it.
+        cliclack::log::warning(c.boot_failed)?;
+        cliclack::log::info(c.boot_declined)?;
+    }
+    Ok(())
 }
 
 // --- the questions -----------------------------------------------------------

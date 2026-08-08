@@ -136,6 +136,15 @@ pub struct Catalog {
     pub sock_just_added: &'static str,
     pub sock_relogin: &'static str,
 
+    /// Docker running now and Docker running after a reboot are two different
+    /// facts, and only the first one is visible while installing.
+    pub boot_title: &'static str,
+    pub boot_why: &'static str,
+    pub boot_enable_q: &'static str,
+    pub boot_enabled: &'static str,
+    pub boot_declined: &'static str,
+    pub boot_failed: &'static str,
+
     pub step_apt_update: &'static str,
     pub step_install_engine: &'static str,
     pub step_install_compose: &'static str,
@@ -276,6 +285,16 @@ pub static EN: Catalog = Catalog {
     sock_reexec: "Picking the install back up with the rights just granted…",
     sock_just_added: "Your account has just been added to the docker group.",
     sock_relogin: "Close this session, open a new one, and run this installer again.",
+
+    boot_title: "Docker is running, but it is not set to start with this machine.",
+    boot_why: "TERN restarts with its containers, and its containers restart with\n\
+         Docker. Left as it is, this instance is down after the next reboot until\n\
+         somebody logs in and runs a Docker command.",
+    boot_enable_q: "Start Docker with this machine?",
+    boot_enabled: "Docker will start with this machine.",
+    boot_declined: "This instance will not come back on its own after a reboot.\n\
+         To change that later: sudo systemctl enable docker",
+    boot_failed: "Could not set Docker to start with this machine.",
 
     step_apt_update: "Refreshing the package lists",
     step_install_engine: "Installing Docker ({})",
@@ -446,6 +465,17 @@ pub static FR: Catalog = Catalog {
     sock_reexec: "Reprise de l'installation avec les droits acquis…",
     sock_just_added: "Votre compte vient d'être ajouté au groupe docker.",
     sock_relogin: "Fermez cette session, rouvrez-en une, et relancez cet installateur.",
+
+    boot_title: "Docker tourne, mais il n'est pas réglé pour démarrer avec cette machine.",
+    boot_why: "TERN redémarre avec ses conteneurs, et ses conteneurs redémarrent avec\n\
+         Docker. En l'état, cette instance est éteinte après le prochain\n\
+         redémarrage, jusqu'à ce que quelqu'un ouvre une session et tape une\n\
+         commande Docker.",
+    boot_enable_q: "Démarrer Docker avec cette machine ?",
+    boot_enabled: "Docker démarrera avec cette machine.",
+    boot_declined: "Cette instance ne reviendra pas d'elle-même après un redémarrage.\n\
+         Pour changer cela plus tard : sudo systemctl enable docker",
+    boot_failed: "Impossible de régler Docker pour qu'il démarre avec cette machine.",
 
     step_apt_update: "Mise à jour des listes de paquets",
     step_install_engine: "Installation de Docker ({})",

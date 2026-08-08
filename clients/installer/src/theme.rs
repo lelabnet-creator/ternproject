@@ -136,7 +136,7 @@ pub fn charset_from(read: impl Fn(&str) -> Option<String>) -> Charset {
 /// crate — but the question is a different one. `Emoji` asks whether the locale
 /// can encode the character; this asks whether the screen can draw it, which on
 /// a Linux console under a UTF-8 locale is not the same question at all.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Glyph(pub &'static str, pub &'static str);
 
 impl Glyph {
