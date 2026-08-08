@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next'
 import { TernWordmark } from '../../components/brand/TernMark'
 import { ThemePicker } from '../../components/ThemePicker'
 import { accentById, applyAccent } from '../../lib/accents'
+import { applyFont, fontById } from '../../lib/fonts'
 import { type UptimeDay } from '../../charts/UptimeRibbon'
 import { resolveOptions, widgetById } from '../../charts/registry'
 import { SystemPulse } from '../../charts/SystemPulse'
@@ -12,6 +13,7 @@ import { STATUS_PRESENTATION } from '../../lib/status'
 import { rememberPage } from '../../lib/recentPages'
 import { SponsorButton } from '../../components/SponsorButton'
 import { SiteFooter } from '../../components/SiteFooter'
+import { previewOverrides } from './preview'
 import { CustomDashboard } from './CustomDashboard'
 import { CustomLayout } from './CustomLayout'
 import { blocksSchema } from '@tern/shared/blocks'
@@ -48,10 +50,21 @@ export function StatusPage({ slug }: { slug: string }) {
 
   const online = useOnline()
 
-  const accentId = (summary.data?.tenant.branding as Record<string, unknown> | undefined)?.accent
+  const branding = summary.data?.tenant.branding as Record<string, unknown> | undefined
+
+  const accentId = branding?.accent
   useEffect(() => {
     applyAccent(accentById(typeof accentId === 'string' ? accentId : undefined))
   }, [accentId])
+
+  // The tenant's typeface, on the page its readers actually open. Applied here
+  // as well as in the admin because the two are separate documents — a visitor
+  // never loads the admin, and a page that ignored the choice would make the
+  // setting look like it only skinned the editor.
+  const fontId = branding?.font
+  useEffect(() => {
+    applyFont(fontById(typeof fontId === 'string' ? fontId : undefined))
+  }, [fontId])
 
   // Remembered here rather than at the root, and only once a summary has come
   // back: the root cannot tell whether a name exists, and a list built from
@@ -78,7 +91,7 @@ export function StatusPage({ slug }: { slug: string }) {
   // The admin's layout editor frames this page to preview an arrangement that
   // has not been saved. Presentation only — the query cannot reveal a component
   // the reader could not already see, reorder anything server-side, or persist.
-  const preview = previewOverrides()
+  const preview = previewOverrides(window.location.search)
   const layout = preview.layout ?? data.tenant.layout
 
   // Parsed rather than trusted: the column is JSON, and a page arranged by a
@@ -170,7 +183,6 @@ export function StatusPage({ slug }: { slug: string }) {
                 <ComponentCard
                   component={component}
                   days={componentDays}
-                  showRibbon={data.tenant.retentionMode === 'historical'}
                   locale={locale}
                   timeZone={timeZone}
                   layout="list"
@@ -204,7 +216,6 @@ export function StatusPage({ slug }: { slug: string }) {
                     key={component.id}
                     component={component}
                     days={uptime.data?.days.filter((d) => d.controlId === component.id) ?? []}
-                    showRibbon={data.tenant.retentionMode === 'historical'}
                     locale={locale}
                     timeZone={timeZone}
                     layout={layout}
@@ -230,26 +241,6 @@ export function StatusPage({ slug }: { slug: string }) {
  * sync with anything. `compact` stays one column and tightens the gap — the
  * cards themselves shed their chart, which is where the height actually goes.
  */
-/**
- * A draft arrangement passed in by the layout editor's preview frame.
- *
- * Read from the URL rather than posted to the server because a preview that
- * saved would not be a preview. `order` is a list of control ids; anything not
- * in it keeps its stored position, so a partial list degrades to "these first".
- */
-function previewOverrides(): { layout?: 'list' | 'grid' | 'compact' | 'custom'; order?: string[] } {
-  const params = new URLSearchParams(window.location.search)
-  if (params.get('preview') !== '1') return {}
-
-  const layout = params.get('layout')
-  const order = params.get('order')
-
-  return {
-    layout: layout === 'list' || layout === 'grid' || layout === 'compact' ? layout : undefined,
-    order: order ? order.split(',').filter(Boolean) : undefined,
-  }
-}
-
 function layoutStyle(layout: 'list' | 'grid' | 'compact' | 'custom'): React.CSSProperties {
   if (layout === 'grid') {
     return {
@@ -264,14 +255,12 @@ function layoutStyle(layout: 'list' | 'grid' | 'compact' | 'custom'): React.CSSP
 function ComponentCard({
   component,
   days,
-  showRibbon,
   locale,
   timeZone,
   layout,
 }: {
   component: StatusComponent
   days: UptimeDay[]
-  showRibbon: boolean
   locale: string
   timeZone: string
   layout: 'list' | 'grid' | 'compact' | 'custom'
@@ -350,7 +339,23 @@ function ComponentCard({
         </p>
       )}
 
-      {showRibbon && layout !== 'compact' && (
+      {/*
+        The widget the operator chose, in both retention modes.
+
+        This used to be gated on `retentionMode === 'historical'`, under a prop
+        called `showRibbon` — accurate when the only thing drawn here was the
+        90-day uptime ribbon, and wrong from the moment the registry gained
+        widgets marked `requires: 'live'`. A live-mode page offered those in the
+        editor's gallery, saved the choice, and then drew a name and a status
+        word: the one screen that exists to show the widget never showed it.
+        Nothing was missing but the permission — the page already fetches a 24h
+        period in live mode, so the series was there all along.
+
+        `compact` still sheds the chart. That is the density doing its job: the
+        chart is where the height goes, and shedding it is what makes the row
+        compact.
+      */}
+      {layout !== 'compact' && (
         <div style={{ marginTop: 'var(--space-4)' }}>
           {days.length === 0 ? (
             <p style={{ fontSize: 'var(--text-sm)', color: 'var(--color-fg-subtle)', margin: 0 }}>

@@ -2,7 +2,15 @@ import { Github, Heart } from 'lucide-react'
 import { SPONSORS_URL } from './SponsorButton'
 
 const LAB_URL = 'https://le-lab.net'
-const REPO_URL = 'https://github.com/lelabnet-creator/ternproject'
+
+/**
+ * Where the code is.
+ *
+ * Exported because the admin's "Report an issue" link builds on it, and a
+ * second copy of this string is a second thing to forget when the project
+ * moves.
+ */
+export const REPO_URL = 'https://github.com/lelabnet-creator/ternproject'
 
 /**
  * Who made this, and where the code is.

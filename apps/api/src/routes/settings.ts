@@ -16,6 +16,43 @@ import { forgetTenantMailer } from '../services/transports.js'
  * the test for whether a setting belongs on this surface at all.
  */
 
+/**
+ * The typefaces the web app ships, mirrored here because this value is not
+ * data.
+ *
+ * The accent beside it is accepted as any string up to 30 characters, and gets
+ * away with it: an unknown accent id matches nothing in `ACCENTS`, the picker
+ * falls back to the default, and the string never leaves JSON. A font id does
+ * not stop there — it selects a `--font-sans` value, which is a CSS property on
+ * the document root of both the admin and the public status page.
+ *
+ * `fontById` on the client already refuses to pass an unknown id through to
+ * CSS, so this is the second of two locks rather than the only one. It is here
+ * because the API should not store a value no client can use, and because the
+ * next thing to read `branding.font` — a server-rendered page, an export — must
+ * not have to rediscover that constraint.
+ *
+ * Kept in step with FONTS in apps/web/src/lib/fonts.ts by hand. Two entries,
+ * changed when a font is added, which is rarely; a shared package for a pair of
+ * strings would cost more to read than it saves.
+ */
+const FONT_IDS = ['comfortaa', 'nunito'] as const
+
+/**
+ * Reads the stored typeface, or the one the interface had before this setting
+ * existed.
+ *
+ * The narrowing is not ceremony. This column is JSON written by earlier
+ * versions of this route and by the seed, so it can hold a font id that was
+ * dropped, or no `font` key at all; the response schema is an enum, and
+ * returning anything else fails serialisation — a 500 on the settings screen
+ * because of a decorative preference.
+ */
+function readFont(branding: unknown): (typeof FONT_IDS)[number] {
+  const stored = (branding as Record<string, unknown> | null)?.font
+  return FONT_IDS.find((id) => id === stored) ?? 'comfortaa'
+}
+
 const smtpSchema = z.object({
   host: z.string().min(1).max(255),
   port: z.number().int().min(1).max(65535),
@@ -54,8 +91,23 @@ const routes: FastifyPluginAsyncZod = async (app) => {
             layout: z.enum(['list', 'grid', 'compact', 'custom']),
             /** Chosen accent, from the measured set in the web app. */
             accent: z.string(),
+            /** Chosen typeface, one of `FONT_IDS`. */
+            font: z.enum(FONT_IDS),
             /** The tenant's own logo, shown in its admin rail. */
             logoUrl: z.string().nullable(),
+            /**
+             * When the setup wizard was answered, or null if it never was.
+             *
+             * Served here, and not only inside the public summary's `branding`,
+             * because the admin decides whether to show that wizard and must
+             * read the answer from somewhere authoritative. The summary carries
+             * `Cache-Control: public, max-age=5, stale-while-revalidate=30` —
+             * so the refetch right after answering came back with the body from
+             * before, the wizard concluded it had not been answered, and put
+             * itself back on screen over an administrator who had just
+             * dismissed it.
+             */
+            setupCompletedAt: z.string().nullable(),
             sizingAssumptions: z.object({
               intervalS: z.number(),
               concurrentViewers: z.number(),
@@ -115,7 +167,10 @@ const routes: FastifyPluginAsyncZod = async (app) => {
         subscriberDisclaimer: tenant.subscriberDisclaimer,
         layout: tenant.layout,
         accent: String((tenant.branding as Record<string, unknown>)?.accent ?? 'violet'),
+        font: readFont(tenant.branding),
         logoUrl: ((tenant.branding as Record<string, unknown>)?.logoUrl as string) ?? null,
+        setupCompletedAt:
+          ((tenant.branding as Record<string, unknown>)?.setupCompletedAt as string) ?? null,
         sizingAssumptions: tenant.sizingAssumptions ?? { intervalS: 60, concurrentViewers: 20 },
         /*
          * A demo visitor sees the shape, never the addresses.
@@ -181,6 +236,8 @@ const routes: FastifyPluginAsyncZod = async (app) => {
           defaultTimezone: z.string().min(1).max(60).optional(),
           subscriberDisclaimer: z.string().max(2000).nullable().optional(),
           accent: z.string().max(30).optional(),
+          /** An enum, not a bounded string; see `FONT_IDS`. */
+          font: z.enum(FONT_IDS).optional(),
           logoUrl: z.string().url().max(500).nullable().optional(),
           /** Set once, by the first-run wizard, to stop it offering itself again. */
           setupCompleted: z.boolean().optional(),
@@ -247,6 +304,11 @@ const routes: FastifyPluginAsyncZod = async (app) => {
 
       if (req.body.accent !== undefined) {
         branding.accent = req.body.accent
+        brandingTouched = true
+      }
+
+      if (req.body.font !== undefined) {
+        branding.font = req.body.font
         brandingTouched = true
       }
 

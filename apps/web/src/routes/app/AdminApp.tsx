@@ -1,16 +1,26 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { adminApi, ApiError, type Control } from '../../lib/adminApi'
-import { Banner, Button, Card, CodeBlock, EmptyState, Field, Input } from '../../components/ui'
+import { adminApi, ApiError, type Control, type ControlGroup } from '../../lib/adminApi'
+import {
+  Banner,
+  Button,
+  Card,
+  CodeBlock,
+  EmptyState,
+  Field,
+  Input,
+  Select,
+} from '../../components/ui'
 import { TernWordmark } from '../../components/brand/TernMark'
 import { ThemePicker } from '../../components/ThemePicker'
 import { SponsorButton } from '../../components/SponsorButton'
-import { SiteFooter } from '../../components/SiteFooter'
+import { REPO_URL, SiteFooter } from '../../components/SiteFooter'
 import { SetupWizard } from '../../features/onboarding/SetupWizard'
 import { FirstRunSetup } from '../../features/onboarding/FirstRunSetup'
 import { GuidedTour } from '../../features/onboarding/GuidedTour'
 import { DemoBanner } from '../../components/DemoBanner'
 import { accentById, applyAccent } from '../../lib/accents'
+import { applyFont, fontById } from '../../lib/fonts'
 import { PasskeyCancelled, passkeysSupported, signInWithPasskey } from '../../lib/passkeys'
 import { ScriptTabs } from '../../features/control-editor/ScriptTabs'
 import { PreviewStep } from '../../features/control-editor/PreviewStep'
@@ -19,6 +29,7 @@ import { CHIPS } from '../../lib/accents'
 import { DEFAULT_WIDGET, resolveOptions, widgetById } from '../../charts/registry'
 import type { CheckStatusValue } from '@tern/shared/status'
 import { api } from '../../lib/api'
+import { meansThisMachine, targetHost } from './targets'
 import { LayoutScreen } from './LayoutScreen'
 import { IncidentsScreen } from './IncidentsScreen'
 import { MaintenancesScreen } from './MaintenancesScreen'
@@ -97,6 +108,27 @@ export function AdminApp({ slug }: { slug: string }) {
     enabled: signedIn || demo,
     retry: false,
   })
+  /**
+   * The tenant's own settings, read from the admin API.
+   *
+   * The public summary carries the same values inside `branding`, and reading
+   * them from there was a quiet mistake: that response is served
+   * `Cache-Control: public, max-age=5, stale-while-revalidate=30` — correct for
+   * a status page under load, wrong as the way an administrator learns what
+   * they just changed. Answering the setup wizard and watching it reappear was
+   * the visible symptom; every other setting echoed back through this object
+   * had the same lag, for up to thirty seconds, and looked like a save that had
+   * not taken.
+   *
+   * Same query key as the Options screen, so visiting both costs one request.
+   */
+  const settings = useQuery({
+    queryKey: ['settings', slug],
+    queryFn: () => adminApi.settings(slug),
+    enabled: signedIn,
+    retry: false,
+  })
+
   const branding = signedIn
     ? (summary.data?.tenant.branding as Record<string, unknown> | undefined)
     : undefined
@@ -105,6 +137,17 @@ export function AdminApp({ slug }: { slug: string }) {
   useEffect(() => {
     applyAccent(accentById(typeof accentId === 'string' ? accentId : undefined))
   }, [accentId])
+
+  // From the summary like the accent, and for the same reason: both are read
+  // before the settings query has a chance to answer, and a rail that repaints
+  // its typeface a beat after it appears is worse than one that starts right.
+  // The lag this shares with the accent is the cached summary's, and it costs
+  // nothing here — a tenant that has just changed its font is looking at the
+  // Options screen, which applies the choice on click without waiting.
+  const fontId = branding?.font
+  useEffect(() => {
+    applyFont(fontById(typeof fontId === 'string' ? fontId : undefined))
+  }, [fontId])
 
   if (me.isPending) return <Centered>Loading…</Centered>
 
@@ -188,9 +231,13 @@ export function AdminApp({ slug }: { slug: string }) {
    * Only for an admin: a viewer cannot save any of the answers, so offering the
    * questions would be a dead end.
    */
+  // `settings.data !== undefined` rather than a bare falsy check on the field:
+  // while the request is in flight the answer is unknown, and treating unknown
+  // as "not set up" flashes the wizard at somebody who finished it months ago.
   const needsSetup =
     canWrite &&
-    !branding?.setupCompletedAt &&
+    settings.data !== undefined &&
+    !settings.data.setupCompletedAt &&
     controls.data !== undefined &&
     controls.data.length === 0
 
@@ -199,7 +246,10 @@ export function AdminApp({ slug }: { slug: string }) {
       <SetupWizard
         slug={slug}
         tenantName={membership.name}
-        onFinished={() => void summary.refetch()}
+        // The settings, because that is now what decides whether this wizard
+        // shows. Refetching the summary re-read a cached body and left the
+        // wizard exactly where it was.
+        onFinished={() => void settings.refetch()}
       />
     )
   }
@@ -219,13 +269,22 @@ export function AdminApp({ slug }: { slug: string }) {
               style={{ maxWidth: '100%', maxHeight: 40, objectFit: 'contain' }}
             />
           ) : (
-            <TernWordmark size={34} />
+            // Stacked and large: in the rail this is the header of the whole
+            // surface, not a label in a line of text. The app bar on a narrow
+            // screen keeps the inline lockup, where height is the scarce thing.
+            <TernWordmark size={72} orientation="stacked" />
           )}
           <p className="admin-tenant">
             {membership.name}
             <span>{membership.role}</span>
           </p>
         </div>
+
+        {/* Closes the header before the sections begin. A plain border would do
+            the job; this fades out at both ends so the rule stops short of the
+            rail's edges without needing a margin that would misalign it against
+            the navigation below. */}
+        <div className="admin-brand-rule" role="presentation" />
 
         <AdminNav
           slug={slug}
@@ -335,7 +394,14 @@ export function AdminApp({ slug }: { slug: string }) {
         ) : section === 'platform' ? (
           <PlatformScreen />
         ) : (
-          <ControlsScreen slug={slug} canWrite={canWrite} />
+          <ControlsScreen
+            slug={slug}
+            canWrite={canWrite}
+            // The rail is the only other way between sections, and it has no
+            // idea what a control is. Handing the jump down as a callback keeps
+            // the address-bar mechanics in one place — see `useSection`.
+            onOpenLogs={(controlId) => setSection('logs', `?q=${encodeURIComponent(controlId)}`)}
+          />
         )}
       </main>
     </div>
@@ -407,7 +473,7 @@ function sectionFromPath(pathname: string, slug: string): Section {
   return SECTIONS.find((s) => s.id === rest)?.id ?? 'controls'
 }
 
-function useSection(slug: string): [Section, (next: Section) => void] {
+function useSection(slug: string): [Section, (next: Section, search?: string) => void] {
   const read = (): Section => sectionFromPath(window.location.pathname, slug)
 
   const [section, setSection] = useState<Section>(read)
@@ -420,8 +486,17 @@ function useSection(slug: string): [Section, (next: Section) => void] {
     return () => window.removeEventListener('popstate', onPop)
   }, [slug])
 
-  const navigate = (next: Section) => {
-    window.history.pushState({}, '', next === 'controls' ? `/app/${slug}` : `/app/${slug}/${next}`)
+  /*
+   * `search` carries a filter across the jump — a control's row opens the logs
+   * on `?q=<its id>`. It goes in the address rather than into a piece of shared
+   * state because the destination screen already has to survive being reloaded
+   * and bookmarked, and a second channel saying the same thing would be a
+   * second channel to keep in step. The section itself stays in the path;
+   * `sectionFromPath` never looks at the query, so nothing here can confuse it.
+   */
+  const navigate = (next: Section, search?: string) => {
+    const path = next === 'controls' ? `/app/${slug}` : `/app/${slug}/${next}`
+    window.history.pushState({}, '', `${path}${search ?? ''}`)
     setSection(next)
   }
 
@@ -503,20 +578,177 @@ function AdminNav({
         Documentation
         <Icons.ExternalLink size={13} aria-hidden="true" style={{ flexShrink: 0 }} />
       </a>
+
+      {/*
+        The page itself, as the public sees it.
+
+        Beside the guide because it is the same kind of link — it leaves the
+        admin — and because the two questions arrive together: "how does this
+        work" and "what does it actually look like right now". Everything above
+        edits the page; nothing above shows it.
+
+        A new tab for the same reason as the guide, and a stronger one: checking
+        the public page is something you do *while* editing it, and taking the
+        editor away to do it would lose the change being made.
+      */}
+      <a
+        className="admin-nav-item"
+        href={`/s/${slug}`}
+        target="_blank"
+        rel="noopener noreferrer"
+        aria-label="Public page (opens in a new tab)"
+      >
+        <NavIcon name="Globe" />
+        Public page
+        <Icons.ExternalLink size={13} aria-hidden="true" style={{ flexShrink: 0 }} />
+      </a>
+
+      {/*
+        Reporting a bug or asking for something, from where it was noticed.
+
+        The version and the build are filled in already. They are the first
+        thing anyone is asked for and the last thing anyone has to hand — the
+        rail prints them at its foot precisely because of that, and a report
+        that arrives without them costs a round trip before it can be read.
+
+        A prefilled body rather than `/issues/new/choose`: the chooser drops
+        everything passed to it, so picking a template would mean losing the one
+        piece of information this link exists to carry.
+      */}
+      <a
+        className="admin-nav-item"
+        href={issueUrl()}
+        target="_blank"
+        rel="noopener noreferrer"
+        aria-label="Report a bug or request a feature on GitHub (opens in a new tab)"
+      >
+        <NavIcon name="Bug" />
+        Report an issue
+        <Icons.ExternalLink size={13} aria-hidden="true" style={{ flexShrink: 0 }} />
+      </a>
     </nav>
   )
 }
 
+/**
+ * A new GitHub issue, with what the maintainer will ask for anyway.
+ *
+ * Nothing about the tenant, the instance address or the signed-in person goes
+ * in: this opens a form on a public tracker, and a link that quietly carried a
+ * customer's name into a draft issue would be a leak the first time somebody
+ * pressed submit without reading.
+ */
+function issueUrl(): string {
+  const body = [
+    '### What happened',
+    '',
+    '',
+    '### What you expected',
+    '',
+    '',
+    '### Steps to reproduce',
+    '',
+    '',
+    '---',
+    `TERN v${__TERN_VERSION__} · build ${__TERN_BUILD__}`,
+  ].join('\n')
+
+  return `${REPO_URL}/issues/new?body=${encodeURIComponent(body)}`
+}
+
 // ── Controls ────────────────────────────────────────────────────────────────
 
-function ControlsScreen({ slug, canWrite }: { slug: string; canWrite: boolean }) {
+function ControlsScreen({
+  slug,
+  canWrite,
+  onOpenLogs,
+}: {
+  slug: string
+  canWrite: boolean
+  onOpenLogs: (controlId: string) => void
+}) {
   const queryClient = useQueryClient()
   const controls = useQuery({
     queryKey: ['controls', slug],
     queryFn: () => adminApi.controls(slug),
   })
+  /*
+   * The folders, on a key of their own.
+   *
+   * A separate request rather than a field on each control, because the screen
+   * has to draw a folder nothing is filed in yet — the empty one somebody made
+   * a minute ago is exactly the one they are about to fill, and deriving the
+   * list from the controls would make it invisible until it was no longer
+   * needed.
+   *
+   * Both keys are invalidated together after anything that files something: a
+   * move changes a control's `groupId` and a folder's count in the same act.
+   */
+  const groups = useQuery({
+    queryKey: ['control-groups', slug],
+    queryFn: () => adminApi.controlGroups(slug),
+  })
+
   const [editing, setEditing] = useState<Control | 'new' | null>(null)
   const [query, setQuery] = useState('')
+  const [picked, setPicked] = useState<Set<string>>(new Set())
+  const [addingFolder, setAddingFolder] = useState(false)
+  const [bulkError, setBulkError] = useState<string | null>(null)
+
+  const invalidate = async () => {
+    await queryClient.invalidateQueries({ queryKey: ['controls', slug] })
+    await queryClient.invalidateQueries({ queryKey: ['control-groups', slug] })
+  }
+
+  const move = useMutation({
+    mutationFn: ({ ids, groupId }: { ids: string[]; groupId: string | null }) =>
+      adminApi.moveControls(slug, ids, groupId),
+    onSuccess: async () => {
+      setBulkError(null)
+      // The selection is spent: the controls it named have gone somewhere else,
+      // and leaving the boxes ticked invites the next click to move them again.
+      setPicked(new Set())
+      await invalidate()
+    },
+    onError: (err) => setBulkError(err instanceof ApiError ? err.message : String(err)),
+  })
+
+  const removeMany = useMutation({
+    /*
+     * One request per control, because there is no bulk delete — and every one
+     * of them is attempted.
+     *
+     * `allSettled` rather than `all`: a refusal on the third of ten must not
+     * cancel the other seven, and the reader is owed the count that did go
+     * rather than a bare failure over a list they can no longer trust. What
+     * comes back is what actually happened.
+     */
+    mutationFn: async (ids: string[]) => {
+      const results = await Promise.allSettled(ids.map((id) => adminApi.deleteControl(slug, id)))
+      const refused = results.filter((result) => result.status === 'rejected')
+      if (refused.length === 0) return
+      const first = refused[0]!.reason
+      throw new Error(
+        `${ids.length - refused.length} of ${ids.length} deleted. ${
+          first instanceof Error ? first.message : String(first)
+        }`,
+      )
+    },
+    onSuccess: async () => {
+      setBulkError(null)
+      setPicked(new Set())
+      await invalidate()
+    },
+    onError: (err) => setBulkError(err.message),
+  })
+
+  const togglePicked = (id: string) =>
+    setPicked((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
 
   if (controls.isPending) return <Centered>Loading controls…</Centered>
   if (controls.isError) return <Banner tone="down">Could not load controls.</Banner>
@@ -534,23 +766,75 @@ function ControlsScreen({ slug, canWrite }: { slug: string; canWrite: boolean })
     )
   }
 
-  const matches = matching(controls.data, query)
+  const all = controls.data
+  // An unreachable folder list leaves a flat screen, not a broken one: the
+  // controls are the thing being watched, and they are all here either way.
+  const folders = groups.data ?? []
+  const matches = matching(all, query)
+  const searching = query.trim() !== ''
+
+  const byParent = childrenByParent(folders)
+  const byGroup = controlsByFolder(matches, new Set(folders.map((folder) => folder.id)))
+  const flat = flattenFolders(byParent)
+  const unfiled = byGroup.get(null) ?? []
+
+  // Ticked ids are read back through the current list rather than sent as they
+  // were stored: a control deleted in another tab would otherwise still be
+  // named in the next bulk request, which answers 404 for the whole selection.
+  const pickedIds = all.filter((control) => picked.has(control.id)).map((control) => control.id)
+
+  const context: FolderContext = {
+    slug,
+    canWrite,
+    byParent,
+    byGroup,
+    flat,
+    picked,
+    onPick: togglePicked,
+    onEdit: setEditing,
+    onOpenLogs,
+    onChanged: invalidate,
+  }
+
+  const cards = (list: Control[]) => (
+    /*
+     * A grid rather than a stack. Twenty controls in a single column on a
+     * 1440px display is one line of text per screen-inch and two empty thirds;
+     * a card can carry what a row could not — the widget, the probe kind,
+     * whether it is public — without any of them becoming a column that has to
+     * be maintained.
+     */
+    <div className="card-grid">
+      {list.map((control) => (
+        <ControlCard
+          key={control.id}
+          control={control}
+          slug={slug}
+          canWrite={canWrite}
+          picked={picked.has(control.id)}
+          onPick={() => togglePicked(control.id)}
+          onEdit={() => setEditing(control)}
+          onOpenLogs={onOpenLogs}
+        />
+      ))}
+    </div>
+  )
 
   return (
-    <section style={{ paddingTop: 'var(--space-6)' }}>
+    <section style={{ paddingTop: 'var(--space-6)', display: 'grid', gap: 'var(--space-4)' }}>
       <div
         style={{
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
-          marginBottom: 'var(--space-4)',
           gap: 'var(--space-3)',
+          flexWrap: 'wrap',
         }}
       >
         <div>
           <h1 style={{ margin: 0, fontSize: 'var(--text-xl)' }}>Controls</h1>
           {/* The count is only worth showing once it differs from the whole. */}
-          {query.trim() !== '' && (
+          {searching && (
             <p
               className="tabular"
               style={{
@@ -559,24 +843,45 @@ function ControlsScreen({ slug, canWrite }: { slug: string; canWrite: boolean })
                 color: 'var(--color-fg-subtle)',
               }}
             >
-              {matches.length} of {controls.data.length}
+              {matches.length} of {all.length}
             </p>
           )}
         </div>
         {canWrite && (
-          <Button variant="primary" onClick={() => setEditing('new')}>
-            New control
-          </Button>
+          <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
+            {/* Beside "New control" rather than inside the tree: a first folder
+                has no folder to be created from, and putting the act only on an
+                existing one would leave an empty page with no way to start. */}
+            <Button onClick={() => setAddingFolder((open) => !open)}>
+              {addingFolder ? 'Cancel' : 'New folder'}
+            </Button>
+            <Button variant="primary" onClick={() => setEditing('new')}>
+              New control
+            </Button>
+          </div>
         )}
       </div>
+
+      {canWrite && addingFolder && (
+        <FolderForm
+          slug={slug}
+          folder={null}
+          choices={flat}
+          onDone={async () => {
+            setAddingFolder(false)
+            await invalidate()
+          }}
+          onCancel={() => setAddingFolder(false)}
+        />
+      )}
 
       {/* Filtering happens in the browser: the whole list is already loaded, so
           a round trip per keystroke would add latency to answer a question the
           page can answer instantly. It stops being right somewhere past a few
           hundred controls, which is where a server-side search earns its
           complexity. */}
-      {controls.data.length > 0 && (
-        <div style={{ marginBottom: 'var(--space-4)', maxWidth: '30rem' }}>
+      {all.length > 0 && (
+        <div style={{ maxWidth: '30rem' }}>
           <Field label="Find a control" hint="Matches the name, the key and the description.">
             <Input
               type="search"
@@ -588,7 +893,23 @@ function ControlsScreen({ slug, canWrite }: { slug: string; canWrite: boolean })
         </div>
       )}
 
-      {controls.data.length === 0 ? (
+      {canWrite && pickedIds.length > 0 && (
+        <BulkBar
+          ids={pickedIds}
+          choices={flat}
+          error={bulkError}
+          moving={move.isPending}
+          deleting={removeMany.isPending}
+          onMove={(groupId) => move.mutate({ ids: pickedIds, groupId })}
+          onDelete={() => removeMany.mutate(pickedIds)}
+          onClear={() => {
+            setPicked(new Set())
+            setBulkError(null)
+          }}
+        />
+      )}
+
+      {all.length === 0 && folders.length === 0 ? (
         <EmptyState
           title="No controls yet"
           hint="A control is one thing you monitor. Create one and TERN will hand you a script that pushes to it."
@@ -600,35 +921,566 @@ function ControlsScreen({ slug, canWrite }: { slug: string; canWrite: boolean })
             ) : undefined
           }
         />
-      ) : matches.length === 0 ? (
-        /* Distinct from "no controls yet": one is a state to fix, the other is
-           a search to change, and the same words for both would be wrong. */
-        <EmptyState
-          title={`Nothing matches “${query}”`}
-          hint="Names, keys and descriptions are searched."
-          action={<Button onClick={() => setQuery('')}>Clear the search</Button>}
-        />
-      ) : (
+      ) : searching ? (
         /*
-         * A grid rather than a stack. Twenty controls in a single column on a
-         * 1440px display is one line of text per screen-inch and two empty
-         * thirds; a card can carry what the row could not — the widget, the
-         * probe kind, whether it is public — without any of them becoming a
-         * column that has to be maintained.
+         * A search flattens the tree.
+         *
+         * "Where is the cache control" is answered by the control, not by the
+         * shape of the filing around it — and drawing thirty folders, most of
+         * them empty of matches, around two cards answers a question nobody
+         * asked. The folders come back the moment the box is cleared.
          */
-        <div className="card-grid">
-          {matches.map((control) => (
-            <ControlCard
-              key={control.id}
-              control={control}
-              slug={slug}
-              canWrite={canWrite}
-              onEdit={() => setEditing(control)}
-            />
+        matches.length === 0 ? (
+          /* Distinct from "no controls yet": one is a state to fix, the other is
+             a search to change, and the same words for both would be wrong. */
+          <EmptyState
+            title={`Nothing matches “${query}”`}
+            hint="Names, keys and descriptions are searched."
+            action={<Button onClick={() => setQuery('')}>Clear the search</Button>}
+          />
+        ) : (
+          cards(matches)
+        )
+      ) : (
+        <div style={{ display: 'grid', gap: 'var(--space-5)' }}>
+          {/*
+            What is filed nowhere comes first, and only wears a heading once
+            there is something to distinguish it from.
+
+            Folders are additive: a page that has never made one should look
+            exactly as it did, and a page that has just made its first should
+            not find its whole estate pushed below an empty folder.
+          */}
+          {unfiled.length > 0 && (
+            <div style={{ display: 'grid', gap: 'var(--space-3)' }}>
+              {folders.length > 0 && (
+                <h2
+                  style={{
+                    margin: 0,
+                    fontSize: 'var(--text-sm)',
+                    color: 'var(--color-fg-subtle)',
+                  }}
+                >
+                  Unfiled
+                </h2>
+              )}
+              {cards(unfiled)}
+            </div>
+          )}
+
+          {(byParent.get(null) ?? []).map((folder) => (
+            <FolderSection key={folder.id} folder={folder} ctx={context} />
           ))}
         </div>
       )}
     </section>
+  )
+}
+
+// ── Folders ─────────────────────────────────────────────────────────────────
+
+/**
+ * What every node of the tree needs, passed once rather than eight times.
+ *
+ * The tree is drawn by a component that renders itself, so each level would
+ * otherwise re-declare and forward the same eight props. Bundling them says
+ * plainly that none of it belongs to a particular folder.
+ */
+interface FolderContext {
+  slug: string
+  canWrite: boolean
+  byParent: Map<string | null, ControlGroup[]>
+  byGroup: Map<string | null, Control[]>
+  /** Every folder, depth-first, for the destination pickers. */
+  flat: { folder: ControlGroup; depth: number }[]
+  picked: Set<string>
+  onPick: (id: string) => void
+  onEdit: (control: Control) => void
+  onOpenLogs: (controlId: string) => void
+  onChanged: () => Promise<void>
+}
+
+/**
+ * The folders, arranged as the tree their `parentId` describes.
+ *
+ * Keyed by parent so drawing a level is a lookup rather than a scan of the
+ * whole list at every node. A folder whose parent is not in the list is treated
+ * as a root rather than dropped: this list and the controls' are two separate
+ * requests, and a folder that has just been moved must not disappear for the
+ * length of a refetch. The API refuses cycles, which is what lets this recurse
+ * without a visited set.
+ */
+function childrenByParent(folders: ControlGroup[]): Map<string | null, ControlGroup[]> {
+  const known = new Set(folders.map((folder) => folder.id))
+  const byParent = new Map<string | null, ControlGroup[]>()
+
+  for (const folder of folders) {
+    const parent = folder.parentId !== null && known.has(folder.parentId) ? folder.parentId : null
+    const bucket = byParent.get(parent)
+    if (bucket) bucket.push(folder)
+    else byParent.set(parent, [folder])
+  }
+
+  // `position` is the order somebody chose; the name settles the ties it leaves,
+  // so two folders never swap places between one render and the next.
+  for (const bucket of byParent.values()) {
+    bucket.sort((a, b) => a.position - b.position || a.name.localeCompare(b.name))
+  }
+
+  return byParent
+}
+
+/** Every folder, depth-first, with how deep it sits — for the destination pickers. */
+function flattenFolders(
+  byParent: Map<string | null, ControlGroup[]>,
+  parentId: string | null = null,
+  depth = 0,
+): { folder: ControlGroup; depth: number }[] {
+  return (byParent.get(parentId) ?? []).flatMap((folder) => [
+    { folder, depth },
+    ...flattenFolders(byParent, folder.id, depth + 1),
+  ])
+}
+
+/**
+ * Where a folder may be moved: anywhere but into itself or its own subtree.
+ *
+ * The API refuses that move with a sentence of its own, so this is not the
+ * guard — it is the reason the reader never has to read the guard. An option
+ * that can only ever be refused is a worse way to learn a rule than never being
+ * offered it.
+ */
+function offerableParents(
+  ctx: FolderContext,
+  folder: ControlGroup,
+): { folder: ControlGroup; depth: number }[] {
+  const inside = new Set([folder.id])
+  const walk = (parentId: string) => {
+    for (const child of ctx.byParent.get(parentId) ?? []) {
+      inside.add(child.id)
+      walk(child.id)
+    }
+  }
+  walk(folder.id)
+
+  return ctx.flat.filter((choice) => !inside.has(choice.folder.id))
+}
+
+/** The controls of each folder, with everything unfiled under `null`. */
+function controlsByFolder(controls: Control[], known: Set<string>): Map<string | null, Control[]> {
+  const byGroup = new Map<string | null, Control[]>()
+
+  for (const control of controls) {
+    // A `groupId` naming a folder this list does not have goes to the top level
+    // rather than nowhere. The two queries can land a moment apart, and a
+    // control that is briefly drawn in no section at all is a control somebody
+    // will believe they deleted.
+    const key = control.groupId !== null && known.has(control.groupId) ? control.groupId : null
+    const bucket = byGroup.get(key)
+    if (bucket) bucket.push(control)
+    else byGroup.set(key, [control])
+  }
+
+  return byGroup
+}
+
+/** How a folder is offered in a picker: its name, indented by how deep it sits. */
+function folderOption(folder: ControlGroup, depth: number): string {
+  return `${'— '.repeat(depth)}${folder.name}`
+}
+
+/**
+ * One folder: its heading, what is filed in it, and the folders under it.
+ *
+ * It renders itself for its children rather than a flat list rendering an
+ * indent class, so nesting is nesting — the panel of a collapsed folder takes
+ * its whole subtree with it, which is the only reading of "collapse" that is
+ * not a surprise.
+ */
+function FolderSection({ folder, ctx }: { folder: ControlGroup; ctx: FolderContext }) {
+  // The tenant's own default decides the first state, and the reader's click
+  // decides every one after: a stored preference is a starting point, not a
+  // ruling on the session.
+  const [open, setOpen] = useState(!folder.collapsedByDefault)
+  const [renaming, setRenaming] = useState(false)
+  const [confirming, setConfirming] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const remove = useMutation({
+    mutationFn: () => adminApi.deleteControlGroup(ctx.slug, folder.id),
+    onSuccess: async () => {
+      setConfirming(false)
+      setError(null)
+      await ctx.onChanged()
+    },
+    onError: (err) => setError(err instanceof ApiError ? err.message : String(err)),
+  })
+
+  const own = ctx.byGroup.get(folder.id) ?? []
+  const children = ctx.byParent.get(folder.id) ?? []
+  const panelId = `folder-panel-${folder.id}`
+
+  return (
+    <section style={{ display: 'grid', gap: 'var(--space-3)' }}>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 'var(--space-3)',
+          flexWrap: 'wrap',
+        }}
+      >
+        {/* The name is inside the button, so the disclosure needs no label of
+            its own and the whole heading is the target — a chevron alone is a
+            20px hit area for the one act this row is mostly used for. */}
+        <button
+          type="button"
+          onClick={() => setOpen((shown) => !shown)}
+          aria-expanded={open}
+          aria-controls={panelId}
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 'var(--space-2)',
+            minHeight: 36,
+            padding: 0,
+            border: 0,
+            background: 'none',
+            color: 'var(--color-fg)',
+            fontFamily: 'inherit',
+            fontSize: 'var(--text-base)',
+            fontWeight: 600,
+            cursor: 'pointer',
+          }}
+        >
+          <Icons.ChevronRight
+            size={15}
+            aria-hidden="true"
+            style={{
+              flexShrink: 0,
+              transform: open ? 'rotate(90deg)' : undefined,
+              transition: 'transform var(--duration-fast) var(--ease-out)',
+            }}
+          />
+          {open ? (
+            <Icons.FolderOpen size={16} aria-hidden="true" style={{ flexShrink: 0 }} />
+          ) : (
+            <Icons.Folder size={16} aria-hidden="true" style={{ flexShrink: 0 }} />
+          )}
+          {folder.name}
+        </button>
+
+        {/* Said even when it is nothing: an empty folder that looks like a
+            collapsed one is how a reader concludes their controls are lost. */}
+        <span
+          className="tabular"
+          style={{ fontSize: 'var(--text-xs)', color: 'var(--color-fg-subtle)' }}
+        >
+          {own.length === 0 ? 'empty' : `${own.length} control${own.length === 1 ? '' : 's'}`}
+          {children.length > 0 && ` · ${children.length} folder${children.length === 1 ? '' : 's'}`}
+        </span>
+
+        {ctx.canWrite && (
+          <span style={{ marginLeft: 'auto', display: 'flex', gap: 'var(--space-2)' }}>
+            <Button
+              ariaLabel={renaming ? `Stop editing ${folder.name}` : `Rename ${folder.name}`}
+              onClick={() => setRenaming((shown) => !shown)}
+            >
+              {renaming ? 'Cancel' : 'Rename'}
+            </Button>
+            <Button
+              variant="danger"
+              ariaLabel={`Delete ${folder.name}`}
+              onClick={() => setConfirming(true)}
+            >
+              Delete
+            </Button>
+          </span>
+        )}
+      </div>
+
+      {ctx.canWrite && renaming && (
+        <FolderForm
+          slug={ctx.slug}
+          folder={folder}
+          // Its own subtree is not on offer: the API refuses that move with a
+          // sentence, but an option that can only ever be refused is a worse
+          // way to learn the rule than never seeing it.
+          choices={offerableParents(ctx, folder)}
+          onDone={async () => {
+            setRenaming(false)
+            await ctx.onChanged()
+          }}
+          onCancel={() => setRenaming(false)}
+        />
+      )}
+
+      {error && <Banner tone="down">{error}</Banner>}
+
+      {confirming && (
+        <div>
+          <Banner tone="down">
+            {/* What survives, said before the button that removes the folder.
+                Filing is not monitoring, and somebody tidying their page must
+                not discover the next morning that six services went quiet. */}
+            Delete “{folder.name}”? The folder goes and nothing in it does — its{' '}
+            {children.length > 0 ? 'folders move up a level and its ' : ''}controls are unfiled,
+            still monitored, still on the page.
+          </Banner>
+          <div style={{ display: 'flex', gap: 'var(--space-2)', marginTop: 'var(--space-2)' }}>
+            <Button variant="danger" busy={remove.isPending} onClick={() => remove.mutate()}>
+              Delete the folder
+            </Button>
+            <Button onClick={() => setConfirming(false)}>Keep it</Button>
+          </div>
+        </div>
+      )}
+
+      {/*
+        Kept mounted and hidden rather than unmounted, so `aria-controls` above
+        always names something real. `display` is set here rather than left to
+        the `hidden` attribute, because an inline `display` would win over it.
+      */}
+      <div
+        id={panelId}
+        hidden={!open}
+        style={{
+          display: open ? 'grid' : 'none',
+          gap: 'var(--space-4)',
+          // The rule is the tree: it says what is inside this folder without
+          // spending a column of width on an indent guide per level.
+          marginLeft: 'var(--space-2)',
+          paddingLeft: 'var(--space-4)',
+          borderLeft: '1px solid var(--color-border)',
+        }}
+      >
+        {own.length > 0 ? (
+          <div className="card-grid">
+            {own.map((control) => (
+              <ControlCard
+                key={control.id}
+                control={control}
+                slug={ctx.slug}
+                canWrite={ctx.canWrite}
+                picked={ctx.picked.has(control.id)}
+                onPick={() => ctx.onPick(control.id)}
+                onEdit={() => ctx.onEdit(control)}
+                onOpenLogs={ctx.onOpenLogs}
+              />
+            ))}
+          </div>
+        ) : (
+          <p style={{ margin: 0, fontSize: 'var(--text-sm)', color: 'var(--color-fg-subtle)' }}>
+            {ctx.canWrite
+              ? 'Nothing filed here yet. Tick some controls and use “Move to a folder”.'
+              : 'Nothing filed here yet.'}
+          </p>
+        )}
+
+        {children.map((child) => (
+          <FolderSection key={child.id} folder={child} ctx={ctx} />
+        ))}
+      </div>
+    </section>
+  )
+}
+
+/**
+ * Making a folder, and changing one — the same two questions either way.
+ *
+ * A name and a place. The rest of what a folder carries (its rollup, its
+ * default collapse, its position) is left at what the API chooses, because
+ * every one of them is a preference somebody discovers they want *after* they
+ * have somewhere to put things, and asking all five up front turns "make a
+ * folder" into a form.
+ */
+function FolderForm({
+  slug,
+  folder,
+  choices,
+  onDone,
+  onCancel,
+}: {
+  slug: string
+  /** The folder being changed, or null to make one. */
+  folder: ControlGroup | null
+  choices: { folder: ControlGroup; depth: number }[]
+  onDone: () => Promise<void>
+  onCancel: () => void
+}) {
+  const [name, setName] = useState(folder?.name ?? '')
+  // '' is the top level. A folder id is a uuid, so the two can never collide.
+  const [parent, setParent] = useState(folder?.parentId ?? '')
+  const [error, setError] = useState<string | null>(null)
+
+  const save = useMutation({
+    mutationFn: () => {
+      const body = { name: name.trim(), parentId: parent === '' ? null : parent }
+      return folder
+        ? adminApi.updateControlGroup(slug, folder.id, body)
+        : adminApi.createControlGroup(slug, body)
+    },
+    onSuccess: async () => {
+      setError(null)
+      await onDone()
+    },
+    // The API's sentence names the rule — a sixth level, or a move into its own
+    // subtree — where a generic failure would leave the reader guessing which.
+    onError: (err) => setError(err instanceof ApiError ? err.message : String(err)),
+  })
+
+  return (
+    <Card>
+      <form
+        onSubmit={(event) => {
+          event.preventDefault()
+          save.mutate()
+        }}
+        style={{ display: 'grid', gap: 'var(--space-3)' }}
+      >
+        {error && <Banner tone="down">{error}</Banner>}
+
+        <div className="field-row is-lead-first">
+          <Field label="Folder name" hint="What this part of the page is called.">
+            <Input
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              placeholder="Europe"
+              autoFocus
+            />
+          </Field>
+          <Field label="Inside" hint="Folders nest five deep at most.">
+            <Select value={parent} onChange={(event) => setParent(event.target.value)}>
+              <option value="">Top level</option>
+              {choices.map((choice) => (
+                <option key={choice.folder.id} value={choice.folder.id}>
+                  {folderOption(choice.folder, choice.depth)}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        </div>
+
+        <div className="form-actions">
+          <Button onClick={onCancel}>Cancel</Button>
+          <Button
+            type="submit"
+            variant="primary"
+            busy={save.isPending}
+            disabled={name.trim() === ''}
+          >
+            {folder ? 'Save the folder' : 'Create the folder'}
+          </Button>
+        </div>
+      </form>
+    </Card>
+  )
+}
+
+/**
+ * What to do with a selection, where the selection can be seen.
+ *
+ * A bar rather than a menu on each row: the whole point of ticking several is
+ * to act on them once. It sticks to the top of the scroll because the tree it
+ * sits above can be several screens tall — a selection made at the bottom of it
+ * would otherwise be acted on from a bar the reader has to scroll back to find,
+ * and a scroll away from what you have just chosen is how the wrong things get
+ * deleted.
+ */
+function BulkBar({
+  ids,
+  choices,
+  error,
+  moving,
+  deleting,
+  onMove,
+  onDelete,
+  onClear,
+}: {
+  ids: string[]
+  choices: { folder: ControlGroup; depth: number }[]
+  error: string | null
+  moving: boolean
+  deleting: boolean
+  onMove: (groupId: string | null) => void
+  onDelete: () => void
+  onClear: () => void
+}) {
+  const [destination, setDestination] = useState('')
+  const [confirming, setConfirming] = useState(false)
+
+  return (
+    <div style={{ position: 'sticky', top: 'var(--space-2)', zIndex: 2 }}>
+      <Card>
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'flex-end',
+            gap: 'var(--space-3)',
+            flexWrap: 'wrap',
+          }}
+        >
+          <strong style={{ minHeight: 44, display: 'flex', alignItems: 'center' }}>
+            {ids.length} selected
+          </strong>
+
+          <div style={{ minWidth: '14rem', flex: 1 }}>
+            <Field label="Move to a folder" hint="One request, whatever the count.">
+              <Select value={destination} onChange={(event) => setDestination(event.target.value)}>
+                <option value="">Top level (unfiled)</option>
+                {choices.map((choice) => (
+                  <option key={choice.folder.id} value={choice.folder.id}>
+                    {folderOption(choice.folder, choice.depth)}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          </div>
+
+          <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
+            <Button busy={moving} onClick={() => onMove(destination === '' ? null : destination)}>
+              Move
+            </Button>
+            <Button variant="danger" onClick={() => setConfirming(true)}>
+              Delete
+            </Button>
+            <Button onClick={onClear}>Clear</Button>
+          </div>
+        </div>
+
+        {error && (
+          <div style={{ marginTop: 'var(--space-3)' }}>
+            <Banner tone="down">{error}</Banner>
+          </div>
+        )}
+
+        {confirming && (
+          <div style={{ marginTop: 'var(--space-3)' }}>
+            <Banner tone="down">
+              {/* The number is the whole confirmation: "delete the selected
+                  controls" is agreed to without reading, and the difference
+                  between two and twenty is the difference this is here for. */}
+              Delete {ids.length} control{ids.length === 1 ? '' : 's'}? Their history goes with
+              them, and anything still pushing to them will start being refused. This cannot be
+              undone.
+            </Banner>
+            <div style={{ display: 'flex', gap: 'var(--space-2)', marginTop: 'var(--space-2)' }}>
+              <Button
+                variant="danger"
+                busy={deleting}
+                onClick={() => {
+                  setConfirming(false)
+                  onDelete()
+                }}
+              >
+                Delete {ids.length === 1 ? 'it' : 'them'}
+              </Button>
+              <Button onClick={() => setConfirming(false)}>Keep them</Button>
+            </div>
+          </div>
+        )}
+      </Card>
+    </div>
   )
 }
 
@@ -657,16 +1509,45 @@ function fold(value: string): string {
     .replace(/\p{Diacritic}/gu, '')
 }
 
+/**
+ * A link wearing the secondary button's clothes.
+ *
+ * It has to be an anchor rather than a `Button`: it goes somewhere, and
+ * somewhere you may well want in a second tab while keeping the list you are
+ * working through. A `<button>` cannot be middle-clicked, opened in a new tab
+ * or copied as an address — the same reasoning as the rail's entries, which are
+ * anchors with a click handler for exactly this.
+ */
+const LINK_BUTTON: React.CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 'var(--space-2)',
+  background: 'transparent',
+  color: 'var(--color-fg)',
+  border: '1px solid var(--color-border-strong)',
+  borderRadius: 'var(--radius-sm)',
+  padding: '0 var(--space-4)',
+  fontSize: 'var(--text-sm)',
+  fontWeight: 600,
+  textDecoration: 'none',
+}
+
 function ControlCard({
   control,
   canWrite,
   onEdit,
   slug,
+  picked,
+  onPick,
+  onOpenLogs,
 }: {
   control: Control
   canWrite: boolean
   onEdit: () => void
   slug: string
+  picked: boolean
+  onPick: () => void
+  onOpenLogs: (controlId: string) => void
 }) {
   const widget = widgetById(control.widget)
   const queryClient = useQueryClient()
@@ -693,8 +1574,45 @@ function ControlCard({
     onError: (err) => setRefused(err instanceof ApiError ? err.message : String(err)),
   })
 
+  /*
+   * Stopping and starting a control, from the list.
+   *
+   * It used to mean opening the editor, walking a four-step wizard and saving
+   * the whole definition back — which is a great deal of ceremony, and a great
+   * deal of surface to change by accident, for a boolean somebody flips while
+   * a deployment is in flight. Pausing one control is the most time-pressed act
+   * on this screen and it had the longest path to it.
+   *
+   * Not optimistic: what is being asserted is that the scheduler has stopped,
+   * and a card that says so a beat before the server agrees would be saying the
+   * one thing this button exists to be trusted about.
+   */
+  const setEnabled = useMutation({
+    mutationFn: () => adminApi.updateControl(slug, control.id, { enabled: !control.enabled }),
+    onSuccess: async () => {
+      setRefused(null)
+      await queryClient.invalidateQueries({ queryKey: ['controls', slug] })
+    },
+    onError: (err) => setRefused(err instanceof ApiError ? err.message : String(err)),
+  })
+
   return (
-    <Card>
+    /*
+     * A disabled control is drawn differently, not merely tagged.
+     *
+     * The tag says it in a word, which is what a screen reader and a monochrome
+     * print get; the dashed edge says it at a glance across a grid of twenty,
+     * which is the reading the tag alone was losing. Neither is a colour, and
+     * neither dims the text — a card nobody can read is not a clearer way of
+     * saying a control is paused.
+     */
+    <Card
+      style={
+        control.enabled
+          ? undefined
+          : { borderStyle: 'dashed', borderColor: 'var(--color-border-strong)' }
+      }
+    >
       <div
         style={{
           display: 'grid',
@@ -703,24 +1621,23 @@ function ControlCard({
         }}
       >
         <div style={{ display: 'flex', gap: 'var(--space-2)', alignItems: 'center' }}>
+          {/* Named, not numbered: "Select" on twenty cards is twenty identical
+              announcements, and the row a checkbox belongs to is exactly what a
+              reader who cannot see the grid has no other way of knowing. */}
+          {canWrite && (
+            <input
+              type="checkbox"
+              checked={picked}
+              aria-label={`Select ${control.name}`}
+              onChange={onPick}
+              style={{ width: 20, height: 20, flexShrink: 0 }}
+            />
+          )}
           <strong style={{ flex: 1, minWidth: 0 }}>{control.name}</strong>
           {/* State as a word, never as a colour alone — and only when it is not
               the default, so the eye lands on the exceptions. */}
           {!control.isPublic && <Tag>internal</Tag>}
           {!control.enabled && <Tag tone="down">disabled</Tag>}
-          {checkable && (
-            <Button
-              ariaLabel={`Check ${control.name} now`}
-              busy={check.isPending}
-              onClick={() => check.mutate()}
-            >
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--space-2)' }}>
-                <Icons.RefreshCw size={14} aria-hidden="true" />
-                Check
-              </span>
-            </Button>
-          )}
-          {canWrite && <Button onClick={onEdit}>Edit</Button>}
         </div>
 
         {refused && (
@@ -791,6 +1708,90 @@ function ControlCard({
         </div>
 
         <ControlActivity control={control} />
+
+        {/*
+          The acts, at the foot rather than beside the name.
+
+          There are four of them now, and a row that carried them next to the
+          title left the title itself about eight characters wide on a card in a
+          three-up grid. They are also the last thing read, after the name, the
+          specs and the three timestamps — which is the order they are used in.
+
+          `stretch` so the anchor and the buttons share a height: they are one
+          row of controls and a link that sits two pixels short reads as a
+          different kind of thing.
+        */}
+        <div
+          style={{
+            display: 'flex',
+            gap: 'var(--space-2)',
+            flexWrap: 'wrap',
+            alignItems: 'stretch',
+          }}
+        >
+          {checkable && (
+            <Button
+              ariaLabel={`Check ${control.name} now`}
+              busy={check.isPending}
+              onClick={() => check.mutate()}
+            >
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+                <Icons.RefreshCw size={14} aria-hidden="true" />
+                Check
+              </span>
+            </Button>
+          )}
+
+          {/* The word says the state and `aria-pressed` says it again, because
+              the two audiences read different halves of a button. The name is
+              in the label too — pressing "Disabled" on the wrong card is the
+              mistake this screen makes easiest. */}
+          {canWrite && (
+            <Button
+              ariaLabel={`${control.enabled ? 'Enabled' : 'Disabled'} — ${control.name}`}
+              ariaPressed={control.enabled}
+              busy={setEnabled.isPending}
+              onClick={() => setEnabled.mutate()}
+            >
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+                {control.enabled ? (
+                  <Icons.Pause size={14} aria-hidden="true" />
+                ) : (
+                  <Icons.Play size={14} aria-hidden="true" />
+                )}
+                {control.enabled ? 'Enabled' : 'Disabled'}
+              </span>
+            </Button>
+          )}
+
+          {/*
+            What has been done to this control, rather than what it measured.
+
+            The trail records the control's id in `target`, and the search box
+            over there matches that column — so the address is the whole
+            mechanism, and it is a real one: reloadable, bookmarkable, and worth
+            pasting into a ticket.
+          */}
+          <a
+            href={`/app/${slug}/logs?q=${encodeURIComponent(control.id)}`}
+            onClick={(event) => {
+              if (event.metaKey || event.ctrlKey || event.shiftKey) return
+              event.preventDefault()
+              onOpenLogs(control.id)
+            }}
+            aria-label={`Audit trail for ${control.name}`}
+            style={LINK_BUTTON}
+          >
+            <Icons.ScrollText size={14} aria-hidden="true" />
+            Logs
+          </a>
+
+          {canWrite && (
+            <Button ariaLabel={`Edit ${control.name}`} onClick={onEdit}>
+              Edit
+            </Button>
+          )}
+        </div>
       </div>
     </Card>
   )
@@ -1100,6 +2101,10 @@ function ControlEditor({
   // The tenant's retention mode decides which widgets can be fed at all. Read
   // from the public summary, which admins can see and which is already cached.
   const summary = useQuery({ queryKey: ['summary', slug], queryFn: () => api.summary(slug) })
+
+  // The same key the fleet screen uses, so this costs no extra request when
+  // both are visited — React Query serves one from the other's cache.
+  const agents = useQuery({ queryKey: ['agents', slug], queryFn: () => adminApi.agents(slug) })
   const retentionMode = summary.data?.tenant.retentionMode ?? 'historical'
 
   const [step, setStep] = useState(0)
@@ -1371,6 +2376,35 @@ function ControlEditor({
                 </Field>
               </div>
             )}
+
+            {/*
+              What `localhost` means here, said before the check is saved.
+
+              It reads as "this machine" to everyone who types it. To the agent
+              that runs the check it means its own container, whose loopback
+              holds nothing but the API — so the check fails with a refused
+              connection against an address that looks obviously correct, which
+              is the hardest kind of wrong to spot.
+
+              Placed under the target fields rather than beside one, because the
+              field it belongs to changes with the kind and the sentence does
+              not.
+
+              Only shown when it is true: with the agent measuring from the
+              machine, `localhost` means what it appears to mean and there is
+              nothing to warn about. A notice that fires when it does not apply
+              is how people learn to skip the ones that do.
+            */}
+            {meansThisMachine(targetHost(form)) &&
+              agents.data?.some((a) => a.isLocal && a.networkMode === 'service:app') && (
+                <Banner tone="down">
+                  <strong>This address will not mean this machine.</strong> The agent measures from
+                  inside its container, where <code>localhost</code> is the container itself — so
+                  this check will fail however right the address looks. Either give the service its
+                  address on your network, or switch the agent to measure from the machine — Agents
+                  → Agent-local-tern says how.
+                </Banner>
+              )}
 
             {form.kind !== 'push' && (
               <div className="field-row is-lead-last">

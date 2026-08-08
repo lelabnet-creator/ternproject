@@ -129,10 +129,25 @@ services:
       TERN_DEFAULT_LOCALE: ${TERN_DEFAULT_LOCALE:-en}
       TERN_DEFAULT_TIMEZONE: ${TERN_DEFAULT_TIMEZONE:-UTC}
 
-      # The agent shares this container's network namespace, so the default the
-      # API writes into agent.toml — http://127.0.0.1:3011 — is already correct.
-      # See the `agent` service below for why it is worth arranging that.
+      # The agent shares this container's network namespace by default, so the
+      # address the API writes into agent.toml — http://127.0.0.1:3011 — is
+      # already correct. See the `agent` service below for why it is worth
+      # arranging that, and what the other mode changes.
       TERN_LOCAL_AGENT: ${TERN_LOCAL_AGENT:-true}
+
+      # Which network the agent watches from, and where it reports.
+      #
+      # These two travel together and must agree. `service:app` puts the agent
+      # in this container's namespace, where 127.0.0.1:3011 is the API. `host`
+      # puts it in the machine's, where the API is only reachable at the
+      # published port — so the address has to be given, and it is the one thing
+      # that makes the switch work at all.
+      #
+      # TERN_LOCAL_AGENT_SERVER was read by config.ts and documented, and was
+      # missing from this list: setting it in .env did nothing, exactly like the
+      # three rate limits above before ee55bfb. Named here, it works.
+      TERN_AGENT_NETWORK_MODE: ${TERN_AGENT_NETWORK_MODE:-service:app}
+      TERN_LOCAL_AGENT_SERVER: ${TERN_LOCAL_AGENT_SERVER:-}
       # The `agent` service below runs the binary and Docker supervises it, so
       # this process must not also start one. Running from source there is no
       # container to do it, which is why the default is the other way round.
@@ -181,19 +196,35 @@ services:
     # Whether the agent is reporting is a question the fleet screen answers.
     healthcheck:
       disable: true
-    # The agent shares the API's network namespace rather than sitting beside it
-    # on the compose network.
+    # Where the agent watches from. This one line decides what it can measure.
     #
-    # `tern-agent` refuses to send an ingest key over plain HTTP to anything but
-    # localhost, which is a guard worth keeping — so pointing it at `http://app:3011`
-    # made it exit on startup, over and over. The choice was to weaken the guard
-    # or to make its exemption true, and this is the second: with a shared
-    # namespace `127.0.0.1:3011` *is* the API, the key never touches a network
-    # interface, and the agent's own default address is already right.
+    # `service:app` (the default) puts it in the API's network namespace rather
+    # than beside it on the compose network. `tern-agent` refuses to send an
+    # ingest key over plain HTTP to anything but localhost, which is a guard
+    # worth keeping — so pointing it at `http://app:3011` made it exit on
+    # startup, over and over. The choice was to weaken the guard or to make its
+    # exemption true, and this is the second: with a shared namespace
+    # `127.0.0.1:3011` *is* the API, the key never touches a network interface,
+    # and the agent's own default address is already right.
     #
-    # It also means this container publishes no ports and needs none — `ports`
-    # is not permitted here, and the API already publishes the only one.
-    network_mode: 'service:app'
+    # What that costs, measured rather than assumed: outbound works fully — DNS,
+    # TCP and HTTPS all reach the internet — but `127.0.0.1` means *this
+    # container*, so a service listening only on the machine's loopback has no
+    # address the agent could even name, and other Docker networks are cut off
+    # by bridge isolation. Someone monitoring their own machine writes
+    # `localhost:5432`, and that is precisely the target this mode cannot see.
+    #
+    # `host` is the other answer: the agent joins the machine's stack, where
+    # `127.0.0.1` is the machine. Loopback services, other Docker networks and
+    # the LAN all become reachable. The guard still holds — the agent then
+    # reports to the published port on the host's own loopback, which is why
+    # TERN_LOCAL_AGENT_SERVER above is not optional in that mode. Linux only:
+    # Docker Desktop does not give host networking the meaning expected here.
+    #
+    # Either way this container publishes no ports and needs none — `ports` is
+    # not permitted with a shared namespace, and the API already publishes the
+    # only one.
+    network_mode: ${TERN_AGENT_NETWORK_MODE:-service:app}
     environment:
       TERN_DATA_DIR: /var/lib/tern
     volumes:

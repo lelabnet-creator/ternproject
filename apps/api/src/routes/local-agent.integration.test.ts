@@ -1,8 +1,15 @@
+import { readFileSync } from 'node:fs'
 import { and, eq } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { schema } from '@tern/db'
 import { createFixture, login, type TestFixture } from '../test/harness.js'
-import { LOCAL_AGENT_NAME, ensureLocalAgent, resolveBinary } from '../services/local-agent.js'
+import { config } from '../config.js'
+import {
+  LOCAL_AGENT_NAME,
+  dataPaths,
+  ensureLocalAgent,
+  resolveBinary,
+} from '../services/local-agent.js'
 import { issueApiKey } from '../services/apikeys.js'
 
 /**
@@ -74,6 +81,35 @@ describe('provisioning', () => {
     expect(key?.scopeControlIds).toEqual([])
     expect(key?.scopes).toContain('ingest')
     expect(key?.revokedAt).toBeNull()
+  })
+
+  it('repairs a stale server address without re-issuing the key', async () => {
+    await ensureLocalAgent(fx.app, fx.tenantId)
+    const before = await localAgent()
+    const { configPath } = dataPaths()
+    const key = readFileSync(configPath, 'utf8').match(/^api_key = "([^"]*)"/m)?.[1]
+
+    expect(key).toBeTruthy()
+
+    // What changing the agent's network mode does: in the machine's namespace
+    // the API is at the published port, not on the container's loopback.
+    const previous = config.TERN_LOCAL_AGENT_SERVER
+    config.TERN_LOCAL_AGENT_SERVER = 'http://127.0.0.1:28999'
+
+    try {
+      await ensureLocalAgent(fx.app, fx.tenantId)
+      const body = readFileSync(configPath, 'utf8')
+
+      // The address follows the setting — without this the agent would keep
+      // reporting to a port that stopped existing, and go quiet saying nothing.
+      expect(body).toContain('server = "http://127.0.0.1:28999"')
+      // And the credential is the same one. Only the door it knocks on moved.
+      expect(body).toContain(`api_key = "${key}"`)
+      expect((await localAgent())?.apiKeyId).toBe(before?.apiKeyId)
+    } finally {
+      config.TERN_LOCAL_AGENT_SERVER = previous
+      await ensureLocalAgent(fx.app, fx.tenantId)
+    }
   })
 })
 

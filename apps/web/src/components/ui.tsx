@@ -34,6 +34,7 @@ export function Button({
   disabled,
   busy,
   ariaLabel,
+  ariaPressed,
 }: {
   children: ReactNode
   onClick?: () => void
@@ -43,6 +44,16 @@ export function Button({
   busy?: boolean
   /** Required when the visible content is a glyph — a screen reader reads this instead. */
   ariaLabel?: string
+  /**
+   * For a button that flips a state rather than performing an act.
+   *
+   * A checkbox would be the other way to say it, but this is a control that
+   * writes on click and reports what it did — not a field that waits to be
+   * submitted with a form. `aria-pressed` is what carries "on" or "off" to a
+   * screen reader; the visible word beside it carries the same thing to
+   * everyone else, because neither audience should have to infer it from a tint.
+   */
+  ariaPressed?: boolean
 }) {
   const palette = {
     primary: { bg: 'var(--color-accent)', fg: 'var(--color-accent-fg)', border: 'transparent' },
@@ -59,6 +70,7 @@ export function Button({
       disabled={disabled || busy}
       aria-busy={busy}
       aria-label={ariaLabel}
+      aria-pressed={ariaPressed}
       title={ariaLabel}
       style={{
         background: palette.bg,

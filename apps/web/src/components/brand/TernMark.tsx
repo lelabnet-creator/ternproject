@@ -120,18 +120,32 @@ export function TernWordmark({
   className,
   /** Badge lockup for dark placements; bare mark otherwise. */
   variant = 'mark',
+  /**
+   * Side by side, or the name under the mark.
+   *
+   * `stacked` is for a column that has width to spare and height to fill — the
+   * admin rail, where the lockup is the header of a whole surface rather than
+   * something sitting in a line of text. The gap tightens, because two things
+   * on one axis read as one object only when they are closer than they would be
+   * beside each other.
+   */
+  orientation = 'inline',
 }: {
   size?: number
   className?: string
   variant?: 'mark' | 'badge'
+  orientation?: 'inline' | 'stacked'
 }) {
+  const stacked = orientation === 'stacked'
+
   return (
     <span
       className={className}
       style={{
         display: 'inline-flex',
+        flexDirection: stacked ? 'column' : 'row',
         alignItems: 'center',
-        gap: `${size * 0.28}px`,
+        gap: `${size * (stacked ? 0.14 : 0.28)}px`,
         color: 'var(--color-fg)',
       }}
     >
@@ -147,7 +161,10 @@ export function TernWordmark({
           // -0.6 at 34px in the source lockup, expressed relatively so it
           // holds at every size.
           letterSpacing: '-0.018em',
-          fontSize: `${size * 0.85}px`,
+          // Stacked, the name is a caption under the mark rather than its equal
+          // partner. Kept at 0.85 it competed with a mark twice the size it was
+          // drawn beside, and the pair stopped reading as a lockup.
+          fontSize: `${size * (stacked ? 0.42 : 0.85)}px`,
           lineHeight: 1,
         }}
       >

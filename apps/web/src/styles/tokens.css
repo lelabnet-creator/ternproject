@@ -46,7 +46,13 @@
   --radius-full: 9999px;
 
   /* ── Type ──────────────────────────────────────────────────────────────── */
-  --font-sans: 'Fira Sans', system-ui, -apple-system, sans-serif;
+  /* Comfortaa, served by this instance — see fonts.css for why it is not linked
+     from Google. A variable face covering 300–700, so the weights this
+     interface asks for are drawn rather than synthesised.
+
+     `Fira Sans` stood here before and was never loaded — no @font-face, no
+     link — so the interface had in fact been rendering in system-ui. */
+  --font-sans: 'Comfortaa', system-ui, -apple-system, sans-serif;
   /* Numbers, timestamps and status keys. Tabular figures stop a live latency
      readout from shifting the layout every time a digit changes width. */
   --font-mono: 'Fira Code', ui-monospace, 'SF Mono', Menlo, monospace;
@@ -468,6 +474,15 @@ a.tern-target {
   color: var(--color-fg-subtle);
 }
 
+/* Absent on the narrow shape, and not merely hidden by preference: there the
+   rail is a horizontal app bar laid out on named grid areas, and an element
+   without one would be auto-placed into a row of its own — a rule across the
+   top of a phone screen, separating nothing from nothing. It earns its place
+   only in the column, where there is a header above and sections below. */
+.admin-brand-rule {
+  display: none;
+}
+
 .admin-rail-foot {
   /* Visible in every shape. Hiding sign-out below the breakpoint would leave a
      phone with no way out of the session. */
@@ -641,6 +656,23 @@ a.tern-target {
   .admin-tenant {
     text-align: center;
     margin-top: var(--space-2);
+  }
+
+  /* Fading at both ends rather than a full-width border: the rail's own right
+     edge is already a hard 1px line, and a second one meeting it at a right
+     angle drew a box around the header. This stops short of both sides without
+     a margin, so it stays aligned with the navigation under it. */
+  .admin-brand-rule {
+    display: block;
+    height: 1px;
+    margin-top: calc(var(--space-2) * -1);
+    background: linear-gradient(
+      90deg,
+      transparent,
+      var(--color-border) 20%,
+      var(--color-border) 80%,
+      transparent
+    );
   }
 
   /* The ellipsis was the app bar's compromise. A 16rem column has the height to

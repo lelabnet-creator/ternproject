@@ -65,6 +65,39 @@ export interface Control {
   lastFailureAt: string | null
 }
 
+/**
+ * A folder controls are filed under.
+ *
+ * `parentId` makes this a tree rather than a flat list, so a page can be filed
+ * the way the estate is actually shaped — "Europe > Paris > API". The API
+ * refuses a cycle and a sixth level; nothing here needs to re-check that, but a
+ * screen that walks down from the roots does have to expect an id it has never
+ * seen, because the two lists are fetched separately and can be a moment apart.
+ */
+export interface ControlGroup {
+  id: string
+  name: string
+  description: string | null
+  /** Null at the top level. */
+  parentId: string | null
+  position: number
+  /** How the folder's own status is derived: `worst`, `majority` or `manual`. */
+  statusRollup: string
+  collapsedByDefault: boolean
+  /** Controls filed directly here. A child folder's own are counted under it. */
+  controlCount: number
+}
+
+/** What a folder PATCH may carry. Creation is the same shape with a name. */
+export interface ControlGroupPatch {
+  name?: string
+  description?: string | null
+  parentId?: string | null
+  position?: number
+  statusRollup?: 'worst' | 'majority' | 'manual'
+  collapsedByDefault?: boolean
+}
+
 export interface TenantSettings {
   name: string
   slug: string
@@ -77,7 +110,16 @@ export interface TenantSettings {
   subscriberDisclaimer: string | null
   layout: 'list' | 'grid' | 'compact' | 'custom'
   accent: string
+  /** Chosen typeface id. `fontById` in lib/fonts.ts turns it into a stack. */
+  font: string
   logoUrl: string | null
+  /**
+   * When the setup wizard was answered, or null.
+   *
+   * Read from here rather than from the public summary's `branding`, which is
+   * cached — see the note beside this field in `apps/api/src/routes/settings.ts`.
+   */
+  setupCompletedAt: string | null
   sizingAssumptions: { intervalS: number; concurrentViewers: number }
   syslog: {
     host: string
@@ -137,6 +179,13 @@ export interface Agent {
   scopeControlIds: string[]
   /** The instance's own agent — `Agent-local-tern`. Never revocable. */
   isLocal: boolean
+  /**
+   * Which network the local agent measures from — `service:app` or `host`, and
+   * the difference decides whether `localhost` in a check means this machine or
+   * the agent's own container. Null for a remote agent, whose network is its
+   * own host's business.
+   */
+  networkMode: string | null
 }
 
 export interface ScriptBundle {
@@ -365,6 +414,33 @@ export const adminApi = {
 
   deleteControl: (slug: string, id: string) =>
     request<{ ok: boolean }>('DELETE', `/api/v1/${slug}/controls/${id}`),
+
+  controlGroups: (slug: string) => request<ControlGroup[]>('GET', `/api/v1/${slug}/control-groups`),
+
+  createControlGroup: (slug: string, body: ControlGroupPatch & { name: string }) =>
+    request<ControlGroup>('POST', `/api/v1/${slug}/control-groups`, body),
+
+  /** Renames and moves. A move that would close a loop is refused with a sentence. */
+  updateControlGroup: (slug: string, id: string, body: ControlGroupPatch) =>
+    request<ControlGroup>('PATCH', `/api/v1/${slug}/control-groups/${id}`, body),
+
+  /**
+   * Removes the folder and nothing it held: children move up to its parent, its
+   * controls are unfiled. Deleting a folder is a filing decision, so it must
+   * never be a decision about what is monitored.
+   */
+  deleteControlGroup: (slug: string, id: string) =>
+    request<void>('DELETE', `/api/v1/${slug}/control-groups/${id}`),
+
+  /**
+   * Files a whole selection at once.
+   *
+   * One request rather than one per control: the gesture is a selection and a
+   * destination, and N requests would leave the selection half moved behind the
+   * first refusal, with no way to tell which half.
+   */
+  moveControls: (slug: string, controlIds: string[], groupId: string | null) =>
+    request<{ moved: number }>('POST', `/api/v1/${slug}/controls/move`, { controlIds, groupId }),
 
   series: (slug: string, id: string, days = 30) =>
     request<{

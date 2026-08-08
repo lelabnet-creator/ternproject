@@ -276,6 +276,87 @@ function PairPanel({ slug, onDone }: { slug: string; onDone: () => void }) {
   )
 }
 
+/**
+ * What the instance's own agent can and cannot see.
+ *
+ * The question this answers is "why is my check on localhost down", and it is
+ * asked by someone who has no reason to know that the agent runs in a container
+ * whose loopback is not the machine's. Left unsaid, the check simply fails and
+ * the address looks right — the worst combination to debug.
+ *
+ * Stated, not offered as a control. `network_mode` is fixed when the container
+ * is created; this process has no Docker socket to change it with, and giving
+ * it one would be root on the host. A button here would be a button that lies.
+ *
+ * The blind spots are measured rather than assumed: with a shared namespace,
+ * outbound to the internet and to the compose network works, `127.0.0.1` means
+ * the API's container, and other Docker networks are cut off by bridge
+ * isolation.
+ */
+function Vantage({ mode }: { mode: string }) {
+  const host = mode === 'host'
+
+  return (
+    <details style={{ marginTop: 'var(--space-1)' }}>
+      <summary
+        style={{
+          fontSize: 'var(--text-xs)',
+          color: 'var(--color-fg-subtle)',
+          cursor: 'pointer',
+        }}
+      >
+        Measures from {host ? 'this machine' : 'inside its container'}
+      </summary>
+      <div
+        style={{
+          marginTop: 'var(--space-2)',
+          fontSize: 'var(--text-xs)',
+          color: 'var(--color-fg-subtle)',
+          lineHeight: 1.6,
+        }}
+      >
+        {host ? (
+          <p style={{ margin: 0 }}>
+            <strong>Can reach</strong> services on this machine — including those listening only on
+            its loopback — its local network, other Docker networks, and the internet.{' '}
+            <code>localhost</code> in a check means the machine.
+          </p>
+        ) : (
+          <>
+            <p style={{ margin: 0 }}>
+              <strong>Can reach</strong> the internet and this instance&rsquo;s own containers.
+            </p>
+            <p style={{ margin: 'var(--space-2) 0 0' }}>
+              <strong>Cannot reach</strong> services listening on this machine&rsquo;s loopback, or
+              containers on other Docker networks. In a check, <code>localhost</code> means the
+              agent&rsquo;s own container — not this machine — so a check written against it will
+              fail however correct the address looks.
+            </p>
+            <p style={{ margin: 'var(--space-2) 0 0' }}>
+              To measure from the machine instead, set these in <code>.env</code> and run{' '}
+              <code>docker compose -f docker-compose.prod.yml up -d</code>. Linux only.
+            </p>
+            <pre
+              style={{
+                margin: 'var(--space-2) 0 0',
+                padding: 'var(--space-2)',
+                borderRadius: 'var(--radius-sm)',
+                background: 'var(--color-bg-subtle)',
+                overflowX: 'auto',
+              }}
+            >
+              <code>
+                TERN_AGENT_NETWORK_MODE=host{'\n'}
+                TERN_LOCAL_AGENT_SERVER=http://127.0.0.1:$TERN_HTTP_PORT
+              </code>
+            </pre>
+          </>
+        )}
+      </div>
+    </details>
+  )
+}
+
 function AgentRow({
   slug,
   agent,
@@ -405,6 +486,7 @@ function AgentRow({
             {agent.arch ? `/${agent.arch}` : ''} · {agent.agentVersion ?? 'version unknown'} ·{' '}
             {lastSeen(agent, now)}
           </div>
+          {agent.isLocal && agent.networkMode && <Vantage mode={agent.networkMode} />}
         </div>
 
         <div style={{ display: 'flex', gap: 'var(--space-2)' }}>

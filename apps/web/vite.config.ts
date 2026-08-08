@@ -58,6 +58,12 @@ export default defineConfig({
         ],
       },
       workbox: {
+        // The default pattern is js/css/html/ico/png/svg, which leaves the
+        // typeface out. The shell is precached precisely so the app opens on a
+        // network that is misbehaving — the moment a status page is most likely
+        // to be loaded — and a shell that opens without its font, in the one
+        // situation it was cached for, is a shell that was cached badly.
+        globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
         // A status page must never serve a cached status. The shell is cached
         // so the app opens offline; the data always comes from the network, and
         // the UI shows its own offline state rather than a stale green tick.

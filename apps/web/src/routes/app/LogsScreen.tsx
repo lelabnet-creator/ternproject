@@ -49,7 +49,23 @@ export function LogsScreen({ slug, canWrite }: { slug: string; canWrite: boolean
 }
 
 function TrailPanel({ slug }: { slug: string }) {
-  const [query, setQuery] = useState('')
+  /*
+   * Opened already narrowed, when something sent the reader here.
+   *
+   * A control's row links to this screen with `?q=<control id>`, because the
+   * audit's `target` column holds that id — so the trail arrives filtered to
+   * one control rather than to the whole tenant, which is the difference
+   * between an answer and a haystack.
+   *
+   * Read once, as the initial value, and then owned by the field: the reader
+   * came here to look around, and a URL that kept re-imposing itself on every
+   * keystroke would fight them for their own search box. Clearing the field
+   * leaves the address behind — reloading really does restore the filter,
+   * which is what makes the link worth sharing.
+   */
+  const [query, setQuery] = useState(
+    () => new URLSearchParams(window.location.search).get('q') ?? '',
+  )
   const [action, setAction] = useState('')
 
   const logs = useQuery({

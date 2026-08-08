@@ -9,6 +9,9 @@ import { AdminEntry } from './routes/app/AdminEntry'
 import { LandingPage } from './routes/public/LandingPage'
 import { StatusPage } from './routes/public/StatusPage'
 import { ResetPasswordScreen } from './routes/app/ResetPasswordScreen'
+// Before the tokens, so the @font-face rules are known by the time anything
+// asks for `--font-sans`.
+import './styles/fonts.css'
 import './styles/tokens.css'
 
 /**

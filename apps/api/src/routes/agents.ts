@@ -345,6 +345,12 @@ const routes: FastifyPluginAsyncZod = async (app) => {
               scopeControlIds: z.array(z.string()),
               /** The instance's own agent, which cannot be revoked or deleted. */
               isLocal: z.boolean(),
+              /**
+               * Which network the local agent measures from — `service:app` or
+               * `host`. Null for every other agent, which sits on a machine this
+               * server knows nothing about.
+               */
+              networkMode: z.string().nullable(),
             }),
           ),
         },
@@ -393,6 +399,10 @@ const routes: FastifyPluginAsyncZod = async (app) => {
           // Sent so the fleet screen can say why the delete button is missing,
           // rather than offering one that answers 409.
           isLocal: row.isLocal,
+          // Only meaningful for the local agent: it is this process's own
+          // environment. A remote agent's network is its host's business, and
+          // guessing at it here would be worse than saying nothing.
+          networkMode: row.isLocal ? config.TERN_AGENT_NETWORK_MODE : null,
         }
       })
     },

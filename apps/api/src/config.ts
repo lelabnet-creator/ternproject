@@ -81,6 +81,19 @@ const schema = z.object({
   TERN_LOCAL_AGENT_SERVER: z.string().default(''),
 
   /**
+   * Which network the local agent watches from, reported to the fleet screen.
+   *
+   * Read, never acted on: the value is set on the container at creation and
+   * this process could not change it if it wanted to — it has no Docker socket,
+   * deliberately, since one is root on the host. What it buys is an answer to
+   * "why is my check on localhost:5432 down", which is otherwise invisible.
+   *
+   * `service:app` is the compose default and what running from source amounts
+   * to. `host` is the machine's own stack.
+   */
+  TERN_AGENT_NETWORK_MODE: z.string().default('service:app'),
+
+  /**
    * Whether this process starts the agent binary itself.
    *
    * On by default, because the deployment that needs it is the one nobody

@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { adminApi, ApiError, type TenantSettingsPatch } from '../../lib/adminApi'
 import { Tabs } from '../../components/Tabs'
 import { ACCENTS, accentById, applyAccent } from '../../lib/accents'
+import { FONTS, fontById, applyFont } from '../../lib/fonts'
 import { LocaleSelect, TimeZoneInput } from '../../components/pickers'
 import { Banner, Button, Card, Field, Input } from '../../components/ui'
 import { NotificationsPanels } from '../../features/settings/NotificationsPanels'
@@ -101,9 +102,12 @@ function GeneralPanel({ slug, canWrite }: { slug: string; canWrite: boolean }) {
   useEffect(() => {
     setDraft({})
     setSaved(false)
-    // The stored accent wins on load, so an unsaved trial does not survive a
-    // navigation and quietly become the tenant's colour.
-    if (settings.data) applyAccent(accentById(settings.data.accent))
+    // The stored accent and typeface win on load, so an unsaved trial does not
+    // survive a navigation and quietly become the tenant's.
+    if (settings.data) {
+      applyAccent(accentById(settings.data.accent))
+      applyFont(fontById(settings.data.font))
+    }
   }, [settings.data])
 
   const save = useMutation({
@@ -218,6 +222,72 @@ function GeneralPanel({ slug, canWrite }: { slug: string; canWrite: boolean }) {
                   }}
                 />
                 {accent.label}
+              </button>
+            )
+          })}
+        </div>
+      </Card>
+
+      <Card>
+        <h2 style={{ margin: '0 0 var(--space-2)', fontSize: 'var(--text-base)' }}>Typeface</h2>
+        <p
+          className="measure"
+          style={{
+            margin: '0 0 var(--space-3)',
+            fontSize: 'var(--text-sm)',
+            color: 'var(--color-fg-subtle)',
+          }}
+        >
+          The font this tenant&rsquo;s admin and public page are set in. Both are served by this
+          instance, so choosing one costs a reader nothing beyond the page they were loading anyway.
+        </p>
+
+        <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
+          {FONTS.map((font) => {
+            const selected = value.font === font.id
+            return (
+              <button
+                key={font.id}
+                type="button"
+                role="radio"
+                aria-checked={selected}
+                disabled={!canWrite}
+                onClick={() => {
+                  set('font', font.id)
+                  // Applied at once, as the accent is: a typeface you have to
+                  // save to see is one you cannot compare.
+                  applyFont(font)
+                }}
+                style={{
+                  flex: '1 1 14rem',
+                  textAlign: 'left',
+                  minHeight: 44,
+                  padding: 'var(--space-3)',
+                  borderRadius: 'var(--radius-md)',
+                  border: `1px solid ${selected ? 'var(--color-accent)' : 'var(--color-border)'}`,
+                  background: selected ? 'var(--color-accent-soft)' : 'var(--color-surface)',
+                  color: 'var(--color-fg)',
+                  // The one place in this screen that does not inherit the
+                  // page's font, and the reason the option is worth showing at
+                  // all: each name is set in the face it names, so the two can
+                  // be told apart before either is applied.
+                  fontFamily: font.stack,
+                  cursor: canWrite ? 'pointer' : 'not-allowed',
+                  opacity: canWrite ? 1 : 0.6,
+                }}
+              >
+                <span style={{ display: 'block', fontWeight: 600, fontSize: 'var(--text-base)' }}>
+                  {font.label}
+                </span>
+                <span
+                  style={{
+                    display: 'block',
+                    fontSize: 'var(--text-xs)',
+                    color: 'var(--color-fg-subtle)',
+                  }}
+                >
+                  {font.description}
+                </span>
               </button>
             )
           })}

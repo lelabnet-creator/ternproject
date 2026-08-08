@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from 'node:child_process'
-import { chmodSync, existsSync, mkdirSync, statSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { and, eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
@@ -160,6 +160,26 @@ function writeConfig(configPath: string, apiKey: string): void {
 }
 
 /**
+ * The two values already in `agent.toml`, or nulls if it cannot be read.
+ *
+ * Deliberately not a TOML parser: this file is written by `writeConfig` a few
+ * lines up and by nothing else, so the shape is known. A dependency to read
+ * three lines we wrote ourselves would be the larger risk.
+ */
+function readConfig(configPath: string): { server: string | null; apiKey: string | null } {
+  try {
+    const body = readFileSync(configPath, 'utf8')
+    const value = (key: string) =>
+      body.match(new RegExp(`^${key}\\s*=\\s*"([^"]*)"`, 'm'))?.[1] ?? null
+    return { server: value('server'), apiKey: value('api_key') }
+  } catch {
+    // Unreadable is the same as absent for every caller: both mean the file
+    // cannot be trusted to say where the agent reports.
+    return { server: null, apiKey: null }
+  }
+}
+
+/**
  * Makes the local agent exist for a tenant, exactly once.
  *
  * Idempotent, and it has to be: it runs at every boot as well as at first run.
@@ -167,6 +187,20 @@ function writeConfig(configPath: string, apiKey: string): void {
  * wiped volume, a restored database. The key cannot be recovered from the row
  * because only its hash was kept, so the honest repair is a new key and a
  * rewritten file, which is what happens.
+ *
+ * ## When only the address moved
+ *
+ * Changing the agent's network mode changes where the API is reachable from:
+ * in the machine's namespace it is the published port, not `127.0.0.1:3011`.
+ * This function used to return on `row exists && file exists` and nothing else,
+ * so the switch left `agent.toml` pointing at an address that had stopped
+ * existing — the agent would go quiet, and the setting meant to widen its view
+ * would have blinded it instead. Silently, which is the worst part.
+ *
+ * So a stale address is repaired in place, keeping the key that is already
+ * there. Re-issuing one would work and is what a missing file gets, but it is
+ * the heavier answer to a smaller problem: nothing about the credential
+ * changed, only the door it knocks on.
  */
 export async function ensureLocalAgent(app: FastifyInstance, tenantId: string): Promise<void> {
   const { configPath } = dataPaths()
@@ -177,7 +211,22 @@ export async function ensureLocalAgent(app: FastifyInstance, tenantId: string): 
     .where(and(eq(schema.agents.tenantId, tenantId), eq(schema.agents.isLocal, true)))
     .limit(1)
 
-  if (existing && existsSync(configPath)) return
+  if (existing && existsSync(configPath)) {
+    const current = readConfig(configPath)
+    if (current.server === serverUrl()) return
+
+    if (current.apiKey) {
+      writeConfig(configPath, current.apiKey)
+      app.log.info(
+        { agent: LOCAL_AGENT_NAME, from: current.server, to: serverUrl() },
+        'local agent server address changed — agent.toml rewritten',
+      )
+      return
+    }
+
+    // A file we cannot read the key out of is no better than no file: falling
+    // through re-provisions, which is the path already written for that case.
+  }
 
   const issued = await issueApiKey(app, {
     tenantId,

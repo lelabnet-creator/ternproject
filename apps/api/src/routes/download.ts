@@ -112,26 +112,39 @@ function base(): string {
  * Deliberately readable: it is piped into a shell, which is a thing to be
  * suspicious of, so anyone who opens the URL first should be able to see
  * exactly what it does in one screen. No compression, no eval, no base64.
+ *
+ * It ends by registering the agent with whatever supervises services on this
+ * machine. An agent installed and paired but not registered works perfectly
+ * until the first reboot and then stops — and it stops silently, which is the
+ * failure a monitoring tool can least afford. The server would show it as
+ * quiet, but only to somebody looking.
  */
 function shellScript(): string {
   return `#!/bin/sh
 # TERN agent installer — ${base()}
 #
-# Reading this before running it is the correct instinct. It does three things:
+# Reading this before running it is the correct instinct. It does four things:
 # picks the binary for this machine, downloads it from the TERN instance above,
-# and — if you passed --pin — pairs with it.
+# pairs with it if you passed --pin, and registers it to start at boot.
+#
+#   --pin <PIN>    pair straight away
+#   --dir <path>   where to put the binary
+#   --no-service   install and pair, but do not register for boot
+#   --proxy        install tern-proxy instead
 set -eu
 
 SERVER="${base()}"
 PIN=""
 DEST="\${TERN_INSTALL_DIR:-}"
 BIN="tern-agent"
+SERVICE=1
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --pin) PIN="\${2:-}"; shift 2 ;;
     --dir) DEST="\${2:-}"; shift 2 ;;
     --proxy) BIN="tern-proxy"; shift ;;
+    --no-service) SERVICE=0; shift ;;
     *) echo "Unknown option: $1" >&2; exit 2 ;;
   esac
 done
@@ -157,6 +170,22 @@ if [ -z "$DEST" ]; then
 fi
 mkdir -p "$DEST"
 
+# Where the config and the offline queue live.
+#
+# Chosen before pairing, and passed to it, so the service unit written further
+# down can name an absolute path. The agent's own default is \`agent.toml\` in
+# the working directory — right for running it by hand in a terminal, useless
+# to a supervisor that starts it from /.
+if [ "$(id -u)" = 0 ]; then
+  CONF_DIR=/etc/tern
+  STATE_DIR=/var/lib/tern-agent
+else
+  CONF_DIR="\${XDG_CONFIG_HOME:-$HOME/.config}/tern"
+  STATE_DIR="\${XDG_STATE_HOME:-$HOME/.local/state}/tern"
+fi
+CONF="$CONF_DIR/agent.toml"
+QUEUE="$STATE_DIR/queue.jsonl"
+
 echo "Downloading $BIN for $target…"
 if ! curl -fsSL "$SERVER/api/v1/agent/bin/$BIN-$target" -o "$DEST/$BIN.tmp"; then
   echo "This instance does not have that binary. Ask its operator, or build from source." >&2
@@ -172,25 +201,180 @@ case ":$PATH:" in
   *) echo "Note: $DEST is not on your PATH." ;;
 esac
 
+if [ "$BIN" != "tern-agent" ]; then
+  echo
+  echo "tern-proxy installed. It takes no config and no pairing."
+  exit 0
+fi
+
+mkdir -p "$CONF_DIR" "$STATE_DIR"
+
 if [ -n "$PIN" ]; then
   echo
-  "$DEST/$BIN" pair --server "$SERVER" --pin "$PIN"
+  "$DEST/$BIN" pair --server "$SERVER" --pin "$PIN" --config "$CONF"
 else
   echo
-  echo "Next: $DEST/$BIN pair --server $SERVER --pin <PIN>"
+  echo "Next: $DEST/$BIN pair --server $SERVER --pin <PIN> --config $CONF"
+  echo "Then re-run this installer to register it for boot."
+  exit 0
 fi
+
+[ "$SERVICE" = 1 ] || exit 0
+
+# --- starting again after a reboot -------------------------------------------
+#
+# The whole point of an agent is that it keeps reporting. One that has to be
+# started by hand is one that stops the next time the machine restarts, and
+# says nothing about it.
+#
+# Which supervisor, decided by what is actually present rather than by the
+# distribution's name: /run/systemd/system exists only when systemd is the
+# running init, which is the question that matters — a machine can carry
+# systemctl and boot something else.
+echo
+if [ "$os" = "Darwin" ]; then
+  if [ "$(id -u)" = 0 ]; then
+    PLIST=/Library/LaunchDaemons/net.tern.agent.plist
+  else
+    PLIST="$HOME/Library/LaunchAgents/net.tern.agent.plist"
+    mkdir -p "$HOME/Library/LaunchAgents"
+  fi
+
+  cat > "$PLIST" <<PLIST_EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>net.tern.agent</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>$DEST/tern-agent</string>
+    <string>run</string>
+    <string>--config</string><string>$CONF</string>
+    <string>--queue</string><string>$QUEUE</string>
+  </array>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+</dict>
+</plist>
+PLIST_EOF
+
+  # bootstrap is the current verb and load the one that works everywhere. Try
+  # the modern one, fall back rather than fail: an installer that leaves the
+  # plist written but unloaded is the worst of both.
+  launchctl unload "$PLIST" 2>/dev/null || true
+  if ! launchctl load -w "$PLIST" 2>/dev/null; then
+    launchctl bootstrap "gui/$(id -u)" "$PLIST" 2>/dev/null || true
+  fi
+  echo "✓ Registered with launchd — starts at boot."
+  echo "  Stop:   launchctl unload $PLIST"
+
+elif [ -d /run/systemd/system ]; then
+  if [ "$(id -u)" = 0 ]; then
+    UNIT=/etc/systemd/system/tern-agent.service
+    WANTED=multi-user.target
+  else
+    UNIT="\${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/tern-agent.service"
+    WANTED=default.target
+    mkdir -p "$(dirname "$UNIT")"
+  fi
+
+  cat > "$UNIT" <<UNIT_EOF
+[Unit]
+Description=TERN agent
+Documentation=$SERVER
+# network-online, not network: a probe that runs before the interface has an
+# address fails once at every boot and recovers, which reads as a real outage.
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=$DEST/tern-agent run --config $CONF --queue $QUEUE
+Restart=always
+RestartSec=5
+# The agent buffers to disk while the server is unreachable, so a restart loop
+# here would lose nothing — but it would fill the journal. Five seconds is slow
+# enough to read and fast enough not to matter.
+
+[Install]
+WantedBy=$WANTED
+UNIT_EOF
+
+  if [ "$(id -u)" = 0 ]; then
+    systemctl daemon-reload
+    systemctl enable --now tern-agent.service
+    echo "✓ Registered with systemd — starts at boot."
+    echo "  Status: systemctl status tern-agent"
+    echo "  Logs:   journalctl -u tern-agent -f"
+  else
+    systemctl --user daemon-reload
+    systemctl --user enable --now tern-agent.service
+    # Without lingering, a user unit stops when the last session closes and
+    # does not come back until somebody logs in — which on a server is never.
+    if command -v loginctl >/dev/null 2>&1; then
+      loginctl enable-linger "$(id -un)" 2>/dev/null \\
+        || echo "  ⚠ Could not enable lingering. Run: sudo loginctl enable-linger $(id -un)"
+    fi
+    echo "✓ Registered as a systemd user service — starts at boot."
+    echo "  Status: systemctl --user status tern-agent"
+    echo "  Logs:   journalctl --user -u tern-agent -f"
+  fi
+
+elif [ -x /sbin/openrc-run ] || [ -d /etc/init.d ] && command -v rc-update >/dev/null 2>&1; then
+  if [ "$(id -u)" != 0 ]; then
+    echo "⚠ OpenRC needs root to register a service. Re-run with sudo, or use --no-service."
+  else
+    cat > /etc/init.d/tern-agent <<'RC_EOF'
+#!/sbin/openrc-run
+description="TERN agent"
+command=__BIN__
+command_args="run --config __CONF__ --queue __QUEUE__"
+command_background=true
+pidfile="/run/tern-agent.pid"
+depend() { need net; }
+RC_EOF
+    sed -i "s|__BIN__|$DEST/tern-agent|; s|__CONF__|$CONF|; s|__QUEUE__|$QUEUE|" /etc/init.d/tern-agent
+    chmod +x /etc/init.d/tern-agent
+    rc-update add tern-agent default
+    rc-service tern-agent restart
+    echo "✓ Registered with OpenRC — starts at boot."
+  fi
+
+else
+  # Said plainly rather than guessed at. A wrong unit file that never runs is
+  # worse than an honest sentence: it looks installed.
+  echo "⚠ No supervisor recognised (no systemd, launchd or OpenRC)."
+  echo "  The agent is installed and paired but will NOT restart after a reboot."
+  echo "  Start it with:"
+  echo "    $DEST/tern-agent run --config $CONF --queue $QUEUE"
+fi
+
+# ICMP without root, which is what \`ping\` controls need. Said only where it
+# applies: root already has it, and macOS allows it unprivileged.
+if [ "$os" = "Linux" ] && [ "$(id -u)" != 0 ]; then
+  echo
+  echo "Note: ping checks need raw sockets. If they fail, either:"
+  echo "  sudo setcap cap_net_raw+ep $DEST/tern-agent"
+  echo "  — or check that /proc/sys/net/ipv4/ping_group_range covers your group."
+fi
+
+echo
+echo "Check it end to end: $DEST/tern-agent doctor --config $CONF"
 `
 }
 
 function powershellScript(): string {
   return `# TERN agent installer — ${base()}
 #
-# Three things: pick the binary for this machine, download it from the TERN
-# instance above, and — if -Pin was given — pair with it.
+# Four things: pick the binary for this machine, download it from the TERN
+# instance above, pair with it if -Pin was given, and register it to start at
+# boot. An agent that has to be started by hand stops at the first restart, and
+# stops quietly.
 param(
   [string]$Pin = "",
-  [string]$Dir = "$env:LOCALAPPDATA\\TERN",
-  [switch]$Proxy
+  [string]$Dir = "",
+  [switch]$Proxy,
+  [switch]$NoService
 )
 
 $ErrorActionPreference = "Stop"
@@ -198,8 +382,20 @@ $server = "${base()}"
 $bin = if ($Proxy) { "tern-proxy" } else { "tern-agent" }
 $target = "x86_64-pc-windows-msvc"
 
+# Administrator decides everything downstream: where the files belong, whether
+# the task can run at startup rather than at logon, and whether it can run as
+# SYSTEM. Asked once, here.
+$admin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()
+         ).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+
+if ($Dir -eq "") {
+  $Dir = if ($admin) { Join-Path $env:ProgramData "TERN" } else { Join-Path $env:LOCALAPPDATA "TERN" }
+}
+
 New-Item -ItemType Directory -Force -Path $Dir | Out-Null
 $exe = Join-Path $Dir "$bin.exe"
+$conf = Join-Path $Dir "agent.toml"
+$queue = Join-Path $Dir "queue.jsonl"
 
 Write-Host "Downloading $bin for $target…"
 try {
@@ -212,12 +408,78 @@ try {
 Write-Host "Installed $exe"
 if ($env:Path -notlike "*$Dir*") { Write-Host "Note: $Dir is not on your PATH." }
 
-if ($Pin -ne "") {
-  & $exe pair --server $server --pin $Pin
-} else {
-  Write-Host "Next: $exe pair --server $server --pin <PIN>"
+if ($Proxy) {
+  Write-Host "tern-proxy installed. It takes no config and no pairing."
+  exit 0
 }
+
+if ($Pin -ne "") {
+  & $exe pair --server $server --pin $Pin --config $conf
+} else {
+  Write-Host "Next: $exe pair --server $server --pin <PIN> --config $conf"
+  Write-Host "Then re-run this installer to register it for boot."
+  exit 0
+}
+
+if ($NoService) { exit 0 }
+
+# --- starting again after a reboot -------------------------------------------
+#
+# A scheduled task rather than a Windows service, and not for convenience:
+# tern-agent is an ordinary console program. A real service has to answer the
+# Service Control Manager within its timeout, and one that does not is killed
+# shortly after starting — New-Service here would produce something that looks
+# installed and dies every time.
+#
+# Administrator gets a task at system startup running as SYSTEM, which needs
+# nobody to log in. Without it, the best available is at logon, for this user.
+$action = New-ScheduledTaskAction -Execute $exe \`
+  -Argument "run --config \`"$conf\`" --queue \`"$queue\`"" -WorkingDirectory $Dir
+
+# Restart the task if it ever exits, and never stop it for running too long —
+# the default is three days, after which monitoring would simply end.
+$settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries \`
+  -DontStopIfGoingOnBatteries -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) \`
+  -ExecutionTimeLimit (New-TimeSpan -Seconds 0) -StartWhenAvailable
+
+try {
+  if ($admin) {
+    $trigger = New-ScheduledTaskTrigger -AtStartup
+    $principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccount \`
+      -RunLevel Highest
+    Register-ScheduledTask -TaskName "TERN agent" -Action $action -Trigger $trigger \`
+      -Principal $principal -Settings $settings -Force | Out-Null
+    Write-Host "OK Registered as a scheduled task — starts at boot, as SYSTEM."
+  } else {
+    $trigger = New-ScheduledTaskTrigger -AtLogOn
+    Register-ScheduledTask -TaskName "TERN agent" -Action $action -Trigger $trigger \`
+      -Settings $settings -Force | Out-Null
+    Write-Host "OK Registered as a scheduled task — starts when you log in."
+    Write-Host "   Run this as Administrator to have it start at boot instead,"
+    Write-Host "   without waiting for anyone to sign in."
+  }
+  Start-ScheduledTask -TaskName "TERN agent"
+  Write-Host "   Status: Get-ScheduledTask -TaskName 'TERN agent'"
+  Write-Host "   Remove: Unregister-ScheduledTask -TaskName 'TERN agent'"
+} catch {
+  Write-Warning "Could not register the scheduled task: $_"
+  Write-Warning "The agent is installed and paired but will NOT restart after a reboot."
+  Write-Host "Start it with: $exe run --config $conf --queue $queue"
+}
+
+Write-Host ""
+Write-Host "Check it end to end: $exe doctor --config $conf"
 `
 }
+
+/**
+ * Exposed for the tests beside this file.
+ *
+ * Both scripts are shell embedded in a TypeScript template literal, where `\${`
+ * and a backtick mean something to the *outer* language. A mistake there does
+ * not fail the build — it ships a script that fails on the machine it was meant
+ * to set up, which is a machine nobody here can see.
+ */
+export const __testables = { shellScript, powershellScript }
 
 export default routes
