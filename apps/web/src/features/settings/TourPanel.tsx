@@ -12,7 +12,20 @@ import { Banner, Card } from '../../components/ui'
  */
 export function TourPanel() {
   const queryClient = useQueryClient()
-  const me = useQuery({ queryKey: ['me'], queryFn: adminApi.me })
+  /*
+   * Reads the shell's answer; never asks for its own.
+   *
+   * React Query keeps one query per key, so an observer mounting on `['me']`
+   * can put that query back in flight — and the shell renders nothing but
+   * "Loading…" while it is. Opening this tab therefore unmounted the screen it
+   * lives on, which reset the tab strip to its first tab and looked exactly
+   * like a tab that would not open.
+   *
+   * `enabled: false` makes this a reader of the cache. The shell owns the
+   * fetching, the mutation below invalidates, and the shell's own observer
+   * refetches — which is the arrangement that was meant all along.
+   */
+  const me = useQuery({ queryKey: ['me'], queryFn: adminApi.me, retry: false, enabled: false })
 
   const set = useMutation({
     mutationFn: (seen: boolean) => adminApi.setTourSeen(seen),

@@ -19,7 +19,16 @@ import { TourPanel } from '../../features/settings/TourPanel'
  * together, and a navigation that grows one entry per settings group is a
  * navigation nobody scans any more.
  */
-export function OptionsScreen({ slug, canWrite }: { slug: string; canWrite: boolean }) {
+export function OptionsScreen({
+  slug,
+  canWrite,
+  signedIn,
+}: {
+  slug: string
+  canWrite: boolean
+  /** False for a demo visitor, who has no account for the Account tab to be about. */
+  signedIn: boolean
+}) {
   const [tab, setTab] = useState('general')
 
   return (
@@ -51,12 +60,21 @@ export function OptionsScreen({ slug, canWrite }: { slug: string; canWrite: bool
         {/* The one tab here that is about the reader rather than the page. It
             takes no `slug`, and that is the point: these passkeys follow the
             person across every tenant they administer. */}
-        {tab === 'account' && (
-          <div style={{ display: 'grid', gap: 'var(--space-4)' }}>
-            <PasskeysPanel />
-            <TourPanel />
-          </div>
-        )}
+        {tab === 'account' &&
+          (signedIn ? (
+            <div style={{ display: 'grid', gap: 'var(--space-4)' }}>
+              <PasskeysPanel />
+              <TourPanel />
+            </div>
+          ) : (
+            /* Passkeys and the tour belong to an account, and a demo visitor
+               has none. Offering the controls anyway would be offering buttons
+               that answer 401. */
+            <Banner tone="maintenance">
+              These settings belong to an account. Sign in to add a passkey or to ask for the guided
+              tour again.
+            </Banner>
+          ))}
         {tab === 'notifications' && <NotificationsPanels slug={slug} canWrite={canWrite} />}
         {/* No `canWrite`: a badge is a URL anyone who can read the page can
             already construct, so there is nothing here to withhold from a

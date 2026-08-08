@@ -242,9 +242,16 @@ export function AdminApp({ slug }: { slug: string }) {
           {/* At the foot of the rail rather than on a screen: it is the one
               spot an operator passes every session and never has to read. */}
           <SponsorButton />
+          {/* A demo visitor has no session to end, and the demo shell would
+              otherwise hide the sign-in form entirely — leaving the page's
+              actual administrator with no way in. */}
           <Button
-            ariaLabel="Sign out"
+            ariaLabel={demo ? 'Sign in' : 'Sign out'}
             onClick={() => {
+              if (demo) {
+                window.location.assign(`/app/${slug}?signin=1`)
+                return
+              }
               void adminApi.logout().then(() => window.location.reload())
             }}
           >
@@ -252,8 +259,12 @@ export function AdminApp({ slug }: { slug: string }) {
                 flex container, and an icon beside a text node would sit on the
                 baseline instead of centred against it. */}
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--space-2)' }}>
-              <Icons.LogOut size={15} aria-hidden="true" />
-              <span className="chrome-label">Sign out</span>
+              {demo ? (
+                <Icons.LogIn size={15} aria-hidden="true" />
+              ) : (
+                <Icons.LogOut size={15} aria-hidden="true" />
+              )}
+              <span className="chrome-label">{demo ? 'Sign in' : 'Sign out'}</span>
             </span>
           </Button>
 
@@ -320,7 +331,7 @@ export function AdminApp({ slug }: { slug: string }) {
         ) : section === 'logs' ? (
           <LogsScreen slug={slug} canWrite={canWrite} />
         ) : section === 'options' ? (
-          <OptionsScreen slug={slug} canWrite={canWrite} />
+          <OptionsScreen slug={slug} canWrite={canWrite} signedIn={!demo} />
         ) : section === 'platform' ? (
           <PlatformScreen />
         ) : (
