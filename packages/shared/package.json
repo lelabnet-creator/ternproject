@@ -16,7 +16,8 @@
     "./sizing": "./src/sizing.ts",
     "./crypto": "./src/crypto.ts",
     "./password": "./src/password.ts",
-    "./blocks": "./src/blocks.ts"
+    "./blocks": "./src/blocks.ts",
+    "./control-import": "./src/control-import.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
@@ -24,6 +25,7 @@
   },
   "dependencies": {
     "@node-rs/argon2": "^2.0.2",
+    "yaml": "^2.9.0",
     "zod": "^4.1.12"
   }
 }

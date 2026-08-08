@@ -238,6 +238,20 @@ const routes: FastifyPluginAsyncZod = async (app) => {
     widget: z.string().max(60).optional(),
     widgetOptions: z.record(z.string(), z.unknown()).optional(),
     isPublic: z.boolean().default(true),
+    /**
+     * Whether this control is measured at all.
+     *
+     * The column has been on the table from the start and the schedulers have
+     * always honoured it — `local-probes` skips a disabled control, and so does
+     * the agent assignment. It was simply never on this body, so nothing could
+     * ever set it: every control was created enabled and stayed that way for
+     * life. Pausing one meant deleting it and losing its history, which is the
+     * opposite of what somebody silencing a noisy check wants.
+     *
+     * Default true, because a control created without an opinion is one
+     * somebody wants measured.
+     */
+    enabled: z.boolean().default(true),
     position: z.number().int().min(0).default(0),
   })
 

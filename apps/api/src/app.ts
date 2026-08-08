@@ -72,6 +72,8 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(import('./routes/download.js'))
   await app.register(import('./routes/receivers.js'), { prefix: '/api/v1' })
   await app.register(import('./routes/controls.js'), { prefix: '/api/v1' })
+  await app.register(import('./routes/controls-import.js'), { prefix: '/api/v1' })
+  await app.register(import('./routes/control-groups.js'), { prefix: '/api/v1' })
 
   // Last: its catch-all answers whatever the routes above did not claim, so it
   // has to be registered once they all have.
