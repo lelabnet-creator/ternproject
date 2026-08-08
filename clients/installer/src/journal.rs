@@ -39,6 +39,7 @@ impl Journal {
     /// directory is rare but real — someone running the installer from a
     /// mounted image — and losing the journal is not a reason to fail the
     /// install, so the fallback is silent and the path is announced either way.
+    #[must_use]
     pub fn open(dir: &Path) -> Journal {
         let candidates = [
             dir.join("tern-setup.log"),
@@ -53,7 +54,7 @@ impl Journal {
                 };
                 journal.rule();
                 journal.line(&format!(
-                    "tern-setup {} — run started",
+                    "tern-setup {} - run started",
                     env!("CARGO_PKG_VERSION")
                 ));
                 return journal;
@@ -133,6 +134,7 @@ impl Journal {
 /// Matching on the name rather than on a list of exact keys: this file will
 /// outlive the current set of variables, and the next secret someone adds will
 /// be called `…_SECRET`, `…_PASSWORD` or `…_TOKEN` like all the others.
+#[must_use]
 pub fn redact(key: &str, value: &str) -> String {
     let key = key.to_ascii_uppercase();
     let secret = ["SECRET", "PASSWORD", "TOKEN", "KEY"]
@@ -159,6 +161,7 @@ fn now() -> u64 {
 /// stay a small self-contained binary, and a date crate is a lot of dependency
 /// for the one format string this file needs. The civil-date arithmetic is the
 /// standard days-from-epoch conversion, and it is covered by a test.
+#[must_use]
 pub fn stamp(unix_seconds: u64) -> String {
     let days = (unix_seconds / 86_400) as i64;
     let secs_of_day = unix_seconds % 86_400;

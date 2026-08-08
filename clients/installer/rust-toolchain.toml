@@ -1,0 +1,23 @@
+# The toolchain this installer is built with, pinned.
+#
+# Not a preference. This crate is cross-compiled to `x86_64-unknown-linux-musl`
+# so that one binary runs on every server distribution, and that target lives in
+# a rustup toolchain — not in the Rust a distribution packages. On a machine
+# where `cargo` on PATH is the system one, the cross build fails with
+#
+#     error[E0463]: can't find crate for `core`
+#     note: the `x86_64-unknown-linux-musl` target may not be installed
+#
+# which sends the reader looking for a missing dependency rather than for a
+# missing toolchain. It cost an hour once; this file is what stops it costing
+# another.
+#
+# `stable` rather than a version number: the crate declares `rust-version` in
+# Cargo.toml, which is what actually states the floor, and pinning a release
+# here as well would mean two places to bump and one of them forgotten. If the
+# bar ever becomes a qualified toolchain — Ferrocene — this is the line that
+# names it.
+[toolchain]
+channel = "stable"
+components = ["rustfmt", "clippy"]
+targets = ["x86_64-unknown-linux-musl", "aarch64-unknown-linux-musl"]

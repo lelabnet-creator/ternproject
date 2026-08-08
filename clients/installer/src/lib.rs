@@ -29,6 +29,16 @@
 // Said here rather than left to the first platform-specific call to fail: the
 // error was `cannot find function is_executable in this scope`, which sends a
 // reader looking for a missing import instead of telling them the truth.
+// There is no `unsafe` in this crate, and this is what keeps it that way.
+//
+// Said as a lint rather than left as a fact about today's code: this program
+// runs as root on somebody else's machine, through sudo, to install packages
+// and enable services. The one thing that makes it reviewable is that every
+// line of it is checked by the compiler — and that property is worth one line
+// to enforce instead of a habit to remember. `CommandExt::exec`, the only
+// call here that looks like it should need an escape hatch, is safe in std.
+#![forbid(unsafe_code)]
+
 #[cfg(not(unix))]
 compile_error!(
     "tern-setup targets Unix. It installs Docker through a distribution's \

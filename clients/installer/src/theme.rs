@@ -141,6 +141,7 @@ pub struct Glyph(pub &'static str, pub &'static str);
 
 impl Glyph {
     /// The one this terminal can draw.
+    #[must_use]
     pub fn pick(self) -> &'static str {
         match charset() {
             Charset::Unicode => self.0,
@@ -154,6 +155,7 @@ impl Glyph {
 /// Everything the installer draws goes through this one function, the checklist
 /// included, so that "secondary" means one thing and can be changed in one
 /// place.
+#[must_use]
 pub fn secondary() -> Style {
     Style::new().white()
 }
@@ -166,6 +168,7 @@ pub fn secondary() -> Style {
 /// grey of [`secondary`] are the same light grey, so a finished step and one
 /// that has not started would differ by their symbol alone, which is the whole
 /// defect this module is answering.
+#[must_use]
 pub fn done() -> Style {
     Style::new().green()
 }
@@ -176,6 +179,7 @@ pub fn done() -> Style {
 /// and weight is a second channel rather than a third shade — it survives a
 /// screen with no colour at all, and it is what the Linux console renders as
 /// bright white, which no other row on the list is.
+#[must_use]
 pub fn running() -> Style {
     Style::new().bold()
 }
@@ -200,6 +204,7 @@ pub fn running() -> Style {
 /// and structure that competes with the text is the other way to lose it. Blue
 /// is dark, never carries a word body anywhere in this installer, and leaves
 /// the gutter reading as one thing with the `i` that already sits in it.
+#[must_use]
 pub fn rule() -> Style {
     rule_for(charset())
 }
@@ -209,6 +214,7 @@ pub fn rule() -> Style {
 /// Split out for the same reason `charset_from` is: `charset()` reads a process
 /// environment that a test cannot change without deciding the answer for every
 /// other test running beside it.
+#[must_use]
 pub fn rule_for(charset: Charset) -> Style {
     match charset {
         Charset::Unicode => Style::new().black().bright(),
@@ -229,6 +235,7 @@ impl TernTheme {
     /// is what `examples/render.rs` does, and it is the only way this fix could
     /// be checked without starting containers on the machine doing the
     /// checking.
+    #[must_use]
     pub fn new(c: &'static Catalog) -> TernTheme {
         TernTheme { c }
     }

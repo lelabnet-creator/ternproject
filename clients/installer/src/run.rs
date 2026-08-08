@@ -26,6 +26,7 @@ impl Outcome {
     /// What to show when this failed: the error stream first, since that is
     /// where a Unix tool puts the reason, and the standard output behind it for
     /// the tools that do not.
+    #[must_use]
     pub fn output(&self) -> String {
         let mut joined = self.stderr.clone();
         if !self.stdout.trim().is_empty() {
@@ -37,6 +38,7 @@ impl Outcome {
         joined
     }
 
+    #[must_use]
     pub fn trimmed_stdout(&self) -> &str {
         self.stdout.trim()
     }
@@ -87,6 +89,7 @@ pub fn succeeds(journal: &Journal, program: &str, args: &[&str]) -> bool {
 }
 
 /// A command, built in one expression so it can be handed straight to `run`.
+#[must_use]
 pub fn command(program: &str, args: &[&str]) -> Command {
     let mut cmd = Command::new(program);
     cmd.args(args);
@@ -94,6 +97,7 @@ pub fn command(program: &str, args: &[&str]) -> Command {
 }
 
 /// A `docker compose` call against this install's compose file.
+#[must_use]
 pub fn compose(compose_file: &str, args: &[&str]) -> Command {
     let mut cmd = Command::new("docker");
     cmd.args(["compose", "-f", compose_file]).args(args);
@@ -106,6 +110,7 @@ pub fn compose(compose_file: &str, args: &[&str]) -> Command {
 /// On a fresh VM or inside a container one is often root already, and `sudo` is
 /// not always installed there — prefixing it unconditionally would break the
 /// case that needs the least help.
+#[must_use]
 pub fn as_root(uid: u32, program: &str, args: &[&str]) -> Command {
     if uid == 0 {
         let mut cmd = Command::new(program);
@@ -139,6 +144,7 @@ pub fn prime_sudo(journal: &Journal, uid: u32) {
 }
 
 /// The command line as it would be typed, for the journal.
+#[must_use]
 pub fn argv(cmd: &Command) -> String {
     let mut parts = vec![cmd.get_program().to_string_lossy().into_owned()];
     parts.extend(cmd.get_args().map(|arg| arg.to_string_lossy().into_owned()));
