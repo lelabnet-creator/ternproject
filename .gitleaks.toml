@@ -1,0 +1,27 @@
+# Configuration for the Secret scan job in .github/workflows/ci.yml.
+#
+# Extends the default rule set rather than replacing it: everything gitleaks
+# ships with still applies, and this file only carves out what it gets wrong.
+[extend]
+useDefault = true
+
+# One exception, and it is a fixture.
+#
+# `generic-api-key` fires on `apiKey: 'tern_TESTKEY123'` in the templates test —
+# entropy 3.64, enough to look like a key to a rule that judges by shape. The
+# value is a constant in a test file, has never been valid, and says TESTKEY in
+# the middle of itself.
+#
+# Matched on the secret and anchored, so it excuses that exact string and
+# nothing that merely contains it. Allowlisting the path instead — `*.test.ts`,
+# or the file — was the shorter route and the wrong one: it would also excuse a
+# real key pasted into a test, which is a normal way for one to escape.
+#
+# This has to live in a config rather than a `gitleaks:allow` comment on the
+# line. The scan reads history, not the working tree, and the commit that
+# introduced the line will never contain the comment — CI would keep failing on
+# `e181482` forever. That is also why this only surfaced on a tag: on a push the
+# action scans the pushed commits, on a workflow_dispatch it scans all of them.
+[allowlist]
+description = "Test fixture in packages/shared/src/templates.test.ts"
+regexes = ['''^tern_TESTKEY123$''']
