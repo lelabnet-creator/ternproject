@@ -3,6 +3,7 @@ import { z } from 'zod'
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod'
 import { schema } from '@tern/db'
 import { config } from '../config.js'
+import { requirePlatformAdmin as guardPlatformAdmin } from '../services/platform-admin.js'
 
 /**
  * Running the instance, as opposed to running a status page on it.
@@ -19,31 +20,9 @@ import { config } from '../config.js'
  */
 
 const routes: FastifyPluginAsyncZod = async (app) => {
-  /**
-   * Membership of a system tenant, with the admin role. Checked here rather
-   * than through the permission table because this is not a per-tenant
-   * permission — it is a property of the instance.
-   */
-  async function requirePlatformAdmin(req: { actor: { userId?: string | null } }) {
-    if (!req.actor.userId) throw app.httpErrors.unauthorized('Sign in required')
-
-    const [membership] = await app.db
-      .select({ tenantId: schema.memberships.tenantId })
-      .from(schema.memberships)
-      .innerJoin(schema.tenants, eq(schema.tenants.id, schema.memberships.tenantId))
-      .where(
-        and(
-          eq(schema.memberships.userId, req.actor.userId),
-          eq(schema.memberships.role, 'admin'),
-          eq(schema.tenants.isSystem, true),
-        ),
-      )
-      .limit(1)
-
-    // 404 rather than 403: an ordinary admin probing this path should not learn
-    // that a platform surface exists.
-    if (!membership) throw app.httpErrors.notFound()
-  }
+  /** Shared with the Monitoring route, which gates its instance figures the same way. */
+  const requirePlatformAdmin = (req: { actor: { userId?: string | null } }) =>
+    guardPlatformAdmin(app, req.actor.userId)
 
   app.get(
     '/system/overview',

@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { adminApi, ApiError } from '../../lib/adminApi'
 import { Tabs } from '../../components/Tabs'
 import { Banner, Button, Card, EmptyState, Field, Input } from '../../components/ui'
+import { MonitoringPanel } from '../../features/settings/MonitoringPanel'
 
 /**
  * What has happened here, and where else it should be written down.
@@ -33,10 +34,15 @@ export function LogsScreen({ slug, canWrite }: { slug: string; canWrite: boolean
         tabs={[
           { id: 'trail', label: 'Audit trail' },
           { id: 'forward', label: 'Forwarding' },
+          { id: 'monitoring', label: 'Monitoring' },
         ]}
       >
         {tab === 'trail' && <TrailPanel slug={slug} />}
         {tab === 'forward' && <ForwardPanel slug={slug} canWrite={canWrite} />}
+        {/* The one tab here reporting the present rather than the past — and the
+            reason the screen's own description says "worth explaining
+            afterwards" rather than speaking for all three. */}
+        {tab === 'monitoring' && <MonitoringPanel slug={slug} />}
       </Tabs>
     </section>
   )

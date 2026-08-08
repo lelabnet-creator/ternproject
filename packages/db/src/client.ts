@@ -24,8 +24,29 @@ export function databaseUrl(): string {
  * `.toISOString()` on it otherwise throws, and only on the routes that happen
  * to read a timestamp.
  */
-export function createDatabase(url: string = databaseUrl(), options: { max?: number } = {}) {
-  const sql = postgres(url, { max: options.max ?? 10, onnotice: () => {} })
+export function createDatabase(
+  url: string = databaseUrl(),
+  options: {
+    max?: number
+    /**
+     * Names this pool's connections in `pg_stat_activity`.
+     *
+     * The only way to ask Postgres how much of a pool is in use: postgres.js
+     * keeps that state private, and a number the operator cannot see is a
+     * number the Monitoring tab would have to invent. Made unique per process
+     * by the caller, so two API containers do not report each other's
+     * connections as their own.
+     */
+    applicationName?: string
+  } = {},
+) {
+  const sql = postgres(url, {
+    max: options.max ?? 10,
+    onnotice: () => {},
+    ...(options.applicationName && {
+      connection: { application_name: options.applicationName },
+    }),
+  })
   const db = drizzle(sql, { schema, casing: 'snake_case' })
   return { db, sql }
 }
