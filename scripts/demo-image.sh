@@ -50,11 +50,19 @@ done
 
 say() { printf '\n\033[36m==>\033[0m %s\n' "$1"; }
 
-# The revision is stamped into the image so a demo that is behaving oddly can be
-# traced back to the sources that produced it. Unknown rather than wrong when
-# this is not a checkout.
-revision="$(git -C "$repo_root" rev-parse --short HEAD 2>/dev/null || echo unknown)"
-version="$(node -p "require('./package.json').version" 2>/dev/null || echo unknown)"
+# Two revisions are stamped, because the image is two things.
+#
+# `/app` is taken whole from the published application image; the entrypoint is
+# taken from this checkout. A single revision label therefore cannot be true of
+# both, and the one that used to be written here — the checkout's — was false
+# about the part a reader actually cares about: a demo built today from an image
+# published last week claimed today's commit while running last week's code.
+#
+# So `org.opencontainers.image.revision` now describes the application inside,
+# read from the base image's own labels, and the recipe's revision gets a label
+# of its own. Unknown rather than wrong when the base image carries no labels —
+# falling back to the checkout is precisely the lie this is fixing.
+recipe_revision="$(git -C "$repo_root" rev-parse --short HEAD 2>/dev/null || echo unknown)"
 
 if [ "$do_pull" = 1 ]; then
   say "fetching the application image ($APP_IMAGE)"
@@ -64,11 +72,42 @@ if [ "$do_pull" = 1 ]; then
   docker pull "$APP_IMAGE" || echo "    could not pull — using whatever is local"
 fi
 
+# Read after the pull, so the labels are the ones about to be built on.
+label_of() {
+  docker image inspect "$APP_IMAGE" --format "{{index .Config.Labels \"$1\"}}" 2>/dev/null \
+    | grep . || echo unknown
+}
+version="$(label_of org.opencontainers.image.version)"
+revision="$(label_of org.opencontainers.image.revision)"
+
 say "building $DEMO_IMAGE"
 echo "    application : $APP_IMAGE"
 echo "    history     : $SEED_DAYS days"
-echo "    revision    : $revision"
+echo "    app revision: $revision (what runs)"
+echo "    recipe      : $recipe_revision (this checkout)"
 echo
+
+# Said out loud rather than left to be discovered in a label. The two differing
+# is normal — the demo is rebuilt on its own schedule — but somebody rebuilding
+# it to show work they just merged needs to know it is not in there yet.
+#
+# Three outcomes, kept apart on purpose: contained, not contained, and could not
+# tell. Reporting the third as the second would be the same kind of confident
+# wrongness this block exists to prevent.
+if [ "$revision" = unknown ]; then
+  echo "    note: the application image carries no revision label, so what the"
+  echo "          demo runs cannot be traced from here."
+  echo
+elif ! git -C "$repo_root" cat-file -e "${revision}^{commit}" 2>/dev/null; then
+  echo "    note: $revision is not a commit this checkout knows, so whether it"
+  echo "          contains $recipe_revision could not be checked. Fetch, or"
+  echo "          trust the label."
+  echo
+elif ! git -C "$repo_root" merge-base --is-ancestor "$recipe_revision" "$revision" 2>/dev/null; then
+  echo "    note: this checkout is not contained in the application image."
+  echo "          The demo will show $revision, not $recipe_revision."
+  echo
+fi
 echo "    This runs the migrations and the seed inside the build, so it takes"
 echo "    a few minutes. What it produces needs no database beside it."
 
@@ -78,6 +117,7 @@ docker build \
   --build-arg "TERN_SEED_DAYS=$SEED_DAYS" \
   --build-arg "TERN_VERSION=$version" \
   --build-arg "TERN_REVISION=$revision" \
+  --build-arg "TERN_RECIPE_REVISION=$recipe_revision" \
   -t "$DEMO_IMAGE" \
   .
 

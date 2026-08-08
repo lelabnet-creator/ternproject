@@ -53,6 +53,23 @@ takes a few minutes and produces something that needs no database beside it.
 It builds on top of the published application image rather than rebuilding the
 sources — what a demo is for is showing the artefact people install.
 
+### Which revision a demo is
+
+Two, and the image says so. Building on the published application means the
+demo runs whatever that image contains, which is rarely what the checkout
+contains — so one label cannot be true of both:
+
+| Label                                  | Describes                                    |
+| -------------------------------------- | -------------------------------------------- |
+| `org.opencontainers.image.revision`    | The application inside — what a visitor sees |
+| `eu.tern-project.demo.recipe-revision` | The checkout that ran the build              |
+
+`image.revision` is read from the base image's own label, and is `unknown`
+rather than borrowed when that image carries none. The build says out loud when
+the checkout is not contained in the application image, because the case that
+matters is somebody rebuilding the demo to show work they have just merged: it
+is not in there until the application image is republished.
+
 ### When to rebuild
 
 Not on every commit. The ninety days the demo shows are the ninety days before

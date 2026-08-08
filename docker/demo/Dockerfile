@@ -152,14 +152,21 @@ RUN chmod +x /usr/local/bin/tern-demo-entrypoint \
  && mkdir -p /var/lib/tern \
  && chown -R postgres:postgres "$TERN_DEMO_PGDATA" /var/lib/tern
 
+# Two revisions, because the image is two things: `/app` comes whole from the
+# published application image above, the entrypoint comes from the checkout that
+# ran the build. `image.revision` is the application's — that is the one that
+# explains what a visitor sees, and the one somebody tracing odd behaviour
+# needs. The recipe's gets a label of its own rather than borrowing that name.
 ARG TERN_VERSION=""
 ARG TERN_REVISION=""
+ARG TERN_RECIPE_REVISION=""
 LABEL org.opencontainers.image.title="TERN — demo" \
       org.opencontainers.image.description="The TERN demonstration: one image, its database inside it, read-only and reset on every restart." \
       org.opencontainers.image.licenses="AGPL-3.0-or-later" \
       org.opencontainers.image.source="https://github.com/lelabnet-creator/ternproject" \
       org.opencontainers.image.version="${TERN_VERSION}" \
       org.opencontainers.image.revision="${TERN_REVISION}" \
+      eu.tern-project.demo.recipe-revision="${TERN_RECIPE_REVISION}" \
       eu.tern-project.demo.seed-days="${TERN_SEED_DAYS}"
 
 USER postgres
