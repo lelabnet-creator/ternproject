@@ -347,6 +347,76 @@ pkg_install() {
 
 # Ne rend la main que si Docker est installé ; dans tous les autres cas elle
 # sort elle-même du script.
+# L'accès au socket, quel que soit le chemin par lequel Docker est arrivé.
+#
+# Ce bloc vivait dans `install_docker`, donc il ne s'exécutait que lorsque ce
+# script venait de poser Docker lui-même. Sur une machine où Docker était déjà
+# installé — ce qui est le cas le plus courant — le compte sans accès au socket
+# tombait vingt lignes plus bas sur « Le démon Docker ne répond pas », qui est
+# faux : le démon répond parfaitement, c'est ce compte qui ne peut pas lui
+# parler. Le script connaissait le remède et ne le proposait pas.
+#
+# Le socket doit exister pour que le diagnostic tienne : sans lui, c'est bien le
+# démon qui manque, et le contrôle plus bas le dira mieux.
+ensure_docker_access() {
+  # Reste l'accès au socket, premier mur après une installation réussie : il
+  # appartient au groupe `docker`, le compte courant n'y est pas, et `docker`
+  # répond « permission denied ».
+  #
+  # Le socket doit exister pour que le diagnostic tienne : sans lui, c'est le
+  # démon qui manque, et le contrôle `docker info` plus bas le dira mieux.
+  if [ "$(id -u)" -ne 0 ] && [ -S /var/run/docker.sock ] && ! docker info >/dev/null 2>&1; then
+    # Ce script s'arrêtait ici, avec la commande à taper et l'instruction de se
+    # reconnecter puis de tout relancer. C'était lui laisser la moitié du
+    # travail qu'elle venait de demander en une commande — et la moitié la plus
+    # déroutante, puisque « ouvrez un nouveau terminal » ne suffit pas.
+    #
+    # Appartenir au groupe `docker` équivaut à être root sur cette machine : ça
+    # se demande, ça ne s'attrape pas au passage. Mais la personne vient
+    # d'autoriser l'installation de Docker, qui a exactement la même portée, et
+    # le sudo est déjà accordé. Alors on demande, et si c'est oui on va au bout.
+    say "Accès au démon Docker"
+    note "Docker n'est utilisable que par root et par le groupe « docker »."
+    note "Appartenir à ce groupe équivaut à être administrateur de cette machine."
+
+    confirm _join_docker "Ajouter $(id -un) au groupe docker ?" o
+    case "$_join_docker" in
+      o) ;;
+      *)
+        docker_manual_exit "Docker est installé, mais votre compte n'y a pas accès." \
+          "Sans cela : sudo usermod -aG docker $(id -un), puis rouvrez votre session."
+        ;;
+    esac
+
+    as_root usermod -aG docker "$(id -un)" \
+      || docker_manual_exit "Impossible d'ajouter $(id -un) au groupe docker."
+    note "Ajouté. Prend effet à la prochaine ouverture de session."
+
+    # Et on termine maintenant, dans cette session-ci.
+    #
+    # L'appartenance à un groupe n'est lue qu'à l'ouverture de session : le
+    # processus courant ne l'a pas, et ne l'aura pas. `sg` ouvre une session de
+    # groupe pour une commande, ce qui permet de relancer ce script avec l'accès
+    # plutôt que de renvoyer quelqu'un se déconnecter au milieu d'une
+    # installation.
+    #
+    # `TERN_REEXEC` empêche la boucle : si l'accès manque encore après ça, le
+    # problème n'est pas l'appartenance, et il faut le dire plutôt que
+    # recommencer indéfiniment.
+    if [ -z "${TERN_REEXEC:-}" ] && command -v sg >/dev/null 2>&1; then
+      note "Reprise de l'installation avec les droits acquis…"
+      TERN_REEXEC=1
+      export TERN_REEXEC
+      exec sg docker -c "sh $SCRIPT_SELF"
+    fi
+
+    docker_manual_exit "Votre compte vient d'être ajouté au groupe docker." \
+      "Fermez cette session, rouvrez-en une, et relancez ce script."
+  fi
+
+  return 0
+}
+
 install_docker() {
   # macOS d'abord : il n'y a pas de gestionnaire de paquets système à
   # interroger, et le moteur y arrive avec Docker Desktop, qui n'est pas un
@@ -451,60 +521,7 @@ install_docker() {
     "Docker est installé, mais le plugin Compose v2 manque." \
     "Paquet attendu sur cette distribution : $_compose_hint"
 
-  # Reste l'accès au socket, premier mur après une installation réussie : il
-  # appartient au groupe `docker`, le compte courant n'y est pas, et `docker`
-  # répond « permission denied ».
-  #
-  # Le socket doit exister pour que le diagnostic tienne : sans lui, c'est le
-  # démon qui manque, et le contrôle `docker info` plus bas le dira mieux.
-  if [ "$(id -u)" -ne 0 ] && [ -S /var/run/docker.sock ] && ! docker info >/dev/null 2>&1; then
-    # Ce script s'arrêtait ici, avec la commande à taper et l'instruction de se
-    # reconnecter puis de tout relancer. C'était lui laisser la moitié du
-    # travail qu'elle venait de demander en une commande — et la moitié la plus
-    # déroutante, puisque « ouvrez un nouveau terminal » ne suffit pas.
-    #
-    # Appartenir au groupe `docker` équivaut à être root sur cette machine : ça
-    # se demande, ça ne s'attrape pas au passage. Mais la personne vient
-    # d'autoriser l'installation de Docker, qui a exactement la même portée, et
-    # le sudo est déjà accordé. Alors on demande, et si c'est oui on va au bout.
-    say "Accès au démon Docker"
-    note "Docker n'est utilisable que par root et par le groupe « docker »."
-    note "Appartenir à ce groupe équivaut à être administrateur de cette machine."
-
-    confirm _join_docker "Ajouter $(id -un) au groupe docker ?" o
-    case "$_join_docker" in
-      o) ;;
-      *)
-        docker_manual_exit "Docker est installé, mais votre compte n'y a pas accès." \
-          "Sans cela : sudo usermod -aG docker $(id -un), puis rouvrez votre session."
-        ;;
-    esac
-
-    as_root usermod -aG docker "$(id -un)" \
-      || docker_manual_exit "Impossible d'ajouter $(id -un) au groupe docker."
-    note "Ajouté. Prend effet à la prochaine ouverture de session."
-
-    # Et on termine maintenant, dans cette session-ci.
-    #
-    # L'appartenance à un groupe n'est lue qu'à l'ouverture de session : le
-    # processus courant ne l'a pas, et ne l'aura pas. `sg` ouvre une session de
-    # groupe pour une commande, ce qui permet de relancer ce script avec l'accès
-    # plutôt que de renvoyer quelqu'un se déconnecter au milieu d'une
-    # installation.
-    #
-    # `TERN_REEXEC` empêche la boucle : si l'accès manque encore après ça, le
-    # problème n'est pas l'appartenance, et il faut le dire plutôt que
-    # recommencer indéfiniment.
-    if [ -z "${TERN_REEXEC:-}" ] && command -v sg >/dev/null 2>&1; then
-      note "Reprise de l'installation avec les droits acquis…"
-      TERN_REEXEC=1
-      export TERN_REEXEC
-      exec sg docker -c "sh $SCRIPT_SELF"
-    fi
-
-    docker_manual_exit "Votre compte vient d'être ajouté au groupe docker." \
-      "Fermez cette session, rouvrez-en une, et relancez ce script."
-  fi
+  ensure_docker_access
 
   say "Docker est installé"
 }
@@ -629,11 +646,24 @@ offer_gum
 # qui échoue arrête le script.
 if ! command -v docker >/dev/null 2>&1; then
   install_docker
+else
+  # Docker était déjà là : on n'installe rien, mais l'accès au socket se vérifie
+  # exactement de la même façon.
+  ensure_docker_access
 fi
 
 docker compose version >/dev/null 2>&1 \
   || die "Docker Compose v2 est requis (docker compose), et Docker doit tourner."
-docker info >/dev/null 2>&1 || die "Le démon Docker ne répond pas."
+# Distinguer les deux, parce que le remède n'est pas le même. `ensure_docker_access`
+# a déjà proposé le groupe si c'était ça ; arriver ici avec un socket présent
+# veut dire que la personne a refusé, et le lui redire clairement vaut mieux
+# qu'un diagnostic qui accuse le démon.
+if ! docker info >/dev/null 2>&1; then
+  if [ -S /var/run/docker.sock ]; then
+    die "Votre compte n'a pas accès au démon Docker (le démon, lui, tourne)."
+  fi
+  die "Le démon Docker ne répond pas."
+fi
 
 # Le compose, s'il manque. C'est le seul fichier que ce script lui-même ne
 # porte pas, et le récupérer ici évite de faire cloner 40 Mo de sources pour
