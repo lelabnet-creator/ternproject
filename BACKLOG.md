@@ -122,9 +122,10 @@ git ; ce qui suit est ce qui reste.
 
 ## À reprendre — passé de main le 8 août 2026
 
-Quatre choses en attente, dont deux qui ne dépendent pas de moi. Consignées ici
-plutôt que perdues dans un fil de conversation : les deux premières sont du
-travail, les deux dernières sont des accès.
+Consignées ici plutôt que perdues dans un fil de conversation. Les deux
+premières sont faites ; ce qui reste tient à des accès, pas à du travail — et
+tout tient au même : sans écriture par SSH, ni le registre, ni l'hôte de la
+démonstration, ni le ménage des branches distantes n'avancent.
 
 - [x] **Finir WebSocket et Docker comme genres de contrôle.** Fait. Les trois
       déclarations qui bloquaient — `CONTROL_KINDS` et `strictProbeSchema` dans
@@ -153,17 +154,31 @@ travail, les deux dernières sont des accès.
       `TRUSTED_PROXIES` — sans quoi chaque visiteur est journalisé, et limité en
       débit, comme étant le proxy.
 
-- [ ] **Intégrer `chore/console-demo-and-incidents`.** Cinq commits, poussés :
-      l'installateur, l'image de démonstration, le bloc incidents plaçable, le
-      backlog et les traces de campagne. Branche plutôt que `main` parce que
-      trois sessions écrivaient dans le même arbre au même moment.
-      `git switch main && git merge --ff-only chore/console-demo-and-incidents`.
+- [x] **Intégrer `chore/console-demo-and-incidents`.** Fait, mais pas en
+      `--ff-only` comme annoncé ici : `origin/main` avait avancé de son côté, si
+      bien que la branche et `main` avaient réellement divergé. Une fusion
+      ordinaire, donc, conforme à ce que fait le dépôt depuis toujours. À noter
+      pour la prochaine fois : un commit de `main` et un de la branche
+      portaient le même patch — un report — que git a réconcilié sans bruit
+      parce que les deux côtés avaient le même contenu.
 
 - [ ] **Réparer l'accès en écriture par SSH.** La clé présente est celle de
       `jacquesh82`, qui n'a pas le droit d'écriture sur le dépôt : `git push`
       répond `Permission denied`. `gh` est authentifié sous `lelabnet-creator`
       avec la portée `repo`, ce qui a permis de pousser par HTTPS — mais c'est un
-      contournement, pas une configuration.
+      contournement, pas une configuration. Toujours vrai au 9 août : chaque
+      push passe par l'URL HTTPS écrite à la main, et le remote configuré reste
+      celui qui échoue. C'est le seul point de cette section qui en bloque
+      encore d'autres — le ménage des branches distantes l'attend.
+
+- [ ] **Supprimer les branches distantes fusionnées.** Les cinq sont
+      entièrement contenues dans `main` ; leurs pointes sont notées ici pour que
+      la suppression reste réversible. `chore/console-demo-and-incidents`
+      (`93349e9`), `feat/auth-and-local-agent` (`9620e23`),
+      `feat/docker-install-and-first-run` (`3aae230`),
+      `feat/mobile-shell-and-control-activity` (`b7a8f8d`),
+      `feat/recovery-onboarding-brand` (`bb79e81`). Les locales, elles, sont
+      déjà supprimées.
 
 ## Known limitations to revisit
 
