@@ -471,11 +471,6 @@ offer_gum() {
   [ -t 1 ] || return 0
   detect_pkg || return 0
 
-  # `gum` n'est pas dans les dépôts de tout le monde — Charm publie les siens,
-  # Arch et Fedora l'ont, Ubuntu pas toujours. Absent, on n'insiste pas : c'est
-  # une question de confort, pas une dépendance à faire ajouter un dépôt.
-  _gum_pkg=$(pkg_first_available gum) || return 0
-
   say "Affichage"
   note "gum rend les questions de cette installation plus lisibles."
   note "Purement esthétique : tout fonctionne à l'identique sans lui."
@@ -483,20 +478,93 @@ offer_gum() {
   confirm _want_gum "Installer gum ?" o
   [ "$_want_gum" = o ] || return 0
 
-  if [ "$PKG" = apt ]; then
-    as_root apt-get update >/dev/null 2>&1 || true
+  # D'abord les dépôts de la distribution, quand ils l'ont. Arch et Fedora le
+  # publient ; Ubuntu 24.04 non — `apt-cache show gum` n'y renvoie rien.
+  if _gum_pkg=$(pkg_first_available gum); then
+    [ "$PKG" != apt ] || as_root apt-get update >/dev/null 2>&1 || true
+    if pkg_install "$_gum_pkg" && command -v gum >/dev/null 2>&1; then
+      GUM=1
+      note "Installé depuis les dépôts de la distribution."
+      return 0
+    fi
   fi
 
-  # `|| return 0` sur l'installation elle-même : un paquet qui refuse de
-  # s'installer ne doit pas emporter une installation de TERN qui, elle, n'a
-  # jamais eu besoin de lui.
-  if pkg_install "$_gum_pkg"; then
-    command -v gum >/dev/null 2>&1 && GUM=1
-    note "Installé."
+  # Sinon la version publiée par Charm, et c'est un arbitrage différent de celui
+  # fait pour Docker quelques lignes plus haut.
+  #
+  # Docker est un service qui vivra des années sur cette machine : un moteur
+  # d'origine douteuse s'y paie longtemps, d'où le refus d'aller le chercher
+  # ailleurs que dans les dépôts. gum est un binaire autonome dont ce script se
+  # sert pendant deux minutes, qu'il n'installe nulle part, qui ne démarre à
+  # aucun boot et qui disparaît avec le répertoire temporaire. Le risque n'est
+  # pas de la même nature, et la somme de contrôle le referme.
+  #
+  # Version figée, jamais « latest » : un script qui installe ce qui se trouve
+  # être publié le jour où on l'exécute n'est pas reproductible.
+  gum_from_release || {
+    note "Récupération impossible — on continue sans, à l'identique."
+    return 0
+  }
+
+  return 0
+}
+
+# La version publiée par Charm, vérifiée puis dépliée dans un répertoire
+# temporaire.
+#
+# Rien n'est écrit hors de ce répertoire, et il part avec le shell. Un
+# `PATH` étendu suffit à ce que `command -v gum` le trouve pour la durée de
+# l'installation.
+GUM_VERSION=0.17.0
+gum_from_release() {
+  command -v curl >/dev/null 2>&1 || return 1
+  command -v tar >/dev/null 2>&1 || return 1
+
+  case "$(uname -s)-$(uname -m)" in
+    Linux-x86_64|Linux-amd64)   _gum_asset="gum_${GUM_VERSION}_Linux_x86_64.tar.gz" ;;
+    Linux-aarch64|Linux-arm64)  _gum_asset="gum_${GUM_VERSION}_Linux_arm64.tar.gz" ;;
+    Darwin-arm64)               _gum_asset="gum_${GUM_VERSION}_Darwin_arm64.tar.gz" ;;
+    Darwin-x86_64)              _gum_asset="gum_${GUM_VERSION}_Darwin_x86_64.tar.gz" ;;
+    *) return 1 ;;
+  esac
+
+  _gum_base="https://github.com/charmbracelet/gum/releases/download/v${GUM_VERSION}"
+  _gum_dir=$(mktemp -d 2>/dev/null) || return 1
+
+  note "Récupération de gum $GUM_VERSION ($_gum_asset)"
+  curl -fsSL -o "$_gum_dir/$_gum_asset" "$_gum_base/$_gum_asset" || return 1
+  curl -fsSL -o "$_gum_dir/checksums.txt" "$_gum_base/checksums.txt" || return 1
+
+  # Vérifiée avant d'être dépliée. C'est ce qui distingue « récupérer une
+  # archive publiée » de « exécuter ce qui arrive » — sans cette ligne, l'objet
+  # serait exactement le `curl … | sh` que ce script refuse plus haut.
+  if command -v sha256sum >/dev/null 2>&1; then
+    _gum_sum=$(sha256sum "$_gum_dir/$_gum_asset" | cut -d' ' -f1)
+  elif command -v shasum >/dev/null 2>&1; then
+    _gum_sum=$(shasum -a 256 "$_gum_dir/$_gum_asset" | cut -d' ' -f1)
   else
-    note "Installation impossible — on continue sans, à l'identique."
+    note "Ni sha256sum ni shasum : impossible de vérifier l'archive, on renonce."
+    return 1
   fi
 
+  grep -q "^$_gum_sum  $_gum_asset\$" "$_gum_dir/checksums.txt" || {
+    note "⚠ La somme de contrôle ne correspond pas. Archive écartée."
+    return 1
+  }
+
+  tar -xzf "$_gum_dir/$_gum_asset" -C "$_gum_dir" || return 1
+
+  # L'archive place le binaire à la racine ou dans un sous-répertoire selon les
+  # versions ; on le cherche plutôt que de parier.
+  _gum_bin=$(find "$_gum_dir" -type f -name gum -perm -u+x 2>/dev/null | head -1)
+  [ -n "$_gum_bin" ] || return 1
+
+  PATH="$(dirname "$_gum_bin"):$PATH"
+  export PATH
+  command -v gum >/dev/null 2>&1 || return 1
+
+  GUM=1
+  note "Vérifié et prêt — pour cette installation seulement, rien n'est posé sur le système."
   return 0
 }
 
