@@ -45,8 +45,12 @@ clients/agent/target/
 # The local agent's working directory: agent.toml holds a live ingest key.
 .tern/
 
-# Disques et images des VM de recette (voir deploy-tests/ pour la trace).
-.vm-lab/
+# Le banc de recette : les scripts sont versionnés — sans eux la trace de
+# deploy-tests/ n'est qu'une affirmation que personne ne peut rejouer — mais
+# rien de ce qui se mesure en gigaoctets ou de ce qui ouvre un accès ne l'est.
+.vm-lab/*/
+.vm-lab/id_lab
+.vm-lab/id_lab.pub
 
 # Artefacts de construction de l'installateur hors du dépôt (CARGO_HOME local,
 # cible musl construite en conteneur pour les essais).
