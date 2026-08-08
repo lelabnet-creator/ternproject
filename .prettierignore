@@ -22,7 +22,9 @@ packages/db/migrations/
 # Rendered from the Markdown beside it by `pnpm docs:build`. Same reasoning as
 # the two above: Prettier would reformat the output, the generator would write
 # it back, and the diff would never settle. The Markdown is the source and is
-# formatted.
+# formatted. The second path is the same generator's second destination — the
+# copy the admin links to.
 docs/*.html
+apps/web/public/docs/
 
 *.svg

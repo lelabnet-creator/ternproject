@@ -104,6 +104,17 @@ jobs:
             exit 1
           }
 
+      - name: Check the rendered documentation is current
+        run: |
+          pnpm docs:build
+          # The copy under apps/web/public is what the admin's Documentation
+          # link serves, so a stale one is not an untidy file in the repository
+          # — it is the product handing a reader last month's guide.
+          git diff --exit-code docs/ apps/web/public/docs/ || {
+            echo "::error::rendered docs are stale — run 'pnpm docs:build' and commit the result"
+            exit 1
+          }
+
   rust:
     name: Rust agent
     runs-on: ubuntu-latest

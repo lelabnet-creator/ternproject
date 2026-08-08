@@ -476,6 +476,33 @@ function AdminNav({
           </a>
         )
       })}
+
+      {/*
+        The guide, from inside the product it documents.
+
+        It was written, rendered and published, and then reachable only by
+        someone who already had the repository open — which is nobody who needs
+        it. Last in the rail because it is not a section and never the answer to
+        "where am I", but in the rail rather than the foot beside sign-out: the
+        foot is three controls wide by measurement, and a fourth would take the
+        tenant's name down to an ellipsis on a phone. This strip already scrolls.
+
+        A plain external link, no click handler: it leaves the app, and it opens
+        in a new tab so it does not cost the reader the screen they were on —
+        which is usually the screen they have the question about.
+      */}
+      <a
+        className="admin-nav-item"
+        href="/docs/admin-guide.html"
+        target="_blank"
+        rel="noopener noreferrer"
+        // Names the new tab in the accessible name, where an icon cannot say it.
+        aria-label="Documentation (opens in a new tab)"
+      >
+        <NavIcon name="BookOpen" />
+        Documentation
+        <Icons.ExternalLink size={13} aria-hidden="true" style={{ flexShrink: 0 }} />
+      </a>
     </nav>
   )
 }

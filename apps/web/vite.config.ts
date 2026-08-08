@@ -61,7 +61,12 @@ export default defineConfig({
         // A status page must never serve a cached status. The shell is cached
         // so the app opens offline; the data always comes from the network, and
         // the UI shows its own offline state rather than a stale green tick.
-        navigateFallbackDenylist: [/^\/api\//],
+        //
+        // `/docs/` is denied for a different reason: those are real files, not
+        // routes. Left to the navigation fallback, following the admin's
+        // Documentation link with the worker installed would render the app
+        // shell at a documentation URL — a blank admin where a guide should be.
+        navigateFallbackDenylist: [/^\/api\//, /^\/docs\//],
         runtimeCaching: [
           {
             urlPattern: /\/api\//,
