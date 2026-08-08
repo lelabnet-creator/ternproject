@@ -120,6 +120,52 @@ git ; ce qui suit est ce qui reste.
       `apps/` est *non mesurée*, pas *atteinte*. Consigné pour que personne ne
       lise le rapport Rust comme couvrant le dépôt.
 
+## À reprendre — passé de main le 8 août 2026
+
+Quatre choses en attente, dont deux qui ne dépendent pas de moi. Consignées ici
+plutôt que perdues dans un fil de conversation : les deux premières sont du
+travail, les deux dernières sont des accès.
+
+- [ ] **Finir WebSocket et Docker comme genres de contrôle.** Le gros est écrit —
+      `websocketProbeSchema` et `dockerProbeSchema` dans
+      `packages/shared/src/probe.ts`, l'enum `controlKind` étendu, la migration
+      `0017_flimsy_doctor_faustus.sql`, les deux sondes côté API et côté agent
+      Rust. Il manque les trois endroits qui déclarent les genres autorisés, et
+      tant qu'ils ne sont pas faits **l'API refuse de créer un contrôle de ces
+      deux genres** :
+      - `CONTROL_KINDS` dans `packages/shared/src/control-import.ts:96`, toujours
+        aux six anciens genres ;
+      - `kind: z.enum([...])` dans `apps/api/src/routes/controls.ts:229`, idem ;
+      - `strictProbeSchema` dans le même fichier d'import, qui n'accepte ni l'une
+        ni l'autre des deux nouvelles sondes.
+
+      Restent ensuite les modèles de `templates.ts`, les chaînes i18n web dans
+      les deux langues, et les tests. Deux décisions sont déjà gelées dans la
+      migration et méritent d'être connues avant d'y toucher : le genre s'appelle
+      `websocket` et non `ws`, et la sonde WebSocket n'a délibérément pas de
+      message à envoyer.
+
+- [ ] **Déployer la démonstration sur `demo.qualif.tern-project.eu`.** L'image
+      est construite, vérifiée en lecture seule et documentée
+      (`docs/demo.md`, `docker/demo/compose.demo.yml`). Il manque deux accès :
+      pousser `ghcr.io/lelabnet-creator/ternproject-demo:latest` au registre, et
+      l'hôte lui-même. Le proxy devant doit terminer le nom, renvoyer sur
+      `127.0.0.1:8088`, envoyer `X-Forwarded-For` et figurer dans
+      `TRUSTED_PROXIES` — sans quoi chaque visiteur est journalisé, et limité en
+      débit, comme étant le proxy.
+
+- [ ] **Intégrer `chore/console-demo-and-incidents`.** Cinq commits, poussés :
+      l'installateur, l'image de démonstration, le bloc incidents plaçable, le
+      backlog et les traces de campagne. Branche plutôt que `main` parce que
+      trois sessions écrivaient dans le même arbre au même moment.
+      `git switch main && git merge --ff-only chore/console-demo-and-incidents`.
+
+- [ ] **Réparer l'accès en écriture par SSH.** La clé présente est celle de
+      `jacquesh82`, qui n'a pas le droit d'écriture sur le dépôt : `git push`
+      répond `Permission denied`. `gh` est authentifié sous `lelabnet-creator`
+      avec la portée `repo`, ce qui a permis de pousser par HTTPS — mais c'est un
+      contournement, pas une configuration.
+
 ## Known limitations to revisit
 
 - Per-tenant retention runs as an application job because TimescaleDB retention policies act per
