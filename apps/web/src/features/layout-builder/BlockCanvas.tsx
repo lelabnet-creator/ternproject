@@ -1,5 +1,12 @@
 import { useState } from 'react'
-import { clampBlock, GRID_COLUMNS, nextFreeRow, type Block } from '@tern/shared/blocks'
+import { useTranslation } from 'react-i18next'
+import {
+  clampBlock,
+  GRID_COLUMNS,
+  hasIncidentsBlock,
+  nextFreeRow,
+  type Block,
+} from '@tern/shared/blocks'
 import { Button, Field, Input, Select, Textarea } from '../../components/ui'
 import type { Control } from '../../lib/adminApi'
 
@@ -27,6 +34,7 @@ export function BlockCanvas({
   controls: Control[]
   onChange: (next: Block[]) => void
 }) {
+  const { t } = useTranslation()
   const [selected, setSelected] = useState<string | null>(null)
 
   const update = (id: string, patch: Partial<Block>) =>
@@ -133,7 +141,7 @@ export function BlockCanvas({
               fontSize: 'var(--text-sm)',
             }}
           >
-            Nothing placed yet. Add a component, a line of text or an image above.
+            Nothing placed yet. Add a component, your incidents, a line of text or an image above.
           </p>
         )}
 
@@ -161,7 +169,7 @@ export function BlockCanvas({
               if (event.shiftKey) resize(block.id, delta[0], delta[1])
               else move(block.id, delta[0], delta[1])
             }}
-            aria-label={`${describe(block, controls)}. Column ${block.x + 1}, row ${block.y + 1}, ${block.w} wide, ${block.h} tall. Arrow keys move, shift and arrow keys resize.`}
+            aria-label={`${describe(block, controls, t)}. Column ${block.x + 1}, row ${block.y + 1}, ${block.w} wide, ${block.h} tall. Arrow keys move, shift and arrow keys resize.`}
             style={{
               gridColumn: `${block.x + 1} / span ${block.w}`,
               gridRow: `${block.y + 1} / span ${block.h}`,
@@ -179,7 +187,7 @@ export function BlockCanvas({
               overflow: 'hidden',
             }}
           >
-            {describe(block, controls)}
+            {describe(block, controls, t)}
           </button>
         ))}
       </div>
@@ -212,8 +220,14 @@ function Palette({
   blocks: Block[]
   onAdd: (block: Block) => void
 }) {
+  const { t } = useTranslation()
   const [controlId, setControlId] = useState('')
   const y = nextFreeRow(blocks)
+
+  // One is the whole point: the block says *where* the page's incidents go, and
+  // a second would print the same notes twice rather than say anything new.
+  // Disabled rather than hidden, so the reason is where the button was.
+  const incidentsPlaced = hasIncidentsBlock(blocks)
 
   return (
     <div style={{ display: 'grid', gap: 'var(--space-3)' }}>
@@ -242,6 +256,15 @@ function Palette({
       </div>
 
       <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
+        {/* Full width and two rows deep by default: an incident note is a
+            paragraph, and a paragraph in a three-column block is a column of
+            single words. */}
+        <Button
+          disabled={incidentsPlaced}
+          onClick={() => onAdd({ type: 'incidents', id: newId(), x: 0, y, w: 12, h: 2 })}
+        >
+          {t('blocks.addIncidents')}
+        </Button>
         <Button
           onClick={() =>
             onAdd({
@@ -291,6 +314,15 @@ function Palette({
           Add an image
         </Button>
       </div>
+
+      {/* Said here, next to the button, because the behaviour is surprising
+          exactly once: removing the block does not remove the incidents. */}
+      <p
+        className="measure"
+        style={{ margin: 0, fontSize: 'var(--text-sm)', color: 'var(--color-fg-subtle)' }}
+      >
+        {t('blocks.incidentsHint')}
+      </p>
     </div>
   )
 }
@@ -395,7 +427,8 @@ function Inspector({
   )
 }
 
-function describe(block: Block, controls: Control[]): string {
+function describe(block: Block, controls: Control[], t: (key: string) => string): string {
+  if (block.type === 'incidents') return t('blocks.incidents')
   if (block.type === 'text') return block.body.slice(0, 40) || 'Text'
   if (block.type === 'image') return block.alt || 'Image'
   return controls.find((c) => c.id === block.controlId)?.name ?? 'Component'

@@ -1,6 +1,36 @@
-import { GRID_COLUMNS, type Block } from '@tern/shared/blocks'
+import { GRID_COLUMNS, hasIncidentsBlock, type Block } from '@tern/shared/blocks'
 import type { StatusComponent, StatusSummary } from '../../lib/api'
 import type { UptimeDay } from '../../charts/UptimeRibbon'
+
+/**
+ * Where the page's incidents and maintenance windows are drawn.
+ *
+ * The rule used to be "incidents cannot be placed": they were rendered above
+ * the component area unconditionally, for every layout, and the builder offered
+ * no block for them. The reason given was sound — a status page that could be
+ * made to hide its own incidents would not be one — but the conclusion was
+ * broader than the reason. Placing something is not the same as removing it.
+ *
+ * So the rule is now "incidents cannot be *removed*". An arrangement that names
+ * an `incidents` block draws them there; an arrangement that names none — which
+ * includes every page built before this existed, every document-mode page, and
+ * any page where somebody deleted the block — gets them back above the
+ * arrangement, exactly as before. There is no state in which they are absent,
+ * because absence of the block is what brings them back.
+ *
+ * Lives beside the arranged layout rather than in the page, so the two halves
+ * of the decision cannot drift: whoever renders the blocks owns the answer to
+ * whether the blocks already covered it.
+ */
+export function communicationsPlacement(
+  layout: 'list' | 'grid' | 'compact' | 'custom',
+  blocks: Block[],
+): 'above' | 'arranged' {
+  // `blocks.length > 0` and not just the layout: an empty arrangement falls
+  // through to the document mode, which draws no blocks at all.
+  const arranged = layout === 'custom' && blocks.length > 0
+  return arranged && hasIncidentsBlock(blocks) ? 'arranged' : 'above'
+}
 
 /**
  * A page arranged on a grid.
@@ -25,6 +55,7 @@ export function CustomLayout({
   locale,
   timeZone,
   renderComponent,
+  renderCommunications,
 }: {
   blocks: Block[]
   data: StatusSummary
@@ -34,6 +65,13 @@ export function CustomLayout({
   timeZone: string
   /** The card the other layouts draw, passed in rather than imported twice. */
   renderComponent: (component: StatusComponent, componentDays: UptimeDay[]) => React.ReactNode
+  /**
+   * The incident and maintenance notes, for the same reason: there is one
+   * Communications on the page, and an arranged page must show the same words,
+   * tones and timestamps as an unarranged one rather than a second rendering
+   * of them that drifts.
+   */
+  renderCommunications: () => React.ReactNode
 }) {
   if (blocks.length === 0) {
     return (
@@ -82,6 +120,7 @@ export function CustomLayout({
             locale={locale}
             timeZone={timeZone}
             renderComponent={renderComponent}
+            renderCommunications={renderCommunications}
           />
         </div>
       ))}
@@ -94,6 +133,7 @@ function BlockBody({
   data,
   days,
   renderComponent,
+  renderCommunications,
 }: {
   block: Block
   data: StatusSummary
@@ -101,7 +141,15 @@ function BlockBody({
   locale: string
   timeZone: string
   renderComponent: (component: StatusComponent, componentDays: UptimeDay[]) => React.ReactNode
+  renderCommunications: () => React.ReactNode
 }) {
+  if (block.type === 'incidents') {
+    // Nothing is drawn when there is nothing to say, here as everywhere else —
+    // the block leaves a gap on a quiet day rather than a "no incidents" panel
+    // that trains people to skip the place where the news appears.
+    return <>{renderCommunications()}</>
+  }
+
   if (block.type === 'text') {
     return (
       <p

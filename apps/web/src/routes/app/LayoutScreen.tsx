@@ -245,9 +245,9 @@ export function LayoutScreen({ slug, canWrite }: { slug: string; canWrite: boole
               className="measure"
               style={{ margin: 0, fontSize: 'var(--text-sm)', color: 'var(--color-fg-subtle)' }}
             >
-              Place components, headings, text and images on a twelve-column grid. Anything here
-              wins over the Document tab — that one is the escape hatch for a page this cannot
-              express, and the two are kept apart so neither overwrites the other.
+              Place components, your incidents, headings, text and images on a twelve-column grid.
+              Anything here wins over the Document tab — that one is the escape hatch for a page
+              this cannot express, and the two are kept apart so neither overwrites the other.
             </p>
             <BlockCanvas blocks={design} controls={controls.data ?? []} onChange={setDesign} />
           </div>

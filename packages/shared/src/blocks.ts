@@ -50,6 +50,27 @@ export const blockSchema = z.discriminatedUnion('type', [
     h: z.number().int().min(1).max(20),
   }),
   z.object({
+    type: z.literal('incidents'),
+    id: z.string(),
+    /*
+     * Deliberately nothing but a position.
+     *
+     * Every other block says *what* to draw; this one only says *where*. There
+     * is no severity filter, no "hide when resolved", no count cap — because a
+     * status page whose incidents could be configured into silence would not be
+     * one, and an option here is exactly how that would arrive. The page
+     * decides what it has to say; the arrangement decides where it lands.
+     */
+    x: z
+      .number()
+      .int()
+      .min(0)
+      .max(GRID_COLUMNS - 1),
+    y: z.number().int().min(0).max(200),
+    w: z.number().int().min(1).max(GRID_COLUMNS),
+    h: z.number().int().min(1).max(20),
+  }),
+  z.object({
     type: z.literal('image'),
     id: z.string(),
     url: z.string().url().max(2_000),
@@ -77,6 +98,19 @@ export type BlockType = Block['type']
 
 /** Bounded: a page is arranged, not assembled from a thousand parts. */
 export const blocksSchema = z.array(blockSchema).max(200)
+
+/**
+ * Whether an arrangement takes the incidents on itself.
+ *
+ * The one question the page asks before it decides where to put them: an
+ * arrangement that names no `incidents` block gets them above it anyway. Lives
+ * here rather than in the renderer because it is a fact about the blocks, and
+ * because the builder wants the same answer to tell an operator which state
+ * they are in.
+ */
+export function hasIncidentsBlock(blocks: Block[]): boolean {
+  return blocks.some((block) => block.type === 'incidents')
+}
 
 /** Where a new block lands: the first row with nothing on it. */
 export function nextFreeRow(blocks: Block[]): number {
