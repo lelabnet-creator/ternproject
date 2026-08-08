@@ -286,20 +286,41 @@ def lan_address(name: str, timeout: int = 120) -> str:
     """
     L'adresse que le DHCP du réseau local a donnée à la VM.
 
-    Retrouvée par la MAC, qui est fixe : c'est la seule chose connue d'avance.
-    Un `ping` sur l'adresse de diffusion peuple la table de voisinage de l'hôte
-    quand la VM n'a pas encore parlé la première — sans cela, une machine qui
-    vient de démarrer et n'a rien émis reste invisible.
+    Demandée à la VM elle-même, par le chemin d'administration qui ne dépend
+    d'aucun DHCP. C'est la question directe, et elle a une réponse en une
+    seconde.
+
+    La version précédente interrogeait la table de voisinage de l'hôte après un
+    `ping` sur l'adresse de diffusion, et elle échouait deux fois sur trois pour
+    une raison qui n'avait rien à voir avec le réseau : la plupart des
+    distributions règlent `net.ipv4.icmp_echo_ignore_broadcasts` à 1, donc la VM
+    ne répondait pas, donc l'hôte n'apprenait rien d'elle. Le banc concluait
+    « pas d'adresse sur le réseau local » sur une machine qui en avait une,
+    l'installation retombait sur 127.0.0.1, et tout ce qui dépendait d'une
+    adresse joignable de l'extérieur cessait discrètement d'être testé.
+
+    La MAC reste ce qui identifie l'interface : la VM en a deux, et celle qui
+    porte l'adresse du LAN est celle qui est pontée.
     """
     mac = TARGETS[name]["mac"].lower()
     deadline = time.time() + timeout
 
     while time.time() < deadline:
-        run(["ping", "-c", "1", "-b", "-W", "1", "255.255.255.255"])
-        neigh = run(["ip", "-4", "neigh", "show"]).stdout
-        for line in neigh.splitlines():
-            if mac in line.lower():
-                return line.split()[0]
+        # `ip -o` met chaque interface sur une ligne, adresse comprise, ce qui
+        # évite de recoller un bloc multiligne.
+        r = ssh(name, f"ip -o -4 addr show; echo ---; ip -o link show", timeout=20)
+        if r.returncode == 0:
+            device = ""
+            for line in r.stdout.splitlines():
+                if mac in line.lower():
+                    parts = line.split(":")
+                    if len(parts) > 1:
+                        device = parts[1].strip().split("@")[0]
+                        break
+            for line in r.stdout.splitlines():
+                fields = line.split()
+                if len(fields) > 3 and fields[1] == device and fields[2] == "inet":
+                    return fields[3].split("/")[0]
         time.sleep(5)
     return ""
 

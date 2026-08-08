@@ -1,0 +1,7 @@
+Downloading tern-agent for x86_64-unknown-linux-musl…
+Installed /home/tern/.local/bin/tern-agent
+Note: /home/tern/.local/bin is not on your PATH.
+
+
+--- stderr ---
+Error: Refusing to use plain HTTP for http://192.168.1.112:8231 — use https:// (localhost is exempt)

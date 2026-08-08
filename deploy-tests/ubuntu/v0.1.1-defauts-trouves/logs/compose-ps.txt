@@ -1,0 +1,4 @@
+NAME                IMAGE                                         COMMAND                  SERVICE   CREATED          STATUS                    PORTS
+tern-prod-agent-1   ghcr.io/lelabnet-creator/ternproject:latest   "/usr/bin/tini -- /u…"   agent     15 seconds ago   Up 3 seconds              
+tern-prod-app-1     ghcr.io/lelabnet-creator/ternproject:latest   "/usr/bin/tini -- /u…"   app       16 seconds ago   Up 9 seconds (healthy)    0.0.0.0:8231->3011/tcp, [::]:8231->3011/tcp
+tern-prod-db-1      timescale/timescaledb-ha:pg16                 "/docker-entrypoint.…"   db        16 seconds ago   Up 14 seconds (healthy)   5432/tcp, 8008/tcp, 8081/tcp

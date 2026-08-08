@@ -1,0 +1,17 @@
+app-1  | ==> migrations
+app-1  | → applying Drizzle migrations
+app-1  | → applying TimescaleDB SQL
+app-1  |   ✓ 0001_timescale.sql
+app-1  | ✓ migrations complete
+app-1  | ==> starting TERN on 0.0.0.0:3011
+app-1  | {"level":30,"time":1786219952025,"pid":7,"hostname":"908846d7604a","jobs":["notifications","maintenance-transitions","maintenance-reminders","local-probes","stale-controls","local-agent","retention","purge-expired"],"msg":"background jobs started"}
+app-1  | {"level":30,"time":1786219952328,"pid":7,"hostname":"908846d7604a","dist":"/app/apps/web/dist","msg":"serving the built web app"}
+app-1  | {"level":30,"time":1786219952332,"pid":7,"hostname":"908846d7604a","msg":"Server listening at http://127.0.0.1:3011"}
+app-1  | {"level":30,"time":1786219952332,"pid":7,"hostname":"908846d7604a","msg":"Server listening at http://172.18.0.3:3011"}
+app-1  | {"level":30,"time":1786219952348,"pid":7,"hostname":"908846d7604a","msg":"local agent waiting: no page configured yet"}
+app-1  | {"level":30,"time":1786219954130,"pid":7,"hostname":"908846d7604a","reqId":"req-1","req":{"method":"GET","url":"/health","host":"127.0.0.1:3011","remoteAddress":"127.0.0.1","remotePort":51928},"msg":"incoming request"}
+app-1  | {"level":30,"time":1786219954133,"pid":7,"hostname":"908846d7604a","reqId":"req-1","res":{"statusCode":200},"responseTime":2.576684000000114,"msg":"request completed"}
+app-1  | {"level":30,"time":1786219954994,"pid":7,"hostname":"908846d7604a","reqId":"req-2","req":{"method":"GET","url":"/health","host":"127.0.0.1:3011","remoteAddress":"127.0.0.1","remotePort":51940},"msg":"incoming request"}
+app-1  | {"level":30,"time":1786219954996,"pid":7,"hostname":"908846d7604a","reqId":"req-2","res":{"statusCode":200},"responseTime":1.908310000000256,"msg":"request completed"}
+app-1  | {"level":30,"time":1786219958092,"pid":7,"hostname":"908846d7604a","reqId":"req-3","req":{"method":"GET","url":"/health","host":"127.0.0.1:8232","remoteAddress":"10.0.2.2","remotePort":48260},"msg":"incoming request"}
+app-1  | {"level":30,"time":1786219958095,"pid":7,"hostname":"908846d7604a","reqId":"req-3","res":{"statusCode":200},"responseTime":2.0847579999999653,"msg":"request completed"}

@@ -1,0 +1,20 @@
+Aug 08 20:08:29 ubuntu dockerd[1010]: time="2026-08-08T20:08:29.702348274Z" level=info msg="CDI directory does not exist, skipping: failed to monitor for changes: no such file or directory" dir=/etc/cdi
+Aug 08 20:08:29 ubuntu dockerd[1010]: time="2026-08-08T20:08:29.702551633Z" level=info msg="detected 127.0.0.53 nameserver, assuming systemd-resolved, so using resolv.conf: /run/systemd/resolve/resolv.conf"
+Aug 08 20:08:29 ubuntu dockerd[1010]: time="2026-08-08T20:08:29.723481369Z" level=info msg="Creating a containerd client" address=/run/containerd/containerd.sock timeout=1m0s
+Aug 08 20:08:29 ubuntu dockerd[1010]: time="2026-08-08T20:08:29.757486939Z" level=info msg="Loading containers: start."
+Aug 08 20:08:29 ubuntu dockerd[1010]: time="2026-08-08T20:08:29.758745960Z" level=info msg="Starting daemon with containerd snapshotter integration enabled"
+Aug 08 20:08:29 ubuntu dockerd[1010]: time="2026-08-08T20:08:29.759991925Z" level=info msg="Restoring containers: start."
+Aug 08 20:08:29 ubuntu dockerd[1010]: time="2026-08-08T20:08:29.761441599Z" level=warning msg="failed to determine if container is already mounted" container=a95b5f65b6bfb3815a6e1bc2cac25fc457febddfd8b2fab0d9644075b8afef75
+Aug 08 20:08:29 ubuntu dockerd[1010]: time="2026-08-08T20:08:29.761508748Z" level=warning msg="failed to determine if container is already mounted" container=bcb935f5c6073cfece0d7d356f995dcd1f18e699c3bb697bdceaf9156b15abd9
+Aug 08 20:08:29 ubuntu dockerd[1010]: time="2026-08-08T20:08:29.761548065Z" level=warning msg="failed to determine if container is already mounted" container=7c822f5ce2c750fbbf0e489e7844d1a3e7faba428d5f8fa83198bede1e71cf5f
+Aug 08 20:08:29 ubuntu dockerd[1010]: time="2026-08-08T20:08:29.894635729Z" level=info msg="Deleting nftables IPv4 rules" error="exit status 1"
+Aug 08 20:08:29 ubuntu dockerd[1010]: time="2026-08-08T20:08:29.906526254Z" level=info msg="Deleting nftables IPv6 rules" error="exit status 1"
+Aug 08 20:08:30 ubuntu dockerd[1010]: time="2026-08-08T20:08:30.369053069Z" level=info msg="sbJoin: gwep4 ''->'7e784108d2d7', gwep6 ''->''" eid=7e784108d2d7 ep=tern-prod-db-1 net=tern-prod_default nid=79b39503067f
+Aug 08 20:08:30 ubuntu dockerd[1010]: time="2026-08-08T20:08:30.444729257Z" level=info msg="sbJoin: gwep4 ''->'2199c40629c1', gwep6 ''->''" eid=2199c40629c1 ep=tern-prod-app-1 net=tern-prod_default nid=79b39503067f
+Aug 08 20:08:30 ubuntu dockerd[1010]: time="2026-08-08T20:08:30.673416617Z" level=info msg="Loading containers: done."
+Aug 08 20:08:30 ubuntu dockerd[1010]: time="2026-08-08T20:08:30.685986099Z" level=info msg="Docker daemon" commit="29.1.3-0ubuntu3~24.04.2" containerd-snapshotter=true storage-driver=overlayfs version=29.1.3
+Aug 08 20:08:30 ubuntu dockerd[1010]: time="2026-08-08T20:08:30.686105795Z" level=info msg="Initializing buildkit"
+Aug 08 20:08:30 ubuntu dockerd[1010]: time="2026-08-08T20:08:30.725856911Z" level=info msg="Completed buildkit initialization"
+Aug 08 20:08:30 ubuntu dockerd[1010]: time="2026-08-08T20:08:30.737701708Z" level=info msg="Daemon has completed initialization"
+Aug 08 20:08:30 ubuntu dockerd[1010]: time="2026-08-08T20:08:30.737725572Z" level=info msg="API listen on /run/docker.sock"
+Aug 08 20:08:30 ubuntu systemd[1]: Started docker.service - Docker Application Container Engine.
