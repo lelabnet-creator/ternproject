@@ -1,0 +1,40 @@
+app-1  |     port: 5432
+app-1  |   }
+app-1  | }
+app-1  |     retrying in 3s (2/10)
+app-1  | → applying Drizzle migrations
+app-1  | ✗ migration failed: DrizzleQueryError: Failed query: CREATE SCHEMA IF NOT EXISTS "drizzle"
+app-1  | params: 
+app-1  |     at PostgresJsPreparedQuery.queryWithCache (/app/node_modules/.pnpm/drizzle-orm@0.44.7_postgres@3.4.9/node_modules/src/pg-core/session.ts:73:11)
+app-1  |     at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+app-1  |     at async PgDialect.migrate (/app/node_modules/.pnpm/drizzle-orm@0.44.7_postgres@3.4.9/node_modules/src/pg-core/dialect.ts:85:3)
+app-1  |     at async migrate (/app/node_modules/.pnpm/drizzle-orm@0.44.7_postgres@3.4.9/node_modules/src/postgres-js/migrator.ts:10:2)
+app-1  |     at async main (/app/packages/db/src/migrate.ts:32:5) {
+app-1  |   query: 'CREATE SCHEMA IF NOT EXISTS "drizzle"',
+app-1  |   params: [],
+app-1  |   cause: Error: connect ECONNREFUSED 172.18.0.2:5432
+app-1  |       at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1638:16) {
+app-1  |     errno: -111,
+app-1  |     code: 'ECONNREFUSED',
+app-1  |     syscall: 'connect',
+app-1  |     address: '172.18.0.2',
+app-1  |     port: 5432
+app-1  |   }
+app-1  | }
+app-1  |     retrying in 3s (3/10)
+app-1  | → applying Drizzle migrations
+app-1  | → applying TimescaleDB SQL
+app-1  |   ✓ 0001_timescale.sql
+app-1  | ✓ migrations complete
+app-1  | ==> starting TERN on 0.0.0.0:3011
+app-1  | {"level":30,"time":1786222466982,"pid":7,"hostname":"bd3cc0d53adc","jobs":["notifications","maintenance-transitions","maintenance-reminders","local-probes","stale-controls","local-agent","retention","purge-expired"],"msg":"background jobs started"}
+app-1  | {"level":30,"time":1786222467354,"pid":7,"hostname":"bd3cc0d53adc","dist":"/app/apps/web/dist","msg":"serving the built web app"}
+app-1  | {"level":30,"time":1786222467362,"pid":7,"hostname":"bd3cc0d53adc","msg":"Server listening at http://127.0.0.1:3011"}
+app-1  | {"level":30,"time":1786222467362,"pid":7,"hostname":"bd3cc0d53adc","msg":"Server listening at http://172.18.0.3:3011"}
+app-1  | {"level":30,"time":1786222467377,"pid":7,"hostname":"bd3cc0d53adc","msg":"local agent waiting: no page configured yet"}
+app-1  | {"level":30,"time":1786222468278,"pid":7,"hostname":"bd3cc0d53adc","reqId":"req-1","req":{"method":"GET","url":"/health","host":"127.0.0.1:3011","remoteAddress":"127.0.0.1","remotePort":47662},"msg":"incoming request"}
+app-1  | {"level":30,"time":1786222468282,"pid":7,"hostname":"bd3cc0d53adc","reqId":"req-1","res":{"statusCode":200},"responseTime":2.797447999999804,"msg":"request completed"}
+app-1  | {"level":30,"time":1786222468944,"pid":7,"hostname":"bd3cc0d53adc","reqId":"req-2","req":{"method":"GET","url":"/health","host":"127.0.0.1:3011","remoteAddress":"127.0.0.1","remotePort":47678},"msg":"incoming request"}
+app-1  | {"level":30,"time":1786222468946,"pid":7,"hostname":"bd3cc0d53adc","reqId":"req-2","res":{"statusCode":200},"responseTime":2.3023990000001504,"msg":"request completed"}
+app-1  | {"level":30,"time":1786222471139,"pid":7,"hostname":"bd3cc0d53adc","reqId":"req-3","req":{"method":"GET","url":"/health","host":"127.0.0.1:8233","remoteAddress":"10.0.2.2","remotePort":33328},"msg":"incoming request"}
+app-1  | {"level":30,"time":1786222471140,"pid":7,"hostname":"bd3cc0d53adc","reqId":"req-3","res":{"statusCode":200},"responseTime":0.5804690000004484,"msg":"request completed"}

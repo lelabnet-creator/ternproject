@@ -1,0 +1,151 @@
+{
+  "distribution": "Arch Linux (cloud image)",
+  "gestionnaire": "pacman",
+  "identifiants": {
+    "vm": {
+      "utilisateur": "tern",
+      "motDePasse": "tern-lab-2026"
+    },
+    "tern": {
+      "email": "admin@lab.example",
+      "motDePasse": "tern-lab-admin-2026"
+    }
+  },
+  "etapes": [
+    {
+      "name": "La VM démarre et répond en SSH",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "Docker est absent au départ",
+      "ok": true,
+      "detail": "NAME=\"Arch Linux\"\nPRETTY_NAME=\"Arch Linux\"\n"
+    },
+    {
+      "name": "La VM a une adresse sur le réseau local",
+      "ok": true,
+      "detail": "192.168.1.106"
+    },
+    {
+      "name": "Le script d'amorçage se récupère depuis GitHub",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "L'installateur demande un redémarrage plutôt qu'un échec obscur",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "La VM redémarre à sa demande",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "La reprise après redémarrage va au bout",
+      "ok": true,
+      "detail": "                            \u001b[34m|\u001b[0m\r\n\u001b[34m|\u001b[0m  \u001b[33mUntil that administrator account exists, the first person to open\u001b[0m       \u001b[34m|\u001b[0m\r\n\u001b[34m|\u001b[0m  \u001b[33mthe admin address becomes the administrator of this instance.\u001b[0m           \u001b[34m|\u001b[0m\r\n\u001b[34m+--------------------------------------------------------------------------+\r\n\u001b[34m|\u001b[0m\r\n\u001b[0m\u001b[34m—\u001b[0m  Ready — http://192.168.1.106:8233/app\r\n"
+    },
+    {
+      "name": "L'installateur pose Docker via pacman",
+      "ok": true,
+      "detail": "re, and the outgoing mail server    \u001b[34m|\u001b[0m\r\n\u001b[34m|\u001b[0m  is set up there. The public page stays empty until it is.               \u001b[34m|\u001b[0m\r\n\u001b[34m|\u001b[0m                                                                          \u001b[34m|\u001b[0m\r\n\u001b[34m|\u001b[0m  \u001b[33mUntil that administrator account exists, the first person to open\u001b[0m       \u001b[34m|\u001b[0m\r\n\u001b[34m|\u001b[0m  \u001b[33mthe admin address becomes the administrator of this instance.\u001b[0m           \u001b[34m|\u001b[0m\r\n\u001b[34m+--------------------------------------------------------------------------+\r\n\u001b[34m|\u001b[0m\r\n\u001b[0m\u001b[34m—\u001b[0m  Ready — http://192.168.1.106:8233/app\r\n"
+    },
+    {
+      "name": "L'empreinte du binaire est vérifiée avant exécution",
+      "ok": true,
+      "detail": "\u001b[1m==>\u001b[0m Récupération de l'installateur (x86_64-unknown-linux-musl)\r\n    \u001b[2mempreinte vérifiée\u001b[0m\r\n\u001b[34mT\u001b[0m  \u001b[30m\u001b[46m TERN — setting up an instance \u001b[0m\r\n\u001b[34m|\u001b[0m\r\n\u001b[33m!\u001b[0m  Docker is not installed\r\n\u001b[34m|\u001b[0m  \r\n\u001b[34mi\u001b[0m  Package manager detected: pacman\r\n\u001b[34m|\u001b[0m  Packages will come from this distribution's repositories.\r\n\u001b[34m|\u001b[0m  The install goes through sudo; you may be ask"
+    },
+    {
+      "name": "Compose v2 est présent",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "Le script ajoute le compte au groupe docker",
+      "ok": true,
+      "detail": "tern docker\n"
+    },
+    {
+      "name": "L'installation va au bout sans demander de reconnexion",
+      "ok": true,
+      "detail": "                            \u001b[34m|\u001b[0m\r\n\u001b[34m|\u001b[0m  \u001b[33mUntil that administrator account exists, the first person to open\u001b[0m       \u001b[34m|\u001b[0m\r\n\u001b[34m|\u001b[0m  \u001b[33mthe admin address becomes the administrator of this instance.\u001b[0m           \u001b[34m|\u001b[0m\r\n\u001b[34m+--------------------------------------------------------------------------+\r\n\u001b[34m|\u001b[0m\r\n\u001b[0m\u001b[34m—\u001b[0m  Ready — http://192.168.1.106:8233/app\r\n"
+    },
+    {
+      "name": "Un journal complet est laissé derrière",
+      "ok": true,
+      "detail": "1556\n"
+    },
+    {
+      "name": "La pile tourne (app, db, agent)",
+      "ok": true,
+      "detail": "conds ago   Up 2 seconds              \ntern-prod-app-1     ghcr.io/lelabnet-creator/ternproject:latest   \"/usr/bin/tini -- /u…\"   app       26 seconds ago   Up 18 seconds (healthy)   0.0.0.0:8233->3011/tcp, [::]:8233->3011/tcp\ntern-prod-db-1      timescale/timescaledb-ha:pg16                 \"/docker-entrypoint.…\"   db        26 seconds ago   Up 24 seconds (healthy)   5432/tcp, 8008/tcp, 8081/tcp\n"
+    },
+    {
+      "name": "L'instance répond sur /health depuis l'hôte",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "La fenêtre de premier lancement est ouverte",
+      "ok": true,
+      "detail": "{\"needsSetup\":true,\"tenant\":null}"
+    },
+    {
+      "name": "Le compte administrateur et la page sont créés",
+      "ok": true,
+      "detail": "{\"user\":{\"id\":\"cfdadfe3-baba-4e3b-bae8-8084631d2042\",\"email\":\"admin@lab.example\",\"name\":\"Recette\"},\"tenant\":{\"slug\":\"lab\",\"name\":\"Lab\"}}"
+    },
+    {
+      "name": "La fenêtre se referme derrière le premier compte",
+      "ok": true,
+      "detail": "{\"needsSetup\":false,\"tenant\":null}"
+    },
+    {
+      "name": "Un contrôle HTTP sur une cible publique est créé",
+      "ok": true,
+      "detail": "{\"id\":\"8f44a5c8-c0e3-46f8-984d-503dbf8ff010\",\"key\":\"example-com\"}"
+    },
+    {
+      "name": "Un code d'appairage est généré",
+      "ok": true,
+      "detail": "{\"pin\":\"1GTX-B8KP\",\"expiresAt\":\"2026-08-08T21:09:31.511Z\",\"maxUses\":1,\"pairCommand\":\"tern-agent pair --server http://192.168.1.106:8233 --pin 1GTX-B8KP\"}"
+    },
+    {
+      "name": "L'agent s'installe et s'appaire",
+      "ok": true,
+      "detail": "rn-agent\n  Logs:   journalctl --user -u tern-agent -f\n\nNote: ping checks need raw sockets. If they fail, either:\n  sudo setcap cap_net_raw+ep /home/tern/.local/bin/tern-agent\n  — or check that /proc/sys/net/ipv4/ping_group_range covers your group.\n\nCheck it end to end: /home/tern/.local/bin/tern-agent doctor --config /home/tern/.config/tern/agent.toml\nCreated symlink '/home/tern/.config/systemd/user/default.target.wants/tern-agent.service' → '/home/tern/.config/systemd/user/tern-agent.service'.\n"
+    },
+    {
+      "name": "L'agent est inscrit au démarrage",
+      "ok": true,
+      "detail": "not-found\nenabled\nLinger=no"
+    },
+    {
+      "name": "La cible publique est mesurée et remonte 'operational'",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "La page publique sert son résumé",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "La VM redémarre",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "L'instance revient d'elle-même après un redémarrage",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "L'agent revient d'elle-même après un redémarrage",
+      "ok": false,
+      "detail": ""
+    }
+  ]
+}

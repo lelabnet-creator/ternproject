@@ -1,0 +1,24 @@
+Downloading tern-agent for x86_64-unknown-linux-musl…
+Installed /home/tern/.local/bin/tern-agent
+Note: /home/tern/.local/bin is not on your PATH.
+
+✓ Paired as "arch" on tenant lab
+
+Wrote /home/tern/.config/tern/agent.toml (readable only by you).
+1 probe(s) assigned by the server:
+  example-com  (http)
+Then: tern-agent run --config /home/tern/.config/tern/agent.toml
+
+  ⚠ Could not enable lingering. Run: sudo loginctl enable-linger tern
+✓ Registered as a systemd user service — starts at boot.
+  Status: systemctl --user status tern-agent
+  Logs:   journalctl --user -u tern-agent -f
+
+Note: ping checks need raw sockets. If they fail, either:
+  sudo setcap cap_net_raw+ep /home/tern/.local/bin/tern-agent
+  — or check that /proc/sys/net/ipv4/ping_group_range covers your group.
+
+Check it end to end: /home/tern/.local/bin/tern-agent doctor --config /home/tern/.config/tern/agent.toml
+
+--- stderr ---
+Created symlink '/home/tern/.config/systemd/user/default.target.wants/tern-agent.service' → '/home/tern/.config/systemd/user/tern-agent.service'.
