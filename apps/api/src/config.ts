@@ -133,6 +133,22 @@ const schema = z.object({
   AUTH_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(10),
 
   /**
+   * Reads of one's own session, per minute per IP.
+   *
+   * Separate from the number above, and much larger, because the two answer
+   * different questions. Ten `/login` attempts a minute stops a password
+   * guesser; ten `/auth/me` a minute stops an operator. The admin asks on every
+   * mount, so a few navigations and a reload used to exhaust the login budget
+   * and produce a sign-in form at somebody holding a valid session — and since
+   * the counter is keyed by IP, one NAT shares it across a whole office.
+   *
+   * Still a limit. The endpoint is authenticated and runs two queries, so it is
+   * worth bounding; two a second, sustained, is far past any human and far
+   * short of anything this could be used for.
+   */
+  SESSION_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(120),
+
+  /**
    * Redemption attempts per minute per IP. A pairing PIN carries about 40 bits
    * of entropy, which is only enough because guessing is this slow and the code
    * dies after a handful of wrong tries.

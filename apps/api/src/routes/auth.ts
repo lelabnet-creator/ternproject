@@ -647,6 +647,28 @@ const routes: FastifyPluginAsyncZod = async (app) => {
   app.get(
     '/me',
     {
+      /*
+       * Out from under the login limiter, and given its own.
+       *
+       * The hard limit above exists for the endpoints an attacker reaches for:
+       * ten `/login` attempts a minute is generous against a password guesser
+       * and invisible to a person. `/me` is neither of those. It reads a
+       * session that is already authenticated, the admin calls it on every
+       * mount, and it was sharing the same ten-per-minute counter.
+       *
+       * What that produced, found by driving the admin end to end rather than
+       * by reading this file: a brisk session — a few navigations, a reload —
+       * got a 429 here, and the admin, which had no way to tell "could not ask"
+       * from "not signed in", drew a sign-in form at somebody holding a valid
+       * session cookie. The counter is keyed by IP, so behind one NAT it is
+       * shared by everyone in the building: ten page loads a minute across a
+       * whole company, and the company is signed out.
+       *
+       * Still limited, because an authenticated endpoint that runs two queries
+       * is still worth bounding. Just bounded where abuse lives rather than
+       * where use does.
+       */
+      config: { rateLimit: { max: config.SESSION_RATE_LIMIT_MAX, timeWindow: '1 minute' } },
       schema: {
         response: {
           200: z.object({

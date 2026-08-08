@@ -153,6 +153,51 @@ describe('rate limiting', () => {
       vi.resetModules()
     }
   }, 30_000)
+
+  it('does not spend the login budget on reading your own session', async () => {
+    // `/me` used to sit under the limiter above, and the two are not the same
+    // question: ten login attempts a minute stops a password guesser, ten
+    // `/auth/me` a minute stops an operator. The admin asks on every mount, so
+    // a few navigations and a reload exhausted the budget and the app — unable
+    // to tell "could not ask" from "not signed in" — drew a sign-in form at
+    // somebody holding a valid session cookie. The counter is keyed by IP, so
+    // one NAT shared it across a whole office.
+    const previousAuth = process.env.AUTH_RATE_LIMIT_MAX
+    const previousSession = process.env.SESSION_RATE_LIMIT_MAX
+    process.env.AUTH_RATE_LIMIT_MAX = '3'
+    process.env.SESSION_RATE_LIMIT_MAX = '50'
+    vi.resetModules()
+
+    const { buildApp } = await import('../app.js')
+    const app = await buildApp()
+    await app.ready()
+
+    try {
+      // The one login this test is allowed, and it spends one of the three.
+      const cookie = await login(app, fx.users.admin.email)
+
+      const codes: number[] = []
+      // Well past the login budget, and nothing like a person's pace.
+      for (let i = 0; i < 12; i++) {
+        codes.push(
+          (
+            await app.inject({
+              method: 'GET',
+              url: '/api/v1/auth/me',
+              headers: { cookie },
+            })
+          ).statusCode,
+        )
+      }
+
+      expect(codes.every((code) => code === 200)).toBe(true)
+    } finally {
+      await app.close()
+      process.env.AUTH_RATE_LIMIT_MAX = previousAuth
+      process.env.SESSION_RATE_LIMIT_MAX = previousSession
+      vi.resetModules()
+    }
+  }, 30_000)
 })
 
 describe('TOTP enrolment and enforcement', () => {
