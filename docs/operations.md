@@ -15,6 +15,34 @@ at the first visit to the admin, by the person in front of it, so no password
 has to pass through a file on disk. Rerunning the script keeps any variable you
 added to `.env` by hand.
 
+### If Docker is missing
+
+The script no longer stops at the sight of it. On Linux it detects the package
+manager by which command is present — `apt-get`, `dnf`, `yum` or `pacman`, not
+what `/etc/os-release` claims, since a derivative rarely names its base — and
+offers to install Docker. It asks first, every time: putting system packages on
+a machine and enabling a service at boot is not a decision an installer makes on
+someone's behalf.
+
+What it installs comes from the repositories already configured on the machine
+(`docker.io` or `docker-ce`, `moby-engine`, `docker`) plus the Compose v2 plugin
+as a separate package. It does **not** pipe `get.docker.com` into a shell, and it
+does not add Docker's own repository. Both would trade a file you can read
+before running it for one you cannot, and the second is a decision about where
+your packages come from.
+
+It then enables and starts the service when systemd is the init (checked through
+`/run/systemd/system`, not merely a `systemctl` binary on the PATH), verifies
+that `docker compose version` answers, and tells you the exact `usermod -aG
+docker` line if your account cannot reach the socket — along with the fact that
+group membership is only read at login, so a new terminal will not do.
+
+Anything else it refuses rather than guesses, pointing at
+<https://docs.docker.com/engine/install/>: macOS, where the engine ships as
+Docker Desktop and not as a package; RHEL, Rocky and Alma, whose base
+repositories carry no Docker at all; an unknown package manager; a missing
+`sudo` when not running as root; and of course a plain "no".
+
 The container's entrypoint settles `APP_SECRET`, applies the migrations and
 creates the tenant before the server binds — all three idempotent, so a restart
 repeats none of them.
@@ -72,6 +100,8 @@ than failing later on a request.
 | `MAIL_FROM`                                       | —              | Envelope sender                                                                                                                           |
 | `LOG_LEVEL`                                       | info           |                                                                                                                                           |
 | `TERN_LOCAL_AGENT`                                | true           | Whether the instance runs `Agent-local-tern` for itself                                                                                   |
+| `TERN_AGENT_NETWORK_MODE`                         | service:app    | Which network that agent measures from. `host` lets it reach this machine's own services — see [`Agent-local-tern`](#agent-local-tern)    |
+| `TERN_LOCAL_AGENT_SERVER`                         | —              | Where that agent reports. Required with `host`, where the API is only at the published port                                               |
 | `TERN_DATA_DIR`                                   | /var/lib/tern  | That agent's `agent.toml` and offline queue. Relative paths resolve from the repository root                                              |
 
 ### Watching the values above under load
@@ -186,6 +216,49 @@ They are independent of the server's lifecycle: an agent whose server is
 unreachable keeps measuring and buffers to disk (5 000 points, oldest dropped
 first). Nothing needs restarting after a server upgrade.
 
+### Surviving a reboot
+
+`install.sh` and `install.ps1` register the agent with whatever supervises
+services on the machine, because the alternative fails in the worst possible
+way: an agent installed and paired but not registered works perfectly until the
+first restart, then stops — and stops quietly. The server shows it as gone
+quiet, but only to somebody looking at the fleet screen.
+
+What gets written, decided by what is actually running rather than by the
+distribution's name:
+
+| Machine       | As root / administrator                           | Otherwise                            |
+| ------------- | ------------------------------------------------- | ------------------------------------ |
+| systemd       | `/etc/systemd/system/tern-agent.service`, enabled | user unit + `loginctl enable-linger` |
+| macOS         | `/Library/LaunchDaemons/net.tern.agent.plist`     | `~/Library/LaunchAgents/…`           |
+| OpenRC        | `/etc/init.d/tern-agent`, `rc-update add`         | refused, with the reason             |
+| Windows       | scheduled task, at startup, as SYSTEM             | scheduled task, at logon             |
+| anything else | says so, and does not pretend                     | same                                 |
+
+Three decisions worth knowing before changing any of it:
+
+- **systemd is detected by `/run/systemd/system`**, not by finding `systemctl`.
+  A machine can carry the command and boot something else; the question is what
+  is supervising right now.
+- **Lingering matters more than it looks.** A systemd _user_ unit stops when the
+  last session closes and does not come back until somebody logs in — which on a
+  server is never. Without `enable-linger` the agent would survive a reboot on
+  paper and not in fact.
+- **Windows gets a scheduled task, not a service.** `tern-agent` is an ordinary
+  console program; a real service must answer the Service Control Manager within
+  its timeout and is killed when it does not. `New-Service` would install
+  something that looks right and dies at every boot. The task also sets an
+  unlimited execution time limit — the default stops a task after three days,
+  which would end monitoring without reporting a fault.
+
+`--no-service` (`-NoService`) skips all of it. Pairing writes to an absolute
+path — `/etc/tern/agent.toml` as root, `$XDG_CONFIG_HOME/tern/agent.toml`
+otherwise — because the agent's own default is `agent.toml` in the working
+directory, and a supervisor starts it from `/`.
+
+On Linux as a non-root user, `ping` controls need `cap_net_raw`; the installer
+says so, and `tern-agent doctor` checks it.
+
 To diagnose one:
 
 ```sh
@@ -223,12 +296,59 @@ as its supervisor. Nothing in TERN supervises a process — the point of a
 separate one is that it keeps measuring and buffering while the API restarts,
 which a child of the API could not do.
 
-It shares the API container's network namespace (`network_mode: service:app`).
-The agent refuses to send an ingest key over plain HTTP to anything but
-localhost — a guard worth keeping — so rather than weakening it, the namespace
-is arranged so that `127.0.0.1:3011` genuinely _is_ the API and the key never
-touches a network interface. Worth knowing before editing that service: it can
-therefore publish no ports of its own.
+By default it shares the API container's network namespace
+(`network_mode: service:app`). The agent refuses to send an ingest key over
+plain HTTP to anything but localhost — a guard worth keeping — so rather than
+weakening it, the namespace is arranged so that `127.0.0.1:3011` genuinely _is_
+the API and the key never touches a network interface. Worth knowing before
+editing that service: it can therefore publish no ports of its own.
+
+#### What it can measure, and what it cannot
+
+That arrangement decides what the agent can see, and the answer surprises
+people. Measured from inside the container rather than assumed:
+
+| Target                             | `service:app` | `host`     |
+| ---------------------------------- | ------------- | ---------- |
+| The internet — DNS, TCP, TLS       | yes           | yes        |
+| This instance's own containers     | yes           | by address |
+| Services on the machine's loopback | **no**        | yes        |
+| Other Docker networks              | **no**        | yes        |
+| The machine's local network        | yes           | yes        |
+
+Outbound is not the problem — it works fully. The problem is that `127.0.0.1`
+means _the container_, so a service listening only on the machine's loopback has
+no address the agent could even name. Somebody monitoring their own machine
+writes `localhost:5432`, and that is exactly the target this mode cannot reach.
+The check fails against an address that looks obviously right, which is the
+hardest kind of wrong to find. The control editor now says so before the check
+is saved, and the fleet screen says it on the agent's row.
+
+`host` is the other answer. The agent joins the machine's network stack, where
+`127.0.0.1` is the machine:
+
+```sh
+TERN_AGENT_NETWORK_MODE=host
+TERN_LOCAL_AGENT_SERVER=http://127.0.0.1:$TERN_HTTP_PORT
+```
+
+then `docker compose -f docker-compose.prod.yml up -d`. `scripts/setup.sh` asks
+the question at install time and writes both lines for you.
+
+Both lines, always. In the machine's namespace the API is no longer at
+`127.0.0.1:3011` but at its published port, and the second line is the only
+thing that tells the agent so — without it the agent would go quiet. The guard
+still holds: that address is a loopback, so the key still never crosses a
+network interface. Changing the setting later is safe, since the API rewrites
+`agent.toml` when the address moves and keeps the key already in it.
+
+**Linux only.** Docker Desktop on macOS and Windows does not give host
+networking the meaning expected here; `setup.sh` says so rather than writing a
+setting that would quietly do nothing useful.
+
+The in-process `local-probes` job has the _same_ blind spots — it runs in the
+API's container either way — so this setting is the only way to measure the
+machine from an instance that monitors itself.
 
 The API's only part is the record: it writes the row, the key and `agent.toml`
 as soon as a page exists. That file, on the shared `tern-data` volume, is the

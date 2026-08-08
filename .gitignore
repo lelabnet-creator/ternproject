@@ -44,3 +44,6 @@ clients/agent/target/
 
 # The local agent's working directory: agent.toml holds a live ingest key.
 .tern/
+
+# Disques et images des VM de recette (voir deploy-tests/ pour la trace).
+.vm-lab/

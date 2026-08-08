@@ -1,0 +1,14 @@
+{"t": 1786203968, "etat": {"docker": "absent", "conteneurs": [], "groupes": "tern", "env": [], "sessions": [], "health": {}}}
+{"t": 1786203990, "etat": {"docker": "absent", "conteneurs": [], "groupes": "tern", "env": [], "sessions": [], "health": {}}}
+{"t": 1786204011, "etat": {"docker": "absent", "conteneurs": [], "groupes": "tern", "env": [], "sessions": [], "health": {}}}
+{"t": 1786204031, "etat": {"docker": "absent", "conteneurs": [], "groupes": "tern", "env": [], "sessions": [], "health": {}}}
+{"t": 1786204052, "etat": {"docker": "absent", "conteneurs": [], "groupes": "tern", "env": [], "sessions": [], "health": {}}}
+{"t": 1786204073, "etat": {"docker": "absent", "conteneurs": [], "groupes": "tern", "env": [], "sessions": [], "health": {}}}
+{"t": 1786204093, "etat": {"docker": "absent", "conteneurs": [], "groupes": "tern", "env": [], "sessions": [], "health": {}}}
+{"t": 1786204114, "etat": {"docker": "absent", "conteneurs": [], "groupes": "tern", "env": [], "sessions": ["tern     tty1         2026-08-08 15:48"], "health": {}}}
+{"t": 1786204136, "etat": {"docker": "absent", "conteneurs": [], "groupes": "tern", "env": [], "sessions": ["tern     tty1         2026-08-08 15:48"], "health": {}}}
+{"t": 1786204156, "etat": {"docker": "absent", "conteneurs": [], "groupes": "tern", "env": [], "sessions": ["tern     tty1         2026-08-08 15:48"], "health": {}}}
+{"t": 1786204177, "etat": {"docker": "absent", "conteneurs": [], "groupes": "tern", "env": [], "sessions": ["tern     tty1         2026-08-08 15:48"], "health": {}}}
+{"t": 1786204197, "etat": {"docker": "absent", "conteneurs": [], "groupes": "tern", "env": [], "sessions": ["tern     tty1         2026-08-08 15:48"], "health": {}}}
+{"t": 1786204218, "etat": {"docker": "absent", "conteneurs": [], "groupes": "tern", "env": [], "sessions": ["tern     tty1         2026-08-08 15:48"], "health": {}}}
+{"t": 1786204239, "etat": {"docker": "absent", "conteneurs": [], "groupes": "tern", "env": [], "sessions": ["tern     tty1         2026-08-08 15:48"], "health": {}}}
