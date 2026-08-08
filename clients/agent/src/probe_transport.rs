@@ -71,6 +71,26 @@ pub enum Probe {
         #[serde(default = "default_timeout")]
         timeout_ms: u64,
     },
+    /// The WebSocket opening handshake. See `websocketProbeSchema` in
+    /// `packages/shared/src/probe.ts` for why there is no send/expect pair.
+    Websocket {
+        url: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        subprotocol: Option<String>,
+        #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+        headers: HashMap<String, String>,
+        #[serde(default = "default_timeout")]
+        timeout_ms: u64,
+    },
+    /// A container on this host. Agent-only: the server refuses this kind
+    /// outright rather than being handed a Docker socket.
+    Docker {
+        container: String,
+        #[serde(default)]
+        require_healthcheck: bool,
+        #[serde(default = "default_timeout")]
+        timeout_ms: u64,
+    },
 }
 
 fn default_count() -> u8 {
@@ -97,6 +117,8 @@ impl Probe {
             Probe::Http { .. } => "http",
             Probe::Dns { .. } => "dns",
             Probe::Cert { .. } => "cert",
+            Probe::Websocket { .. } => "websocket",
+            Probe::Docker { .. } => "docker",
         }
     }
 }
@@ -141,7 +163,291 @@ pub async fn observe(probe: &Probe) -> Observation {
             port,
             timeout_ms,
         } => observe_cert(host, *port, *timeout_ms).await,
+        Probe::Websocket {
+            url,
+            subprotocol,
+            headers,
+            timeout_ms,
+        } => observe_websocket(url, subprotocol.as_deref(), headers, *timeout_ms).await,
+        Probe::Docker {
+            container,
+            require_healthcheck,
+            timeout_ms,
+        } => observe_docker(container, *require_healthcheck, *timeout_ms).await,
     }
+}
+
+/// The WebSocket opening handshake.
+///
+/// Written by hand rather than pulling in a WebSocket crate, and that is a size
+/// decision as much as a taste one: this agent is built with `opt-level = "z"`,
+/// LTO and `strip`, and a full protocol implementation would be several hundred
+/// kilobytes to send one request and read one line. The handshake is ordinary
+/// HTTP/1.1 with an `Upgrade` header — `tokio` and `tokio-rustls` are already
+/// here for `cert`, and nothing else is needed.
+///
+/// The clock stops on the status line. A `101` means the server accepted the
+/// upgrade, which is the whole question; the socket is dropped immediately
+/// afterwards without completing the protocol, so no frames are ever exchanged.
+async fn observe_websocket(
+    url: &str,
+    subprotocol: Option<&str>,
+    headers: &HashMap<String, String>,
+    timeout_ms: u64,
+) -> Observation {
+    use tokio::io::AsyncWriteExt;
+
+    /*
+     * ── No `tls_verify` here, unlike the http target ──────────────────────
+     * The http probe can turn verification off because internal appliances
+     * with self-signed certificates are a real situation, and `reqwest`
+     * exposes it in one call. Doing the same for `wss://` would mean writing a
+     * rustls certificate verifier that accepts everything and carrying it in
+     * the binary for the rest of the project's life — a loaded gun in the tree
+     * for a case nobody has asked for. A `wss://` endpoint whose certificate
+     * does not verify is a broken endpoint, and reporting it as down is the
+     * correct answer rather than a limitation.
+     */
+    let (secure, rest) = match url.split_once("://") {
+        Some(("wss", rest)) => (true, rest),
+        Some(("ws", rest)) => (false, rest),
+        _ => return failed(format!("{url} is not a ws:// or wss:// URL")),
+    };
+
+    let (authority, path) = match rest.split_once('/') {
+        Some((authority, path)) => (authority, format!("/{path}")),
+        None => (rest, "/".to_string()),
+    };
+
+    let (host, port) = match authority.rsplit_once(':') {
+        Some((host, port)) => match port.parse::<u16>() {
+            Ok(port) => (host.to_string(), port),
+            Err(_) => return failed(format!("{authority} has no valid port")),
+        },
+        None => (
+            authority.to_string(),
+            if secure { 443u16 } else { 80u16 },
+        ),
+    };
+
+    if host.is_empty() {
+        return failed(format!("{url} has no host"));
+    }
+
+    let mut request = format!(
+        "GET {path} HTTP/1.1\r\nHost: {authority}\r\nUpgrade: websocket\r\n\
+         Connection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\
+         Sec-WebSocket-Version: 13\r\n"
+    );
+    // A fixed key is fine. The server hashes it into `Sec-WebSocket-Accept`,
+    // which is never read: a server that answered 101 has accepted the upgrade,
+    // and the hash says nothing further about whether the service is up.
+    if let Some(subprotocol) = subprotocol {
+        request.push_str(&format!("Sec-WebSocket-Protocol: {subprotocol}\r\n"));
+    }
+    for (name, value) in headers {
+        request.push_str(&format!("{name}: {value}\r\n"));
+    }
+    request.push_str("\r\n");
+
+    let started = Instant::now();
+
+    let exchange = async {
+        let stream = tokio::net::TcpStream::connect((host.as_str(), port))
+            .await
+            .map_err(|error| anyhow::anyhow!("could not connect to {authority}: {error}"))?;
+
+        let mut line = String::new();
+
+        if secure {
+            let mut roots = tokio_rustls::rustls::RootCertStore::empty();
+            roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+            let config = tokio_rustls::rustls::ClientConfig::builder()
+                .with_root_certificates(roots)
+                .with_no_client_auth();
+
+            let connector = tokio_rustls::TlsConnector::from(std::sync::Arc::new(config));
+            let server_name =
+                tokio_rustls::rustls::pki_types::ServerName::try_from(host.clone())
+                    .map_err(|_| anyhow::anyhow!("{host} is not a valid server name"))?;
+
+            let mut stream = connector
+                .connect(server_name, stream)
+                .await
+                .map_err(|error| anyhow::anyhow!("TLS handshake failed: {error}"))?;
+
+            stream.write_all(request.as_bytes()).await?;
+            read_status_line(&mut stream, &mut line).await?;
+        } else {
+            let mut stream = stream;
+            stream.write_all(request.as_bytes()).await?;
+            read_status_line(&mut stream, &mut line).await?;
+        }
+
+        Ok::<String, anyhow::Error>(line)
+    };
+
+    match tokio::time::timeout(Duration::from_millis(timeout_ms), exchange).await {
+        Ok(Ok(status_line)) => {
+            let mut observation = blank();
+            observation.latency_ms = Some(started.elapsed().as_millis() as i64);
+            // "HTTP/1.1 101 Switching Protocols" — the number is what
+            // `status_code` asserts on, so the engine needs nothing new.
+            observation.status_code = status_line
+                .split_whitespace()
+                .nth(1)
+                .and_then(|code| code.parse::<i64>().ok());
+            observation.body = Some(status_line);
+            observation
+        }
+        Ok(Err(error)) => failed(error),
+        Err(_) => failed(format!("timed out after {timeout_ms} ms")),
+    }
+}
+
+/// Reads bytes until the first CRLF, which is the whole status line.
+async fn read_status_line<S>(stream: &mut S, line: &mut String) -> Result<()>
+where
+    S: tokio::io::AsyncRead + Unpin,
+{
+    use tokio::io::AsyncReadExt;
+
+    let mut buffer = [0u8; 256];
+    loop {
+        let read = stream.read(&mut buffer).await?;
+        if read == 0 {
+            anyhow::bail!("connection closed before the handshake response");
+        }
+        line.push_str(&String::from_utf8_lossy(&buffer[..read]));
+        if let Some(end) = line.find("\r\n") {
+            line.truncate(end);
+            return Ok(());
+        }
+        if line.len() > 8192 {
+            anyhow::bail!("no status line in the first 8 KiB of the response");
+        }
+    }
+}
+
+/// A container on this host, read from the Docker socket.
+///
+/// ── Why this exists only in the agent ─────────────────────────────────────
+/// The Docker socket is root on the host. The server is never given one, and
+/// `probe-transport.ts` refuses this kind outright — see the note on
+/// `dockerProbeSchema`.
+///
+/// Even here it is off unless asked for: `TERN_DOCKER_SOCKET` is unset by
+/// default, and `tern-agent doctor` reports whether the path exists and is
+/// readable, the same way it reports whether ICMP is permitted.
+///
+/// ── What it returns ───────────────────────────────────────────────────────
+/// The container's JSON, verbatim, as the observation body. That is deliberate:
+/// `json_path` then asserts on it exactly as it does on an HTTP body, so
+/// `$.State.Health.Status == "healthy"` is an ordinary assertion rather than a
+/// special case in the engine. A container that is not running, or unhealthy
+/// when `require_healthcheck` is set, fails as unreachable — the state is not a
+/// slow response, it is an absent service.
+async fn observe_docker(container: &str, require_healthcheck: bool, timeout_ms: u64) -> Observation {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    let socket = match std::env::var("TERN_DOCKER_SOCKET") {
+        Ok(path) if !path.is_empty() => path,
+        _ => {
+            return failed(
+                "TERN_DOCKER_SOCKET is not set. A docker control needs the agent to be given \
+                 the Docker socket explicitly — run `tern-agent doctor` for what it expects.",
+            )
+        }
+    };
+
+    let started = Instant::now();
+
+    let exchange = async {
+        let mut stream = tokio::net::UnixStream::connect(&socket)
+            .await
+            .map_err(|error| anyhow::anyhow!("could not open the Docker socket at {socket}: {error}"))?;
+
+        // Hand-written HTTP/1.1 over the Unix socket, for the same reason the
+        // handshake above is hand-written: a Docker client crate is a large
+        // dependency for one GET.
+        let request = format!(
+            "GET /containers/{container}/json HTTP/1.1\r\nHost: docker\r\nConnection: close\r\n\r\n"
+        );
+        stream.write_all(request.as_bytes()).await?;
+
+        let mut response = Vec::new();
+        stream.read_to_end(&mut response).await?;
+        Ok::<String, anyhow::Error>(String::from_utf8_lossy(&response).into_owned())
+    };
+
+    let response = match tokio::time::timeout(Duration::from_millis(timeout_ms), exchange).await {
+        Ok(Ok(response)) => response,
+        Ok(Err(error)) => return failed(error),
+        Err(_) => return failed(format!("timed out after {timeout_ms} ms")),
+    };
+
+    let Some((head, body)) = response.split_once("\r\n\r\n") else {
+        return failed("the Docker socket returned a response with no body");
+    };
+
+    let status = head
+        .split_whitespace()
+        .nth(1)
+        .and_then(|code| code.parse::<u16>().ok())
+        .unwrap_or(0);
+
+    if status == 404 {
+        return failed(format!("no container named {container}"));
+    }
+    if status != 200 {
+        return failed(format!("the Docker socket answered {status}"));
+    }
+
+    // Chunked responses arrive with size prefixes; Docker sends them for this
+    // endpoint. Taking the JSON from the first brace to the last is cruder than
+    // decoding the chunking and is enough to hand a valid document to the
+    // assertion engine.
+    let json = match (body.find('{'), body.rfind('}')) {
+        (Some(start), Some(end)) if end > start => &body[start..=end],
+        _ => return failed("the Docker socket returned no JSON"),
+    };
+
+    let parsed: serde_json::Value = match serde_json::from_str(json) {
+        Ok(parsed) => parsed,
+        Err(error) => return failed(format!("could not read the container's JSON: {error}")),
+    };
+
+    let running = parsed
+        .pointer("/State/Running")
+        .and_then(|value| value.as_bool())
+        .unwrap_or(false);
+
+    if !running {
+        let state = parsed
+            .pointer("/State/Status")
+            .and_then(|value| value.as_str())
+            .unwrap_or("unknown");
+        return failed(format!("container {container} is {state}"));
+    }
+
+    let health = parsed
+        .pointer("/State/Health/Status")
+        .and_then(|value| value.as_str());
+
+    match (health, require_healthcheck) {
+        (Some("healthy"), _) | (None, false) => {}
+        (Some(other), _) => return failed(format!("container {container} is {other}")),
+        (None, true) => {
+            return failed(format!(
+                "container {container} defines no healthcheck, and this control requires one"
+            ))
+        }
+    }
+
+    let mut observation = blank();
+    observation.latency_ms = Some(started.elapsed().as_millis() as i64);
+    observation.body = Some(json.to_string());
+    observation
 }
 
 fn failed(error: impl std::fmt::Display) -> Observation {

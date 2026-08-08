@@ -6,6 +6,7 @@ import {
   certProbeSchema,
   dnsAssertionSchema,
   dnsProbeSchema,
+  dockerProbeSchema,
   headerAssertionSchema,
   httpProbeSchema,
   jsonPathAssertionSchema,
@@ -14,6 +15,7 @@ import {
   pingProbeSchema,
   statusCodeAssertionSchema,
   tcpProbeSchema,
+  websocketProbeSchema,
 } from './probe.js'
 
 /**
@@ -91,9 +93,31 @@ const strictProbeSchema = z.discriminatedUnion('type', [
   httpProbeSchema.strict().extend(strictAssertions),
   dnsProbeSchema.strict().extend(strictAssertions),
   certProbeSchema.strict().extend(strictAssertions),
+  websocketProbeSchema.strict().extend(strictAssertions),
+  dockerProbeSchema.strict().extend(strictAssertions),
 ])
 
-export const CONTROL_KINDS = ['push', 'http', 'tcp', 'ping', 'dns', 'cert'] as const
+/**
+ * Kept in step with the `control_kind` enum in `@tern/db`, and in the same
+ * order — the enum is appended to and never reordered, so this list reads as
+ * the history of what the product learned to check.
+ *
+ * `docker` is accepted here even though the server cannot run it. A file is a
+ * description of what to monitor, not a claim about who monitors it: the
+ * control is created, and the assignment to an agent that has the socket is a
+ * separate decision made on a separate screen. Refusing it at import would mean
+ * a fleet's file could not describe the fleet's own containers.
+ */
+export const CONTROL_KINDS = [
+  'push',
+  'http',
+  'tcp',
+  'ping',
+  'dns',
+  'cert',
+  'websocket',
+  'docker',
+] as const
 
 /**
  * How much file is accepted, in bytes of UTF-8.

@@ -56,7 +56,27 @@ import { PlatformScreen } from './PlatformScreen'
  * depends on the wide case working.
  */
 export function AdminApp({ slug }: { slug: string }) {
-  const me = useQuery({ queryKey: ['me'], queryFn: adminApi.me, retry: false })
+  // Retried, except on the one answer that means the question is settled.
+  //
+  // This asked once and treated every failure as "signed out", which is a
+  // conclusion the failure does not support: a 429, a 502 from a reverse proxy
+  // mid-reload, a dropped connection on a train all say "could not ask", not
+  // "you are not signed in". The difference matters because the two look
+  // nothing alike to the reader — one is a sign-in form asking for a password
+  // they already gave, the other is a machine that will answer in a moment.
+  //
+  // Found end to end rather than reasoned about: `/auth/me` lives in the route
+  // file that carries the hard limiter meant for `/login` and
+  // `/password/forgot` — ten requests a minute, per IP. The admin calls it on
+  // every mount, so a brisk session hit the limit and was thrown back to the
+  // sign-in form holding a valid session cookie. Behind one NAT that counter is
+  // shared by everybody in the building.
+  const me = useQuery({
+    queryKey: ['me'],
+    queryFn: adminApi.me,
+    retry: (attempt, error) => attempt < 3 && !(error instanceof ApiError && error.status === 401),
+    retryDelay: (attempt) => 500 * 2 ** attempt,
+  })
   const [section, setSection] = useSection(slug)
 
   // The tenant's accent, applied to its admin as well as its page: an operator
@@ -2049,6 +2069,16 @@ const CONTROL_KINDS = [
   { id: 'ping', label: 'Ping', hint: 'ICMP echo to a host.' },
   { id: 'dns', label: 'DNS', hint: 'Resolve a name and check the answer.' },
   { id: 'cert', label: 'TLS certificate', hint: 'Read the certificate and its expiry.' },
+  {
+    id: 'websocket',
+    label: 'WebSocket',
+    hint: 'Open the handshake to a ws:// or wss:// endpoint.',
+  },
+  {
+    id: 'docker',
+    label: 'Docker container',
+    hint: 'A container on an agent’s host. Needs an agent with the Docker socket.',
+  },
 ] as const
 
 const KIND_HINT: Record<string, string> = Object.fromEntries(
@@ -2082,6 +2112,10 @@ function probeConfig(form: {
       return { name: form.dnsName.trim(), recordType: form.recordType }
     case 'cert':
       return { host: form.host.trim(), port: form.port }
+    case 'websocket':
+      return { url: form.url.trim() }
+    case 'docker':
+      return { container: form.host.trim() }
     default:
       // `push` carries no probe. An empty object rather than the previous spec,
       // so switching a control to push actually stops it being probed.
@@ -2321,6 +2355,35 @@ function ControlEditor({
                   </select>
                 </Field>
               </div>
+            )}
+
+            {form.kind === 'websocket' && (
+              <Field
+                label="URL"
+                hint="ws:// or wss://. The handshake is measured; no frames are sent."
+              >
+                <Input
+                  value={form.url}
+                  onChange={(e) => setForm({ ...form, url: e.target.value })}
+                  placeholder="wss://example.com/socket"
+                />
+              </Field>
+            )}
+
+            {/* Reuses `host` as the container field rather than adding a state
+                key: the form is one flat object, and a `container` that only
+                ever holds what `host` would has no reason to exist. */}
+            {form.kind === 'docker' && (
+              <Field
+                label="Container"
+                hint="Name or ID, as docker ps prints it. Runs on the agent's host — the server cannot run this kind."
+              >
+                <Input
+                  value={form.host}
+                  onChange={(e) => setForm({ ...form, host: e.target.value })}
+                  placeholder="api"
+                />
+              </Field>
             )}
 
             {(form.kind === 'tcp' || form.kind === 'cert') && (

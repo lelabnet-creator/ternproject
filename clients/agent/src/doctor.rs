@@ -180,6 +180,7 @@ pub async fn run(config_path: &Path, queue_path: &Path) -> Report {
     checks.push(("dns".into(), dns_check(&config.server).await));
     checks.push(("clock".into(), clock_check()));
     checks.push(("icmp".into(), icmp_check()));
+    checks.push(("docker".into(), docker_check()));
 
     Report { checks }
 }
@@ -261,6 +262,31 @@ fn clock_check() -> Verdict {
 }
 
 /// Whether a ping probe will be a real ping.
+/// Whether this agent can run `docker` controls.
+///
+/// Three outcomes rather than two, and the middle one is the point. Unset is
+/// not a failure: the socket is opt-in, most agents will never want it, and a
+/// red line for a capability nobody asked for teaches operators to ignore this
+/// report. Set-but-unreadable *is* a failure, because somebody asked for it and
+/// it will not work.
+fn docker_check() -> Verdict {
+    let Ok(path) = std::env::var("TERN_DOCKER_SOCKET") else {
+        return Verdict::Ok("TERN_DOCKER_SOCKET unset — docker controls disabled".into());
+    };
+
+    if path.is_empty() {
+        return Verdict::Ok("TERN_DOCKER_SOCKET empty — docker controls disabled".into());
+    }
+
+    match std::os::unix::net::UnixStream::connect(&path) {
+        Ok(_) => Verdict::Ok(format!("{path} is readable")),
+        Err(error) => Verdict::Fail(format!(
+            "TERN_DOCKER_SOCKET is {path}, but it cannot be opened: {error}. \
+             Mount the socket read-only, and check the agent's user is in the docker group"
+        )),
+    }
+}
+
 fn icmp_check() -> Verdict {
     use socket2::{Domain, Protocol, Socket, Type};
 

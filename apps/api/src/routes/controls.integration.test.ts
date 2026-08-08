@@ -76,6 +76,38 @@ describe('creating a control', () => {
     })
     expect(good.statusCode).toBe(201)
   })
+
+  /*
+   * The regression this pair exists for.
+   *
+   * `websocket` and `docker` were added to the probe schema, to the database
+   * enum and to both probes before anything here would accept them: the kind
+   * list was written out separately in the route, in the importer and in the
+   * editor, so the admin offered two kinds the API answered 400 to. The route
+   * now takes its list from the same constant the importer does, and these
+   * assert the result end to end rather than the wiring.
+   */
+  it('creates a websocket control, which the kind list once rejected', async () => {
+    const response = await create({
+      key: `socket-${Date.now()}`,
+      kind: 'websocket',
+      config: { url: 'wss://example.com/socket', assertions: [] },
+    })
+    expect(response.statusCode, response.body).toBe(201)
+  })
+
+  it('creates a docker control, though the server will not run it', async () => {
+    // Accepted here and refused at probe time, deliberately: the API has no
+    // Docker socket and is never given one, so this control is created to be
+    // assigned to an agent that does. Refusing it at creation would mean no
+    // fleet could describe its own containers.
+    const response = await create({
+      key: `container-${Date.now()}`,
+      kind: 'docker',
+      config: { container: 'api', assertions: [] },
+    })
+    expect(response.statusCode, response.body).toBe(201)
+  })
 })
 
 describe('tenant isolation', () => {

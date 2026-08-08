@@ -13,6 +13,7 @@ import {
   SCRIPT_TEMPLATES,
 } from '@tern/shared'
 import { blocksSchema } from '@tern/shared/blocks'
+import { CONTROL_KINDS } from '@tern/shared/control-import'
 import { config } from '../config.js'
 import { audit } from '../services/audit.js'
 import { runProbe } from '../services/probe-transport.js'
@@ -226,7 +227,13 @@ const routes: FastifyPluginAsyncZod = async (app) => {
     name: z.string().min(1).max(200),
     description: z.string().max(1000).optional(),
     groupId: z.string().uuid().nullable().optional(),
-    kind: z.enum(['push', 'http', 'tcp', 'ping', 'dns', 'cert']).default('push'),
+    /*
+     * Taken from the shared list rather than spelt out again. It was spelt out
+     * here, and in the importer, and in the web editor — so adding a kind meant
+     * finding three places, and missing one meant the API rejected a control
+     * the editor had just offered to create. One of them is now the source.
+     */
+    kind: z.enum(CONTROL_KINDS).default('push'),
     config: z.record(z.string(), z.unknown()).default({}),
     expectedIntervalS: z.number().int().min(10).max(86_400).nullable().optional(),
     degradedThresholdMs: z.number().int().positive().nullable().optional(),

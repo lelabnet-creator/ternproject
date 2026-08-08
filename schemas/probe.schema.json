@@ -1867,6 +1867,747 @@
         "type",
         "host"
       ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "websocket"
+        },
+        "url": {
+          "type": "string",
+          "format": "uri"
+        },
+        "subprotocol": {
+          "type": "string"
+        },
+        "headers": {
+          "default": {},
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "tlsVerify": {
+          "default": true,
+          "type": "boolean"
+        },
+        "timeoutMs": {
+          "default": 10000,
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "assertions": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "const": "status_code"
+                  },
+                  "severity": {
+                    "default": "down",
+                    "type": "string",
+                    "enum": [
+                      "degraded",
+                      "down"
+                    ]
+                  },
+                  "eq": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "in": {
+                    "type": "array",
+                    "items": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    }
+                  },
+                  "range": {
+                    "type": "array",
+                    "prefixItems": [
+                      {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "type"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "const": "latency"
+                  },
+                  "severity": {
+                    "default": "down",
+                    "type": "string",
+                    "enum": [
+                      "degraded",
+                      "down"
+                    ]
+                  },
+                  "comparator": {
+                    "default": "lt",
+                    "type": "string",
+                    "enum": [
+                      "lt",
+                      "lte"
+                    ]
+                  },
+                  "ms": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "required": [
+                  "type",
+                  "ms"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "const": "body"
+                  },
+                  "severity": {
+                    "default": "down",
+                    "type": "string",
+                    "enum": [
+                      "degraded",
+                      "down"
+                    ]
+                  },
+                  "comparator": {
+                    "default": "contains",
+                    "type": "string",
+                    "enum": [
+                      "contains",
+                      "matches",
+                      "ne"
+                    ]
+                  },
+                  "value": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "type",
+                  "value"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "const": "header"
+                  },
+                  "severity": {
+                    "default": "down",
+                    "type": "string",
+                    "enum": [
+                      "degraded",
+                      "down"
+                    ]
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "comparator": {
+                    "default": "eq",
+                    "type": "string",
+                    "enum": [
+                      "eq",
+                      "ne",
+                      "lt",
+                      "lte",
+                      "gt",
+                      "gte",
+                      "contains",
+                      "matches",
+                      "exists",
+                      "absent"
+                    ]
+                  },
+                  "value": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "type",
+                  "name"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "const": "json_path"
+                  },
+                  "severity": {
+                    "default": "down",
+                    "type": "string",
+                    "enum": [
+                      "degraded",
+                      "down"
+                    ]
+                  },
+                  "path": {
+                    "type": "string"
+                  },
+                  "comparator": {
+                    "default": "eq",
+                    "type": "string",
+                    "enum": [
+                      "eq",
+                      "ne",
+                      "lt",
+                      "lte",
+                      "gt",
+                      "gte",
+                      "contains",
+                      "matches",
+                      "exists",
+                      "absent"
+                    ]
+                  },
+                  "value": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "boolean"
+                      }
+                    ]
+                  },
+                  "as": {
+                    "default": "string",
+                    "type": "string",
+                    "enum": [
+                      "string",
+                      "number",
+                      "bool"
+                    ]
+                  },
+                  "capture": {
+                    "default": false,
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "type",
+                  "path"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "const": "json_search"
+                  },
+                  "severity": {
+                    "default": "down",
+                    "type": "string",
+                    "enum": [
+                      "degraded",
+                      "down"
+                    ]
+                  },
+                  "key": {
+                    "type": "string"
+                  },
+                  "comparator": {
+                    "default": "exists",
+                    "type": "string",
+                    "enum": [
+                      "eq",
+                      "contains",
+                      "matches",
+                      "exists",
+                      "absent"
+                    ]
+                  },
+                  "value": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "boolean"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "type"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "const": "cert_expires_in"
+                  },
+                  "severity": {
+                    "default": "down",
+                    "type": "string",
+                    "enum": [
+                      "degraded",
+                      "down"
+                    ]
+                  },
+                  "days": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "required": [
+                  "type",
+                  "days"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "const": "dns_record"
+                  },
+                  "severity": {
+                    "default": "down",
+                    "type": "string",
+                    "enum": [
+                      "degraded",
+                      "down"
+                    ]
+                  },
+                  "comparator": {
+                    "default": "contains",
+                    "type": "string",
+                    "enum": [
+                      "eq",
+                      "contains",
+                      "exists"
+                    ]
+                  },
+                  "value": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "type"
+                ]
+              }
+            ]
+          }
+        }
+      },
+      "required": [
+        "type",
+        "url"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "docker"
+        },
+        "container": {
+          "type": "string",
+          "minLength": 1
+        },
+        "requireHealthcheck": {
+          "default": false,
+          "type": "boolean"
+        },
+        "timeoutMs": {
+          "default": 10000,
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "assertions": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "const": "status_code"
+                  },
+                  "severity": {
+                    "default": "down",
+                    "type": "string",
+                    "enum": [
+                      "degraded",
+                      "down"
+                    ]
+                  },
+                  "eq": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "in": {
+                    "type": "array",
+                    "items": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    }
+                  },
+                  "range": {
+                    "type": "array",
+                    "prefixItems": [
+                      {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "type"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "const": "latency"
+                  },
+                  "severity": {
+                    "default": "down",
+                    "type": "string",
+                    "enum": [
+                      "degraded",
+                      "down"
+                    ]
+                  },
+                  "comparator": {
+                    "default": "lt",
+                    "type": "string",
+                    "enum": [
+                      "lt",
+                      "lte"
+                    ]
+                  },
+                  "ms": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "required": [
+                  "type",
+                  "ms"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "const": "body"
+                  },
+                  "severity": {
+                    "default": "down",
+                    "type": "string",
+                    "enum": [
+                      "degraded",
+                      "down"
+                    ]
+                  },
+                  "comparator": {
+                    "default": "contains",
+                    "type": "string",
+                    "enum": [
+                      "contains",
+                      "matches",
+                      "ne"
+                    ]
+                  },
+                  "value": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "type",
+                  "value"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "const": "header"
+                  },
+                  "severity": {
+                    "default": "down",
+                    "type": "string",
+                    "enum": [
+                      "degraded",
+                      "down"
+                    ]
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "comparator": {
+                    "default": "eq",
+                    "type": "string",
+                    "enum": [
+                      "eq",
+                      "ne",
+                      "lt",
+                      "lte",
+                      "gt",
+                      "gte",
+                      "contains",
+                      "matches",
+                      "exists",
+                      "absent"
+                    ]
+                  },
+                  "value": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "type",
+                  "name"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "const": "json_path"
+                  },
+                  "severity": {
+                    "default": "down",
+                    "type": "string",
+                    "enum": [
+                      "degraded",
+                      "down"
+                    ]
+                  },
+                  "path": {
+                    "type": "string"
+                  },
+                  "comparator": {
+                    "default": "eq",
+                    "type": "string",
+                    "enum": [
+                      "eq",
+                      "ne",
+                      "lt",
+                      "lte",
+                      "gt",
+                      "gte",
+                      "contains",
+                      "matches",
+                      "exists",
+                      "absent"
+                    ]
+                  },
+                  "value": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "boolean"
+                      }
+                    ]
+                  },
+                  "as": {
+                    "default": "string",
+                    "type": "string",
+                    "enum": [
+                      "string",
+                      "number",
+                      "bool"
+                    ]
+                  },
+                  "capture": {
+                    "default": false,
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "type",
+                  "path"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "const": "json_search"
+                  },
+                  "severity": {
+                    "default": "down",
+                    "type": "string",
+                    "enum": [
+                      "degraded",
+                      "down"
+                    ]
+                  },
+                  "key": {
+                    "type": "string"
+                  },
+                  "comparator": {
+                    "default": "exists",
+                    "type": "string",
+                    "enum": [
+                      "eq",
+                      "contains",
+                      "matches",
+                      "exists",
+                      "absent"
+                    ]
+                  },
+                  "value": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "boolean"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "type"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "const": "cert_expires_in"
+                  },
+                  "severity": {
+                    "default": "down",
+                    "type": "string",
+                    "enum": [
+                      "degraded",
+                      "down"
+                    ]
+                  },
+                  "days": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "required": [
+                  "type",
+                  "days"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "const": "dns_record"
+                  },
+                  "severity": {
+                    "default": "down",
+                    "type": "string",
+                    "enum": [
+                      "degraded",
+                      "down"
+                    ]
+                  },
+                  "comparator": {
+                    "default": "contains",
+                    "type": "string",
+                    "enum": [
+                      "eq",
+                      "contains",
+                      "exists"
+                    ]
+                  },
+                  "value": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "type"
+                ]
+              }
+            ]
+          }
+        }
+      },
+      "required": [
+        "type",
+        "container"
+      ]
     }
   ]
 }

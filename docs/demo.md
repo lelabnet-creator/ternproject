@@ -30,11 +30,11 @@ that leaks is not a demo.
 
 Read-only is asserted at three levels, and they fail independently:
 
-| Level       | Mechanism                                            | What it stops                             |
-| ----------- | ---------------------------------------------------- | ----------------------------------------- |
-| Tenant      | `readOnly` enforced in `context.ts`                   | Every write, through any route or session |
-| Filesystem  | `read_only: true`, cluster on a tmpfs                 | Anything the container writes to itself   |
-| Time        | The image is the state; a restart discards the rest   | Drift, and anything the first two missed  |
+| Level      | Mechanism                                           | What it stops                             |
+| ---------- | --------------------------------------------------- | ----------------------------------------- |
+| Tenant     | `readOnly` enforced in `context.ts`                 | Every write, through any route or session |
+| Filesystem | `read_only: true`, cluster on a tmpfs               | Anything the container writes to itself   |
+| Time       | The image is the state; a restart discards the rest | Drift, and anything the first two missed  |
 
 The first is the real one. The other two are what make it hard to undo by
 accident.

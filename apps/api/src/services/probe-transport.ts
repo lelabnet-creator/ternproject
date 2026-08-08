@@ -36,6 +36,118 @@ async function observe(probe: Probe): Promise<ProbeObservation> {
       return observeDns(probe)
     case 'cert':
       return observeCert(probe)
+    case 'websocket':
+      return observeWebsocket(probe)
+    case 'docker':
+      /*
+       * The one target the server refuses.
+       *
+       * Running it would mean handing this process a Docker socket, and the
+       * Docker socket is root on the host: an HTTP service able to create a
+       * privileged container bind-mounting `/` is a remote root shell with
+       * extra steps. No configuration flag is offered, because a flag is a
+       * thing somebody turns on.
+       *
+       * An error rather than a silent skip: the control is assigned to an
+       * agent or it does not work, and "nothing happened" is the worst way to
+       * learn which.
+       */
+      return {
+        error:
+          'A docker control must be run by an agent on the host. The server has no ' +
+          'Docker socket and is not given one — see `docker` in the probe specification.',
+      }
+  }
+}
+
+/**
+ * The WebSocket opening handshake, and only that.
+ *
+ * `fetch` cannot do this: it treats a 101 as a protocol error rather than a
+ * response, so the status line never reaches the caller. The handshake is an
+ * ordinary HTTP/1.1 upgrade request, so it is written out by hand over a socket
+ * the same way `observeCert` does its own TLS.
+ *
+ * The clock stops on the status line. Nothing is sent afterwards and the socket
+ * is closed immediately — see the note on `websocketProbeSchema` for why there
+ * is no send/expect pair.
+ */
+async function observeWebsocket(
+  probe: Extract<Probe, { type: 'websocket' }>,
+): Promise<ProbeObservation> {
+  const url = new URL(probe.url)
+  const secure = url.protocol === 'wss:'
+  const port = url.port ? Number(url.port) : secure ? 443 : 80
+  const started = performance.now()
+
+  /* 16 random bytes, base64. The server echoes a hash of it back; we do not
+     verify that, because a server that answers 101 has accepted the upgrade and
+     the accept-hash tells us nothing further about availability. */
+  const key = Buffer.from(crypto.getRandomValues(new Uint8Array(16))).toString('base64')
+
+  const headers = [
+    `GET ${url.pathname}${url.search} HTTP/1.1`,
+    `Host: ${url.host}`,
+    'Upgrade: websocket',
+    'Connection: Upgrade',
+    `Sec-WebSocket-Key: ${key}`,
+    'Sec-WebSocket-Version: 13',
+    ...(probe.subprotocol ? [`Sec-WebSocket-Protocol: ${probe.subprotocol}`] : []),
+    ...Object.entries(probe.headers).map(([name, value]) => `${name}: ${value}`),
+    '',
+    '',
+  ].join('\r\n')
+
+  try {
+    const socket = secure
+      ? (await import('node:tls')).connect({
+          host: url.hostname,
+          port,
+          servername: url.hostname,
+          rejectUnauthorized: probe.tlsVerify,
+        })
+      : connect({ host: url.hostname, port })
+
+    const statusLine = await new Promise<string>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        socket.destroy()
+        reject(new Error(`No handshake response within ${probe.timeoutMs} ms`))
+      }, probe.timeoutMs)
+
+      let buffered = ''
+
+      const finish = (line: string) => {
+        clearTimeout(timer)
+        socket.destroy()
+        resolve(line)
+      }
+
+      socket.on(secure ? 'secureConnect' : 'connect', () => socket.write(headers))
+      socket.on('data', (chunk: Buffer) => {
+        buffered += chunk.toString('latin1')
+        const end = buffered.indexOf('\r\n')
+        if (end !== -1) finish(buffered.slice(0, end))
+      })
+      socket.on('error', (error: Error) => {
+        clearTimeout(timer)
+        socket.destroy()
+        reject(error)
+      })
+    })
+
+    const latencyMs = Math.round(performance.now() - started)
+    /* "HTTP/1.1 101 Switching Protocols" — the number is what `status_code`
+       asserts on, so a plain handshake check is `{ "type": "status_code",
+       "eq": 101 }` and needs nothing new in the engine. */
+    const status = Number(statusLine.split(' ')[1])
+
+    return {
+      latencyMs,
+      statusCode: Number.isFinite(status) ? status : undefined,
+      body: statusLine,
+    }
+  } catch (error) {
+    return { error: describe(error) }
   }
 }
 
