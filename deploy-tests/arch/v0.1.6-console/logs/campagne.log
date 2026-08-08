@@ -1,0 +1,25 @@
+
+=== Arch Linux (cloud image) ===
+  [ok ] la machine démarre et SSH répond
+  NAME="Arch Linux" PRETTY_NAME="Arch Linux"
+  [ok ] Docker est absent au départ
+  [ok ] le binaire local est déposé
+  installation (Docker absent : le chemin long)
+    → « Install Docker now? » : réponse envoyée
+    → « pacman -Syu » : réponse envoyée
+    (questions jamais posées : ["Add Docker's repository?", 'docker group?', 'Start Docker with this machine?', 'Port published on the host', 'Public URL', 'Trusted proxy', 'own services too?'])
+  [ÉCHEC] l'installateur va au bout — code=None
+  [ok ] rien hors ASCII/cadre/Latin-1 dans le flux — U+2014 EM DASH ×5
+  [ÉCHEC] les trois conteneurs tournent — bash: line 1: docker: command not found
+  [ÉCHEC] docker est activé au démarrage — not-found
+  [ÉCHEC] /health répond avant reboot — 000
+    [capture /tmp/distro-arch/01-console-question.png]
+    [capture /tmp/distro-arch/02-console-oui-non.png]
+    [capture /tmp/distro-arch/03-console-oui-non-bascule.png]
+    [capture /tmp/distro-arch/04-console-checklist.png]
+  redémarrage
+  [ok ] la machine revient
+  [ÉCHEC] /health répond APRÈS reboot, sans commande docker — 000
+  [ÉCHEC] les conteneurs sont revenus seuls
+
+=== arch : 5/11 ===

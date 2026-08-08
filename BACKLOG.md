@@ -68,86 +68,57 @@ milestone plan stays finishable.
   which the API spoke nowhere before. `List-Unsubscribe-Post` is now advertised, because the URL
   genuinely answers a POST.
 
-## Tracked gaps — installer on a server console, 8 August 2026
+## Open gaps — installer and its deployment recipe
 
-Found while fixing the checklist and the yes/no on `TERM=linux`, and while answering "does the
-stack come back after a reboot". Each was measured on a VM, on its real console, not reasoned
-about — Ubuntu 24.04 first, then Rocky 9.8 and Arch, all three of which now pass the recipe end to
-end including the reboot.
+Relevés pendant la campagne du 8 août 2026 sur trois distributions — Ubuntu
+24.04, Rocky 9.8, Arch — qui passent désormais la recette de bout en bout,
+redémarrage compris. Ce qui a été corrigé au même passage est dans l'historique
+git ; ce qui suit est ce qui reste.
 
-### Still open
+### Dans le crate de l'installateur
 
-- [ ] **`clippy::pedantic` and `nursery` are not enforced.** CI runs `-D warnings` on the default
-      lint set, which is clean. The stricter sets report warnings that are all stylistic:
-      `module_name_repetitions` (28) and `format!` appended to a `String` (10) are most of them.
-      Decide the bar, then hold it in CI — or decide not to, and say so here.
-- [ ] **Two functions exceed 100 lines** — `install_docker` and `build_and_start`. Both are
-      narrative by design, and both are flagged by `clippy::nursery`.
-- [ ] **Ten `expect()` sites remain panic paths.** All are compile-time invariants — a static
-      template, a one-character literal — but the release profile sets `panic = "abort"`, so each
-      is an abort with no unwinding. Acceptable as assessed; recorded because a safety-critical
-      bar (Ferrocene, ISO/IEC 5055 reliability) counts them.
-- [ ] **"Waiting for `agent.toml` to appear" reads as a failure.** It is the correct state for an
-      instance whose admin account and page do not exist yet, and it is the first thing in the
-      agent's log after a fresh install. Say why in the line, or say it in the panel.
-- [ ] **The TypeScript side has never been audited.** The console work touched no `.ts` file, so
-      `typescript-eslint` strict conformance across `apps/` is unmeasured rather than met. Recorded
-      so nobody reads the Rust report as covering the repository.
+- [ ] **`clippy::pedantic` et `nursery` ne sont pas appliqués.** La CI passe
+      `-D warnings` sur le jeu par défaut, qui est propre. Les jeux stricts
+      remontent des avertissements tous stylistiques : `module_name_repetitions`
+      (28) et `format!` ajouté à un `String` (10) en sont l'essentiel. Décider la
+      barre, puis la tenir en CI — ou décider de ne pas la tenir, et l'écrire ici.
+- [ ] **Deux fonctions dépassent 100 lignes** — `install_docker` et
+      `build_and_start`. Les deux sont narratives par construction, et les deux
+      sont signalées par `clippy::nursery`.
+- [ ] **Dix `expect()` restent des chemins de panique.** Tous portent sur des
+      invariants de compilation — un gabarit statique, un littéral d'un
+      caractère — mais le profil release pose `panic = "abort"`, donc chacun est
+      un abandon sans déroulement de pile. Acceptable tel qu'évalué ; consigné
+      parce qu'une barre de sûreté (Ferrocene, ISO/IEC 5055 fiabilité) les compte.
 
-### Found on Rocky and Arch, not yet chased
+### Ce que la campagne a sorti et que personne n'a chassé
 
-- [ ] **cliclack's own ASCII fallback for `└` is an em dash.** `Emoji("└", "—")` in
-      `cliclack/src/theme.rs`: the character it falls back to when the locale cannot encode
-      Unicode is U+2014, which is not ASCII either. It reaches the screen on Arch, whose cloud
-      image has no UTF-8 locale — visible as `—` closing every prompt in the transcripts. Ours is
-      the frame we draw ourselves, so this is upstream's; the options are a theme override or a
-      patch to cliclack.
-- [ ] **Ten U+FFFD in the Rocky transcript.** The replacement character, meaning something in the
-      stream was not valid UTF-8. Harmless to the install, which passed, but it is either dnf
-      output we relay or a decoding fault in the harness, and neither has been identified.
+- [ ] **Le repli « ASCII » de cliclack pour `└` est un tiret cadratin.**
+      `Emoji("└", "—")` dans `cliclack/src/theme.rs` : le caractère de repli,
+      quand la locale ne sait pas encoder l'Unicode, est U+2014 — qui n'est pas
+      de l'ASCII non plus. Il atteint l'écran sur Arch, dont l'image cloud n'a
+      pas de locale UTF-8. Le cadre que nous dessinons nous-mêmes est corrigé ;
+      celui-ci est amont — surcharge du thème, ou correctif chez cliclack.
+- [ ] **Dix U+FFFD dans la transcription Rocky.** Le caractère de remplacement,
+      donc quelque chose dans le flux n'était pas de l'UTF-8 valide. Sans
+      conséquence sur l'installation, qui a réussi, mais c'est soit de la sortie
+      dnf que nous relayons, soit un défaut de décodage du harnais, et ni l'un ni
+      l'autre n'a été identifié.
 
-### Resolved by this pass
+### Ce que l'écran dit et qui se lit de travers
 
-- [x] **Three checklist states that a console drew identically.** `✓`, `○` and the spinner are one
-      substitution glyph on `TERM=linux`. State now travels on colour and weight — green, bold,
-      grey — with an ASCII mark as reinforcement; the charset is decided from what the terminal
-      declares, with `TERN_ASCII` as the escape hatch. Verified on the real console of all three
-      distributions.
-- [x] **A yes/no whose selection could not be read.** `● Yes / ○ No` became `[ Yes ]` in reverse
-      video against a grey `No`: brackets, reverse and grey are three independent channels, and
-      the brackets survive a screen with no attributes at all.
-- [x] **The box frame was invisible on a console.** Painted in `\e[38;5;8m`, which the Linux
-      console renders as near-black on black. `rule_for` now returns blue on a restricted charset,
-      and `bar_color(Submit)` goes through it, so cliclack's gutter and the checklist's own frame
-      cannot disagree. Confirmed on the Arch console, where the box is legible for the first time.
-- [x] **Docker was not guaranteed to start with the machine, and the panel said it did.** The
-      installer only ran `systemctl enable --now docker` when it had installed Docker itself.
-      Measured three ways: service enabled, back in 20 s; service and socket disabled, nothing at
-      all; service disabled and socket enabled, **worse** — nothing starts at boot and the whole
-      stack springs up on the first Docker command anyone types, so it looks healthy to whoever
-      logs in to investigate and stays down for everyone who only opens the page.
-      `ensure_docker_at_boot` detects it, explains what it costs, and asks.
-- [x] **The closing panel promised a restart it had not arranged.** The answer to that question is
-      now carried to the panel, which has two wordings — one that claims the restart and one that
-      says plainly it will not happen and gives the command. A test asserts only one of them can
-      contain the promise.
-- [x] **The deployment recipe never rebooted.** `.vm-lab/run.py` now reboots and requires `/health`
-      to answer, and it does so **before any Docker command of the session** — without that
-      ordering the test passes on socket activation and proves nothing. The reasoning is in the
-      code, where it will be read.
-- [x] **`—` and `…` in catalogue prose.** Both sit outside Latin-1, which is what a kernel console
-      font carries. Replaced with `-` and `...` in every user-visible string, in both languages;
-      the doc comments keep their typography. A test now walks the catalogues and fails on any
-      character above U+00FF.
-- [x] **No `#![forbid(unsafe_code)]`.** The crate had no `unsafe` and nothing kept it that way.
-      It does now.
-- [x] **No `rust-toolchain.toml`.** The musl target needed to build for a server lives in the
-      rustup toolchain, not in a distribution's Rust; without a pin the cross build fails with
-      "can't find crate for `core`", which sends the reader looking for a missing dependency.
-      Pinned, with both musl targets and the two components CI uses.
-- [x] **`#[must_use]` absent crate-wide.** Applied as one sweep through
-      `clippy::must_use_candidate`, which is the only way it is worth doing — a half-annotated API
-      is worse than an unannotated one.
+- [ ] **« Waiting for `agent.toml` to appear » se lit comme une panne.** C'est
+      l'état correct d'une instance dont le compte administrateur et la page
+      n'existent pas encore, et c'est la première chose que le journal de l'agent
+      affiche après une installation neuve. Le dire dans la ligne, ou le dire
+      dans le panneau.
+
+### Portée non couverte
+
+- [ ] **Le TypeScript n'a jamais été audité.** Le travail sur la console n'a
+      touché aucun fichier `.ts` : la conformité `typescript-eslint` stricte sur
+      `apps/` est *non mesurée*, pas *atteinte*. Consigné pour que personne ne
+      lise le rapport Rust comme couvrant le dépôt.
 
 ## Known limitations to revisit
 

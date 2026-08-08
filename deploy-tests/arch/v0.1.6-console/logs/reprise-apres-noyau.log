@@ -1,0 +1,17 @@
+== redémarrage demandé par l'installateur ==
+machine revenue : True
+noyau : 7.1.6-arch1-1
+    → « Install Docker now? »
+    → « pacman -Syu »
+    → « docker group? »
+    → « Port published on the host »
+    → « Public URL »
+    → « Trusted proxy »
+    → « own services too? »
+installateur rc= None
+conteneurs : tern-prod-agent-1 Up Less than a second|tern-prod-app-1 Up 6 seconds (healthy)|tern-prod-db-1 Up 22 seconds (healthy)|
+docker au boot : enabled
+health : 200
+== reboot final ==
+health APRÈS reboot : 200
+conteneurs : tern-prod-agent-1 Up About a minute|tern-prod-app-1 Up About a minute (healthy)|tern-prod-db-1 Up About a minute (healthy)|

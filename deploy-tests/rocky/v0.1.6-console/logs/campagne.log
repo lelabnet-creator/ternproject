@@ -1,0 +1,30 @@
+
+=== Rocky Linux 9 (GenericCloud) ===
+  [ok ] la machine démarre et SSH répond
+  NAME="Rocky Linux" VERSION="9.8 (Blue Onyx)"
+  [ok ] Docker est absent au départ
+  [ok ] le binaire local est déposé
+  installation (Docker absent : le chemin long)
+    → « Install Docker now? » : réponse envoyée
+    → « Add Docker's repository? » : réponse envoyée
+    → « docker group? » : réponse envoyée
+    → « Port published on the host » : réponse envoyée
+    → « Public URL » : réponse envoyée
+    → « Trusted proxy » : réponse envoyée
+    → « own services too? » : réponse envoyée
+    (questions jamais posées : ['pacman -Syu', 'Start Docker with this machine?'])
+  [ÉCHEC] l'installateur va au bout — code=None
+  [ok ] rien hors ASCII/cadre/Latin-1 dans le flux — U+2014 EM DASH ×9, U+FFFD REPLACEMENT CHARACTER ×10, U+2026 HORIZONTAL ELLIPSIS ×1
+  [ok ] les trois conteneurs tournent — tern-prod-agent-1 Up Less than a second|tern-prod-app-1 Up 6 seconds (healthy)|tern-prod-db-1 Up 11 seconds (healthy)|
+  [ok ] docker est activé au démarrage — enabled
+  [ok ] /health répond avant reboot — 200
+    [capture /tmp/distro-rocky/01-console-question.png]
+    [capture /tmp/distro-rocky/02-console-oui-non.png]
+    [capture /tmp/distro-rocky/03-console-oui-non-bascule.png]
+    [capture /tmp/distro-rocky/04-console-checklist.png]
+  redémarrage
+  [ok ] la machine revient
+  [ok ] /health répond APRÈS reboot, sans commande docker — 200
+  [ok ] les conteneurs sont revenus seuls — tern-prod-agent-1 Up 32 seconds|tern-prod-app-1 Up 32 seconds (healthy)|tern-prod-db-1 Up 32 seconds (healthy)|
+
+=== rocky : 10/11 ===
