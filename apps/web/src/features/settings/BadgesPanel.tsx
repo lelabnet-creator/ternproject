@@ -39,7 +39,10 @@ export function BadgesPanel({ slug }: { slug: string }) {
   const relative = `${path}?${query.toString()}`
   const absolute = `${window.location.origin}${relative}`
   const alt = `${label.trim() || control?.name || slug} status`
-  const pageUrl = `${window.location.origin}/${encodeURIComponent(slug)}`
+  // `/s/<slug>`, which is the address the router matches. Without the `/s`
+  // every snippet this panel hands out linked to the landing page instead of
+  // the status page it was advertising.
+  const pageUrl = `${window.location.origin}/s/${encodeURIComponent(slug)}`
 
   return (
     <div style={{ display: 'grid', gap: 'var(--space-4)' }}>

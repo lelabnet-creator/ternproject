@@ -118,7 +118,11 @@ const routes: FastifyPluginAsyncZod = async (app) => {
         })
       }
 
-      const confirmUrl = `${config.PUBLIC_BASE_URL}/s/${tenant.slug}/confirm/${confirmToken}`
+      // The API's own address, not `/s/<slug>/confirm/...` — that matched no
+      // route. The SPA router reads only the slug segment and rendered the
+      // status page, so every confirmation link ever sent was a dead end and
+      // no subscription created from the public form could complete.
+      const confirmUrl = `${config.PUBLIC_BASE_URL}/api/v1/public/${tenant.slug}/subscribers/confirm/${confirmToken}`
 
       /*
        * A webhook proves its own consent.
@@ -177,16 +181,36 @@ const routes: FastifyPluginAsyncZod = async (app) => {
     },
   )
 
+  /**
+   * The page the confirmation mail links to.
+   *
+   * A GET may not confirm anybody, for the same reason it may not unsubscribe
+   * them: mail clients and security appliances prefetch links, and a GET that
+   * confirmed would turn double opt-in into single opt-in performed by a
+   * scanner. It answers a one-button page instead.
+   */
+  app.get(
+    '/public/:slug/subscribers/confirm/:token',
+    {
+      onRequest: [app.requireTenant()],
+      schema: { params: z.object({ slug: z.string(), token: z.string().min(10) }) },
+    },
+    async (req, reply) => {
+      return reply
+        .type('text/html; charset=utf-8')
+        .send(confirmSubscriptionPage(req.params.slug, req.params.token))
+    },
+  )
+
   app.post(
     '/public/:slug/subscribers/confirm/:token',
     {
       onRequest: [app.requireTenant()],
       schema: {
         params: z.object({ slug: z.string(), token: z.string().min(10) }),
-        response: { 200: z.object({ confirmed: z.boolean() }) },
       },
     },
-    async (req) => {
+    async (req, reply) => {
       const [subscriber] = await app.db
         .select()
         .from(schema.subscribers)
@@ -214,6 +238,11 @@ const routes: FastifyPluginAsyncZod = async (app) => {
         ip: req.ip,
       })
 
+      // HTML to whoever pressed the button, JSON to anything else — the same
+      // split the unsubscribe routes make, on the same header.
+      if (req.headers.accept?.includes('text/html')) {
+        return reply.type('text/html; charset=utf-8').send(confirmedPage(req.params.slug))
+      }
       return { confirmed: true }
     },
   )
@@ -381,6 +410,25 @@ function escapeHtml(value: string): string {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
+}
+
+function confirmSubscriptionPage(slug: string, token: string): string {
+  return shell(
+    'Confirm your subscription',
+    `<h1>Confirm your subscription</h1>
+<p>You will receive status notifications for this page. You can unsubscribe from any of them, in one click.</p>
+<form method="post" action="/api/v1/public/${encodeURIComponent(slug)}/subscribers/confirm/${encodeURIComponent(token)}">
+  <button type="submit">Confirm</button>
+</form>`,
+  )
+}
+
+function confirmedPage(slug: string): string {
+  return shell(
+    'Subscribed',
+    `<h1>Confirmed — you are subscribed.</h1>
+<p>You will hear from this page when something changes. <a href="/s/${encodeURIComponent(slug)}">Open the status page</a>.</p>`,
+  )
 }
 
 export default routes

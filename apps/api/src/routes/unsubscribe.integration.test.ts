@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm'
+import { desc, eq } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { schema } from '@tern/db'
 import {
@@ -120,5 +120,62 @@ describe('the address in the mail', () => {
       payload: 'List-Unsubscribe=One-Click',
     })
     expect(response.json()).toEqual({ unsubscribed: true })
+  })
+})
+
+describe('the address in the confirmation mail', () => {
+  it('points at a route the API answers, and a GET does not confirm', async () => {
+    // The bug this replaces: the link was /s/<slug>/confirm/<token>, which the
+    // SPA router read as "the status page for <slug>" and rendered, so no
+    // subscription created from the public form could ever complete.
+    const subscribe = await fx.app.inject({
+      method: 'POST',
+      url: `/api/v1/public/${fx.slug}/subscribers`,
+      payload: { channel: 'email', address: 'confirm-me@test.local' },
+    })
+    expect(subscribe.statusCode).toBe(202)
+
+    const [row] = await fx.app.db
+      .select()
+      .from(schema.subscribers)
+      .where(eq(schema.subscribers.tenantId, fx.tenantId))
+      .orderBy(desc(schema.subscribers.createdAt))
+      .limit(1)
+    expect(row?.confirmTokenHash).not.toBeNull()
+
+    // A token is only in the mail, so drive the routes with a known one.
+    const token = generateToken(24)
+    await fx.app.db
+      .update(schema.subscribers)
+      .set({ confirmTokenHash: hashToken(token) })
+      .where(eq(schema.subscribers.id, row!.id))
+
+    const page = await fx.app.inject({
+      method: 'GET',
+      url: `/api/v1/public/${fx.slug}/subscribers/confirm/${token}`,
+    })
+    expect(page.statusCode).toBe(200)
+    expect(page.headers['content-type']).toContain('text/html')
+
+    // Prefetching that link must not turn double opt-in into single opt-in.
+    const [afterGet] = await fx.app.db
+      .select()
+      .from(schema.subscribers)
+      .where(eq(schema.subscribers.id, row!.id))
+    expect(afterGet?.confirmedAt).toBeNull()
+
+    const confirm = await fx.app.inject({
+      method: 'POST',
+      url: `/api/v1/public/${fx.slug}/subscribers/confirm/${token}`,
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      payload: '',
+    })
+    expect(confirm.statusCode).toBe(200)
+
+    const [afterPost] = await fx.app.db
+      .select()
+      .from(schema.subscribers)
+      .where(eq(schema.subscribers.id, row!.id))
+    expect(afterPost?.confirmedAt).not.toBeNull()
   })
 })

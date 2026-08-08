@@ -129,7 +129,7 @@ export function FleetScreen({ slug, canWrite }: { slug: string; canWrite: boolea
       {agents.data.length === 0 ? (
         <EmptyState
           title="No agents yet"
-          hint="Open a control, go to its Script step and choose the Agent tab. Pairing hands the agent its probes — there is nothing to copy."
+          hint="Press “Add an agent” above for a pairing code. Pairing hands the agent its probes, so there is nothing to copy onto the host and nothing to keep in step by hand."
         />
       ) : (
         <div className="split">
