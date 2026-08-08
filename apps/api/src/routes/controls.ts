@@ -1,4 +1,4 @@
-import { and, eq, gte, inArray } from 'drizzle-orm'
+import { and, eq, gte, inArray, sql } from 'drizzle-orm'
 import { z } from 'zod'
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod'
 import { schema } from '@tern/db'
@@ -16,6 +16,7 @@ import { config } from '../config.js'
 import { audit } from '../services/audit.js'
 import { runProbe } from '../services/probe-transport.js'
 import { purgeSyntheticChecks } from '../services/scheduler.js'
+import { agentCoverage } from '../services/local-probes.js'
 import { assignmentsFor } from '../services/jobs.js'
 import { downsample } from '../services/series.js'
 
@@ -27,6 +28,99 @@ import { downsample } from '../services/series.js'
  * documentation — so simulating, probing and script generation all live here
  * next to the CRUD.
  */
+
+interface Activity {
+  lastCheckAt: string | null
+  lastCheckStatus: string | null
+  lastCheckMessage: string | null
+  lastSuccessAt: string | null
+  lastFailureAt: string | null
+}
+
+/**
+ * When each of a tenant's controls last reported, last succeeded, last failed.
+ *
+ * Two queries rather than one, because they cost very different things. The
+ * latest row per control walks `checks_control_ts_idx` backwards and stops at
+ * the first hit — cheap however much history there is. "When did this last
+ * fail" cannot stop early on a control that never has: there is no row to find,
+ * so it reads the retained window either way, and a filtered aggregate does
+ * that once for the whole tenant instead of once per control.
+ *
+ * Bounded by retention rather than by a window chosen here. `retention_days`
+ * already decides how far back anything is knowable, so "no failure recorded"
+ * means exactly that — within what the instance still keeps.
+ *
+ * Synthetic rows are excluded for the same reason they are excluded from SLA:
+ * a simulated outage is not an outage, and the editor's preview data should
+ * never make a healthy control look like it broke.
+ *
+ * Failure follows `countsAsDown` — down or partial. Degraded is deliberately
+ * not a failure here, or every slow minute would reset a figure people read as
+ * "when did this last break".
+ */
+async function lastActivity(
+  app: Parameters<FastifyPluginAsyncZod>[0],
+  tenantId: string,
+): Promise<Map<string, Activity>> {
+  const iso = (v: unknown): string | null =>
+    v === null || v === undefined ? null : new Date(v as string).toISOString()
+
+  const latest = (await app.db.execute(sql`
+    select distinct on (control_id) control_id, ts, status, message
+    from checks
+    where tenant_id = ${tenantId} and synthetic = false
+    order by control_id, ts desc
+  `)) as unknown as {
+    control_id: string
+    ts: string
+    status: string
+    message: string | null
+  }[]
+
+  const extremes = (await app.db.execute(sql`
+    select control_id,
+           max(ts) filter (where status = 'operational') as last_success_at,
+           max(ts) filter (where status in ('down', 'partial')) as last_failure_at
+    from checks
+    where tenant_id = ${tenantId} and synthetic = false
+    group by control_id
+  `)) as unknown as {
+    control_id: string
+    last_success_at: string | null
+    last_failure_at: string | null
+  }[]
+
+  const out = new Map<string, Activity>()
+  const at = (id: string): Activity => {
+    const existing = out.get(id)
+    if (existing) return existing
+    const fresh: Activity = {
+      lastCheckAt: null,
+      lastCheckStatus: null,
+      lastCheckMessage: null,
+      lastSuccessAt: null,
+      lastFailureAt: null,
+    }
+    out.set(id, fresh)
+    return fresh
+  }
+
+  for (const row of latest) {
+    const entry = at(row.control_id)
+    entry.lastCheckAt = iso(row.ts)
+    entry.lastCheckStatus = row.status
+    entry.lastCheckMessage = row.message ?? null
+  }
+
+  for (const row of extremes) {
+    const entry = at(row.control_id)
+    entry.lastSuccessAt = iso(row.last_success_at)
+    entry.lastFailureAt = iso(row.last_failure_at)
+  }
+
+  return out
+}
 
 const routes: FastifyPluginAsyncZod = async (app) => {
   app.get(
@@ -60,17 +154,37 @@ const routes: FastifyPluginAsyncZod = async (app) => {
               widget: z.string(),
               widgetOptions: z.record(z.string(), z.unknown()),
               position: z.number(),
+              /* When this control last reported, and what it said. Null on a
+                 control nothing has ever pushed to. */
+              lastCheckAt: z.string().nullable(),
+              lastCheckStatus: z.string().nullable(),
+              /* Why it says what it says. The one that matters most here is the
+                 scheduler's "no data received within the expected interval":
+                 without it, an `unknown` with neither a success nor a failure
+                 beside it looks like a contradiction rather than silence. */
+              lastCheckMessage: z.string().nullable(),
+              /* The last time it was well, and the last time it was not —
+                 which are not derivable from the line above: a control that is
+                 down now still has a last good moment, and knowing how long ago
+                 it was is the difference between "just broke" and "nobody
+                 noticed for a week". */
+              lastSuccessAt: z.string().nullable(),
+              lastFailureAt: z.string().nullable(),
             }),
           ),
         },
       },
     },
     async (req) => {
+      const tenantId = req.tenant!.id
+
       const rows = await app.db
         .select()
         .from(schema.controls)
-        .where(eq(schema.controls.tenantId, req.tenant!.id))
+        .where(eq(schema.controls.tenantId, tenantId))
         .orderBy(schema.controls.position)
+
+      const activity = await lastActivity(app, tenantId)
 
       return rows.map((r) => ({
         id: r.id,
@@ -91,6 +205,11 @@ const routes: FastifyPluginAsyncZod = async (app) => {
         widget: r.widget,
         widgetOptions: r.widgetOptions,
         position: r.position,
+        lastCheckAt: activity.get(r.id)?.lastCheckAt ?? null,
+        lastCheckStatus: activity.get(r.id)?.lastCheckStatus ?? null,
+        lastCheckMessage: activity.get(r.id)?.lastCheckMessage ?? null,
+        lastSuccessAt: activity.get(r.id)?.lastSuccessAt ?? null,
+        lastFailureAt: activity.get(r.id)?.lastFailureAt ?? null,
       }))
     },
   )
@@ -665,6 +784,113 @@ const routes: FastifyPluginAsyncZod = async (app) => {
         value: result.value,
         message: result.message,
         assertions: result.assertions,
+      }
+    },
+  )
+
+  /**
+   * Runs one control's own probe now, and records the result.
+   *
+   * The difference from `/probe/run` above is the recording. That one is the
+   * editor's dry run — it answers "is this spec right" and writes nothing. This
+   * one is the operator's "measure it now, I am not waiting for the interval",
+   * so what comes back lands in `checks` like any other sample and the control
+   * stops sitting at `unknown`.
+   *
+   * Three things it refuses, each for a different reason:
+   *
+   *  - A **push** control has no probe. Nothing here could run it; the thing
+   *    that pushes to it is the only thing that can.
+   *  - A **disabled** control is one somebody switched off. Writing a sample
+   *    for it would put a point on a series that is supposed to have stopped.
+   *  - A control a **live remote agent** owns is measured from somewhere this
+   *    process cannot see — that is why the agent exists. A result taken here
+   *    would be the server's opinion of a network it is not on, interleaved
+   *    into the agent's series. The instance's own agent does not count: it
+   *    shares this machine, so there is no second vantage point to create.
+   */
+  app.post(
+    '/:slug/controls/:id/check',
+    {
+      onRequest: [app.requireTenant()],
+      preHandler: [app.requirePermission('control:write')],
+      schema: {
+        params: z.object({ slug: z.string(), id: z.string().uuid() }),
+        response: {
+          200: z.object({
+            at: z.string(),
+            status: z.string(),
+            latencyMs: z.number().nullable(),
+            value: z.number().nullable(),
+            message: z.string().nullable(),
+          }),
+        },
+      },
+    },
+    async (req) => {
+      const tenantId = req.tenant!.id
+
+      const [control] = await app.db
+        .select()
+        .from(schema.controls)
+        .where(and(eq(schema.controls.id, req.params.id), eq(schema.controls.tenantId, tenantId)))
+        .limit(1)
+
+      if (!control) throw app.httpErrors.notFound('No such control')
+
+      if (control.kind === 'push') {
+        throw app.httpErrors.badRequest(
+          'This control is pushed to, so there is no probe to run. It updates when whatever reports to it next reports.',
+        )
+      }
+
+      if (!control.enabled) {
+        throw app.httpErrors.badRequest('This control is disabled. Enable it before checking it.')
+      }
+
+      const parsed = probeSchema.safeParse({ type: control.kind, ...control.config })
+      if (!parsed.success) {
+        throw app.httpErrors.badRequest(
+          'This control has no valid probe configuration — open it and fix the target first.',
+        )
+      }
+
+      const coverage = await agentCoverage(app, Date.now())
+      if (coverage.fullyCoveredRemote.has(tenantId) || coverage.claimedRemote.has(control.id)) {
+        throw app.httpErrors.conflict(
+          'An agent runs this control from its own network, which this server cannot see. It will report on its next interval.',
+        )
+      }
+
+      const result = await runProbe(parsed.data)
+      const at = new Date()
+
+      await app.db.insert(schema.checks).values({
+        ts: at,
+        tenantId,
+        controlId: control.id,
+        status: result.status,
+        latencyMs: result.latencyMs,
+        value: result.value,
+        message: result.message,
+      })
+
+      await audit(app, {
+        action: 'control.check.forced',
+        tenantId,
+        actorId: req.actor.userId,
+        target: control.id,
+        meta: { key: control.key, status: result.status },
+      })
+
+      return {
+        at: at.toISOString(),
+        status: result.status,
+        latencyMs: result.latencyMs,
+        value: result.value,
+        // As with the dry run, `debug` stays out: it can carry a whole response
+        // body, and this is reachable by anyone who can edit a control.
+        message: result.message,
       }
     },
   )

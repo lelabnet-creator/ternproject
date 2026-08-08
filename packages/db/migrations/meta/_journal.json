@@ -99,6 +99,13 @@
       "when": 1786091990294,
       "tag": "0013_left_serpent_society",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1786120781827,
+      "tag": "0014_next_jazinda",
+      "breakpoints": true
     }
   ]
 }

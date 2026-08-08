@@ -657,6 +657,8 @@ const routes: FastifyPluginAsyncZod = async (app) => {
               mfaEnabled: z.boolean(),
               locale: z.string(),
               timezone: z.string(),
+              /** Null while this person has never been walked through the admin. */
+              tourSeenAt: z.string().nullable(),
             }),
             memberships: z.array(
               z.object({
@@ -694,9 +696,36 @@ const routes: FastifyPluginAsyncZod = async (app) => {
           mfaEnabled: user.mfaEnabled,
           locale: user.locale,
           timezone: user.timezone,
+          tourSeenAt: user.tourSeenAt?.toISOString() ?? null,
         },
         memberships,
       }
+    },
+  )
+
+  /**
+   * Whether this person has been walked through the admin.
+   *
+   * On the account rather than in local storage: someone shown the tour on
+   * their laptop has been shown it, and meeting it again on the machine in the
+   * operations room is the product forgetting what it was told. `seen: false` is
+   * how the checkbox in Options asks to see it again.
+   */
+  app.put(
+    '/me/tour',
+    {
+      schema: {
+        body: z.object({ seen: z.boolean() }),
+        response: { 200: z.object({ tourSeenAt: z.string().nullable() }) },
+      },
+    },
+    async (req) => {
+      const user = await requireAuthenticatedUser(app, req)
+      const tourSeenAt = req.body.seen ? new Date() : null
+
+      await app.db.update(schema.users).set({ tourSeenAt }).where(eq(schema.users.id, user.id))
+
+      return { tourSeenAt: tourSeenAt?.toISOString() ?? null }
     },
   )
 }

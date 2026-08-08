@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from 'node:child_process'
-import { chmodSync, existsSync, mkdirSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { and, eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
@@ -64,8 +64,37 @@ export function resolveBinary(): string | null {
 
   // Same resolution as routes/download.ts, and for the same reason: the path
   // must not change depending on whether the API runs from source or a build.
-  const candidate = resolve(process.cwd(), '..', '..', 'clients', 'agent', 'bin', target)
-  return existsSync(candidate) ? candidate : null
+  const root = resolve(process.cwd(), '..', '..')
+  const published = join(root, 'clients', 'agent', 'bin', target)
+
+  /*
+   * `cargo build --release` in `clients/agent`, if anyone has run one.
+   *
+   * `bin/` is written by CI and must not be edited by hand — its own README
+   * says so, and `SHA256SUMS` beside it would stop matching. But that leaves a
+   * source checkout running whatever CI last published, which is how this
+   * instance ended up supervising an agent older than the server it was talking
+   * to: the binary predated the heartbeat, refused to start without probes, and
+   * the supervisor gave up after three attempts.
+   *
+   * So the freshest of the two wins. Nothing to configure, it self-corrects the
+   * moment CI publishes something newer, and it is inert in the production
+   * image, where `target/` does not exist.
+   */
+  const built = join(root, 'clients', 'agent', 'target', 'release', 'tern-agent')
+
+  const mtime = (path: string): number => {
+    try {
+      return statSync(path).mtimeMs
+    } catch {
+      return -1
+    }
+  }
+
+  const candidates = [built, published].filter((path) => mtime(path) >= 0)
+  if (candidates.length === 0) return null
+
+  return candidates.reduce((newest, path) => (mtime(path) > mtime(newest) ? path : newest))
 }
 
 /**

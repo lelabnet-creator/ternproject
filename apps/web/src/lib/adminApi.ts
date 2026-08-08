@@ -54,6 +54,14 @@ export interface Control {
   widget: string
   widgetOptions: Record<string, unknown>
   position: number
+  /** ISO. Null on a control that has never reported. */
+  lastCheckAt: string | null
+  lastCheckStatus: string | null
+  /** Why that status — the scheduler's staleness note, or a failing assertion. */
+  lastCheckMessage: string | null
+  /** ISO. Last `operational`, and last `down`/`partial`, within retention. */
+  lastSuccessAt: string | null
+  lastFailureAt: string | null
 }
 
 export interface TenantSettings {
@@ -309,7 +317,14 @@ export const adminApi = {
 
   me: () =>
     request<{
-      user: { id: string; email: string; name: string; mfaEnabled: boolean }
+      user: {
+        id: string
+        email: string
+        name: string
+        mfaEnabled: boolean
+        /** Null while this person has never been walked through the admin. */
+        tourSeenAt: string | null
+      }
       memberships: {
         tenantId: string
         slug: string
@@ -329,6 +344,10 @@ export const adminApi = {
     }),
 
   logout: () => request<{ ok: boolean }>('POST', '/api/v1/auth/logout'),
+
+  /** `false` asks to be walked through the admin again. Stored on the account. */
+  setTourSeen: (seen: boolean) =>
+    request<{ tourSeenAt: string | null }>('PUT', '/api/v1/auth/me/tour', { seen }),
 
   /** Always resolves, for any address — the API refuses to say which exist. */
   forgotPassword: (email: string) =>
@@ -359,6 +378,16 @@ export const adminApi = {
         metrics?: Record<string, number>
       }[]
     }>('GET', `/api/v1/${slug}/controls/${id}/series?days=${days}`),
+
+  /** Runs this control's probe now and records the result, unlike `probeRun`. */
+  checkNow: (slug: string, id: string) =>
+    request<{
+      at: string
+      status: string
+      latencyMs: number | null
+      value: number | null
+      message: string | null
+    }>('POST', `/api/v1/${slug}/controls/${id}/check`),
 
   simulate: (slug: string, id: string, body: Record<string, unknown>) =>
     request<{ inserted: number }>('POST', `/api/v1/${slug}/controls/${id}/simulate`, body),

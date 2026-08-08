@@ -27,6 +27,10 @@ export function SponsorButton({ label = 'Sponsor TERN' }: { label?: string }) {
   return (
     <a
       href={SPONSORS_URL}
+      // Named explicitly, because the label is hidden in the admin's app bar
+      // and the two marks beside it are decorative — without this the link
+      // would announce itself as its own URL.
+      aria-label={label}
       target="_blank"
       // noreferrer as well as noopener: the sponsor page has no need to learn
       // which status page the visitor came from.
@@ -54,7 +58,7 @@ export function SponsorButton({ label = 'Sponsor TERN' }: { label?: string }) {
       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--space-1)' }}>
         {/* The heart is what the ask is; the mark only says where it leads. */}
         <Heart size={12} aria-hidden="true" style={{ color: 'var(--status-down)' }} />
-        {label}
+        <span className="chrome-label">{label}</span>
       </span>
     </a>
   )

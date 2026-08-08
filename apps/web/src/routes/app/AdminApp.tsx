@@ -8,6 +8,7 @@ import { SponsorButton } from '../../components/SponsorButton'
 import { SiteFooter } from '../../components/SiteFooter'
 import { SetupWizard } from '../../features/onboarding/SetupWizard'
 import { FirstRunSetup } from '../../features/onboarding/FirstRunSetup'
+import { GuidedTour } from '../../features/onboarding/GuidedTour'
 import { accentById, applyAccent } from '../../lib/accents'
 import { PasskeyCancelled, passkeysSupported, signInWithPasskey } from '../../lib/passkeys'
 import { ScriptTabs } from '../../features/control-editor/ScriptTabs'
@@ -189,39 +190,59 @@ export function AdminApp({ slug }: { slug: string }) {
           isSystem={membership.isSystem === true}
         />
 
-        <div
-          className="admin-rail-foot"
-          style={{ display: 'grid', gap: 'var(--space-3)', justifyItems: 'center' }}
-        >
+        {/* The foot of the rail on a wide screen, the right-hand end of the app
+            bar on a narrow one — same three controls, same order, laid out by
+            `.admin-rail-foot` rather than from here. */}
+        <div className="admin-rail-foot">
           <ThemePicker />
           {/* At the foot of the rail rather than on a screen: it is the one
               spot an operator passes every session and never has to read. */}
           <SponsorButton />
           <Button
+            ariaLabel="Sign out"
             onClick={() => {
               void adminApi.logout().then(() => window.location.reload())
             }}
           >
-            Sign out
+            {/* Wrapped rather than given to Button directly: Button is not a
+                flex container, and an icon beside a text node would sit on the
+                baseline instead of centred against it. */}
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+              <Icons.LogOut size={15} aria-hidden="true" />
+              <span className="chrome-label">Sign out</span>
+            </span>
           </Button>
 
           {/* Under sign-out, and deliberately the quietest thing in the rail:
               nobody navigates by it, but it is the first thing anyone is asked
-              for when reporting that something is wrong. */}
-          <p
-            className="tabular"
-            style={{
-              margin: 0,
-              fontSize: 'var(--text-xs)',
-              color: 'var(--color-fg-subtle)',
-            }}
-          >
+              for when reporting that something is wrong. Dropped from the app
+              bar, where every pixel is spent on the tenant's name and the three
+              controls above — see `.admin-build`. */}
+          <p className="admin-build tabular">
             v{__TERN_VERSION__}
             <span aria-hidden="true"> · </span>
             <span title="Build">{__TERN_BUILD__}</span>
           </p>
         </div>
       </aside>
+
+      {/*
+        Only once the shell is on screen, and never over the setup wizard: a
+        tour of a rail that has not rendered has nothing to point at, and one
+        that interrupts first-run setup is a second thing to dismiss before the
+        first can be finished.
+      */}
+      {me.data.user.tourSeenAt === null && (
+        <GuidedTour
+          steps={tourSteps(membership.isSystem === true)}
+          onFinish={() => {
+            // Optimistic, and safe to be: the worst case if the write fails is
+            // the tour reappearing on the next sign-in, which is the state the
+            // reader was already in.
+            void adminApi.setTourSeen(true).finally(() => void me.refetch())
+          }}
+        />
+      )}
 
       <main className="admin-main">
         {section === 'incidents' ? (
@@ -264,6 +285,39 @@ const SECTIONS = [
 ] as const
 
 type Section = (typeof SECTIONS)[number]['id']
+
+/**
+ * What the tour says about each rail entry.
+ *
+ * Keyed by section id and looked up rather than listed separately, so the steps
+ * are generated from the rail itself. An entry with no copy still gets a step —
+ * a tour that silently skips a screen is worse than one with a plain sentence
+ * about it — which is also why ids that only exist once other work lands are
+ * already written here rather than added later and forgotten.
+ */
+const TOUR_COPY: Record<string, string> = {
+  controls:
+    'One control is one thing you watch. Create one and TERN hands you a script that pushes to it, or a probe it runs for you.',
+  incidents:
+    'When something breaks, you declare it here. That marks the affected components, tells subscribers, and starts the timeline you will publish a postmortem against.',
+  maintenance:
+    'Work you know about in advance. Subscribers are reminded before the window opens, and alerting stays quiet for the components you attach while it runs.',
+  layout: 'What the public page shows, in what order, at one of three densities.',
+  agents:
+    'The hosts running your probes. Pairing hands an agent its jobs, so the list of what is monitored never lives only on the monitored machine.',
+  logs: 'Who changed what, where to forward it, and what the HTTP layer is doing right now.',
+  options: 'Naming, branding, retention, mail and subscribers. Also where this tour lives.',
+  platform: 'How much load each page puts on the instance, and whether the instance is keeping up.',
+}
+
+/** One step per rail entry that this reader can actually see. */
+export function tourSteps(isSystem: boolean): { target: string; title: string; body: string }[] {
+  return SECTIONS.filter((entry) => entry.id !== 'platform' || isSystem).map((entry) => ({
+    target: `[data-tour="${entry.id}"]`,
+    title: entry.label,
+    body: TOUR_COPY[entry.id] ?? `Open ${entry.label}.`,
+  }))
+}
 
 /**
  * Two sections, and the URL says which one.
@@ -337,6 +391,10 @@ function AdminNav({
             }}
             aria-current={current ? 'page' : undefined}
             className={current ? 'admin-nav-item is-current' : 'admin-nav-item'}
+            // What the guided tour anchors each step to. A selector on the real
+            // element rather than a screenshot, so a rail that grows an entry
+            // grows a step with it.
+            data-tour={entry.id}
           >
             <NavIcon name={entry.icon} />
             {entry.label}
@@ -461,6 +519,7 @@ function ControlsScreen({ slug, canWrite }: { slug: string; canWrite: boolean })
             <ControlCard
               key={control.id}
               control={control}
+              slug={slug}
               canWrite={canWrite}
               onEdit={() => setEditing(control)}
             />
@@ -500,12 +559,37 @@ function ControlCard({
   control,
   canWrite,
   onEdit,
+  slug,
 }: {
   control: Control
   canWrite: boolean
   onEdit: () => void
+  slug: string
 }) {
   const widget = widgetById(control.widget)
+  const queryClient = useQueryClient()
+  const [refused, setRefused] = useState<string | null>(null)
+
+  /*
+   * Not offered where it cannot work: a pushed control has no probe to run, and
+   * a disabled one is supposed to have stopped. The server refuses both anyway
+   * — this only keeps a button off the card that could never do anything.
+   */
+  const checkable = canWrite && control.kind !== 'push' && control.enabled
+
+  const check = useMutation({
+    mutationFn: () => adminApi.checkNow(slug, control.id),
+    onSuccess: async () => {
+      setRefused(null)
+      // The three timestamps below are what just changed, and they come from
+      // the list — so the list is what has to be refetched.
+      await queryClient.invalidateQueries({ queryKey: ['controls', slug] })
+    },
+    // The API's sentence is the useful one: it names which of the three
+    // refusals applied, and an agent owning the control is not an error the
+    // reader can fix by pressing again.
+    onError: (err) => setRefused(err instanceof ApiError ? err.message : String(err)),
+  })
 
   return (
     <Card>
@@ -522,8 +606,33 @@ function ControlCard({
               the default, so the eye lands on the exceptions. */}
           {!control.isPublic && <Tag>internal</Tag>}
           {!control.enabled && <Tag tone="down">disabled</Tag>}
+          {checkable && (
+            <Button
+              ariaLabel={`Check ${control.name} now`}
+              busy={check.isPending}
+              onClick={() => check.mutate()}
+            >
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+                <Icons.RefreshCw size={14} aria-hidden="true" />
+                Check
+              </span>
+            </Button>
+          )}
           {canWrite && <Button onClick={onEdit}>Edit</Button>}
         </div>
+
+        {refused && (
+          <p
+            role="alert"
+            style={{
+              margin: 0,
+              fontSize: 'var(--text-xs)',
+              color: 'var(--status-down)',
+            }}
+          >
+            {refused}
+          </p>
+        )}
 
         <code
           className="tabular"
@@ -578,9 +687,187 @@ function ControlCard({
           />
           <Spec icon={widget.icon} chip={widget.chip} label={widget.label} />
         </div>
+
+        <ControlActivity control={control} />
       </div>
     </Card>
   )
+}
+
+/**
+ * The three moments that answer "is this thing alright" without opening it.
+ *
+ * They are not redundant with each other, which is why all three are here. The
+ * last check says whether anything is still reporting; the last success says
+ * how long it has been broken; the last failure says whether a control that
+ * reads fine now has been quietly flapping. A card showing only the first can
+ * be green and three days stale at the same time.
+ *
+ * Status carries a colour, but never only a colour: each line has its own glyph
+ * and its own word, so the card survives a monochrome print, a colour-blind
+ * reader, and the theme being wrong.
+ */
+function ControlActivity({ control }: { control: Control }) {
+  const status = control.lastCheckStatus
+  const failed = status === 'down' || status === 'partial'
+
+  /*
+   * The word, not just the tint.
+   *
+   * Without it the three lines can read as a contradiction — a check at 22:09,
+   * no success, no failure — when the honest answer is that the last thing
+   * recorded was `unknown`, which is neither. `unknown` is not even a
+   * measurement: it is the scheduler noting that nothing arrived in time. A
+   * reader owed that word should not have to open the control to find it.
+   */
+  const said = status === null ? null : status === 'unknown' ? 'no data' : status
+
+  return (
+    <dl
+      style={{
+        display: 'grid',
+        gap: 'var(--space-1)',
+        margin: 0,
+        fontSize: 'var(--text-xs)',
+      }}
+    >
+      <ActivityLine
+        icon={status === null ? 'CircleDashed' : failed ? 'CircleAlert' : 'Activity'}
+        tone={status === null ? 'var(--status-unknown)' : statusTone(status)}
+        label="Last check"
+        at={control.lastCheckAt}
+        none="never reported"
+        said={said}
+        saidTone={status === null ? undefined : statusTone(status)}
+        why={control.lastCheckMessage}
+      />
+      <ActivityLine
+        icon="CircleCheck"
+        tone="var(--status-operational)"
+        label="Last success"
+        at={control.lastSuccessAt}
+        none="no success recorded"
+      />
+      <ActivityLine
+        icon="CircleX"
+        tone="var(--status-down)"
+        label="Last failure"
+        at={control.lastFailureAt}
+        // Not "never failed": the window is what the instance still keeps, and
+        // claiming a clean record beyond it would be a claim we cannot make.
+        none="none on record"
+      />
+    </dl>
+  )
+}
+
+function statusTone(status: string): string {
+  const known = ['operational', 'degraded', 'partial', 'down', 'maintenance']
+  return known.includes(status) ? `var(--status-${status})` : 'var(--status-unknown)'
+}
+
+function ActivityLine({
+  icon,
+  tone,
+  label,
+  at,
+  none,
+  said,
+  saidTone,
+  why,
+}: {
+  icon: string
+  tone: string
+  label: string
+  at: string | null
+  none: string
+  /** The status this line reports, where a time alone would not explain it. */
+  said?: string | null
+  saidTone?: string
+  /** The check's own message, hovered rather than shown — it is a sentence. */
+  why?: string | null
+}) {
+  const Icon = (Icons as unknown as Record<string, React.ComponentType<{ size?: number }>>)[icon]
+
+  return (
+    <div style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--space-2)' }}>
+      <span
+        aria-hidden="true"
+        style={{ color: at ? tone : 'var(--color-fg-subtle)', lineHeight: 0, alignSelf: 'center' }}
+      >
+        {Icon && <Icon size={13} />}
+      </span>
+      <dt style={{ color: 'var(--color-fg-subtle)' }}>{label}</dt>
+      <dd
+        className="tabular"
+        style={{
+          margin: 0,
+          marginLeft: 'auto',
+          textAlign: 'right',
+          color: at ? 'var(--color-fg)' : 'var(--color-fg-subtle)',
+          fontStyle: at ? 'normal' : 'italic',
+        }}
+      >
+        {at ? (
+          // The absolute moment is what is read, and the age is what is
+          // hovered: "14:02" answers "was that before or after the deploy",
+          // which "3 h ago" makes the reader compute.
+          <time
+            dateTime={at}
+            title={[`${new Date(at).toLocaleString()} · ${ago(at)}`, why]
+              .filter(Boolean)
+              .join('\n')}
+          >
+            {said && (
+              <>
+                <span style={{ color: saidTone, fontWeight: 600 }}>{said}</span>
+                <span aria-hidden="true" style={{ color: 'var(--color-fg-subtle)' }}>
+                  {' · '}
+                </span>
+              </>
+            )}
+            {shortWhen(at)}
+          </time>
+        ) : (
+          none
+        )}
+      </dd>
+    </div>
+  )
+}
+
+/**
+ * Date and time, dropping what today already implies.
+ *
+ * Same day: the clock alone, because the date is the one the reader is living
+ * in. Otherwise the day comes back, and the year only once it is not this one —
+ * a card is a small surface and "2026" earns its place on none of them.
+ */
+function shortWhen(iso: string): string {
+  const at = new Date(iso)
+  const now = new Date()
+  const sameDay = at.toDateString() === now.toDateString()
+
+  const clock = at.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
+  if (sameDay) return clock
+
+  const day = at.toLocaleDateString(undefined, {
+    day: 'numeric',
+    month: 'short',
+    ...(at.getFullYear() === now.getFullYear() ? {} : { year: 'numeric' }),
+  })
+  return `${day} ${clock}`
+}
+
+/** The same wording the fleet screen uses for an agent's last contact. */
+function ago(iso: string): string {
+  const minutes = Math.floor((Date.now() - Date.parse(iso)) / 60_000)
+  if (minutes < 1) return 'just now'
+  if (minutes < 60) return `${minutes} min ago`
+
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours} h ago`
+  return `${Math.floor(hours / 24)} d ago`
 }
 
 /** One fact about a control: a coloured chip, an icon, and the word it stands for. */
@@ -781,6 +1068,13 @@ function ControlEditor({
         widget: DEFAULT_WIDGET,
         widgetOptions: {},
         position: 0,
+        // Nothing has reported to a control created a second ago, and these are
+        // the honest values for that — not a gap to be filled by a refetch.
+        lastCheckAt: null,
+        lastCheckStatus: null,
+        lastCheckMessage: null,
+        lastSuccessAt: null,
+        lastFailureAt: null,
       } satisfies Control
     },
     onSuccess: (result) => {
@@ -898,9 +1192,7 @@ function ControlEditor({
             </Field>
 
             {form.kind === 'http' && (
-              <div
-                style={{ display: 'grid', gap: 'var(--space-4)', gridTemplateColumns: '3fr 1fr' }}
-              >
+              <div className="field-row is-lead-first">
                 <Field label="URL" hint="Where the request goes. https:// or http://.">
                   <Input
                     value={form.url}
@@ -925,9 +1217,7 @@ function ControlEditor({
             )}
 
             {(form.kind === 'tcp' || form.kind === 'cert') && (
-              <div
-                style={{ display: 'grid', gap: 'var(--space-4)', gridTemplateColumns: '3fr 1fr' }}
-              >
+              <div className="field-row is-lead-first">
                 <Field label="Host" hint="A hostname or an address. No scheme.">
                   <Input
                     value={form.host}
@@ -956,9 +1246,7 @@ function ControlEditor({
             )}
 
             {form.kind === 'dns' && (
-              <div
-                style={{ display: 'grid', gap: 'var(--space-4)', gridTemplateColumns: '3fr 1fr' }}
-              >
+              <div className="field-row is-lead-first">
                 <Field label="Name" hint="The record to resolve.">
                   <Input
                     value={form.dnsName}
@@ -983,9 +1271,7 @@ function ControlEditor({
             )}
 
             {form.kind !== 'push' && (
-              <div
-                style={{ display: 'grid', gap: 'var(--space-4)', gridTemplateColumns: '1fr 2fr' }}
-              >
+              <div className="field-row is-lead-last">
                 <Field label="Every (seconds)" hint="How often the check runs.">
                   <Input
                     type="number"
@@ -1036,14 +1322,7 @@ function ControlEditor({
                 Advanced
               </summary>
 
-              <div
-                style={{
-                  display: 'grid',
-                  gap: 'var(--space-4)',
-                  gridTemplateColumns: '1fr 1fr',
-                  marginTop: 'var(--space-3)',
-                }}
-              >
+              <div className="field-row" style={{ marginTop: 'var(--space-3)' }}>
                 <Field
                   label="Degraded above (ms)"
                   hint="A push carrying a slower latency than this is shown degraded."
@@ -1185,7 +1464,7 @@ function SimulateStep({ slug, control }: { slug: string; control: Control }) {
           in one click when you are done.
         </Banner>
 
-        <div style={{ display: 'grid', gap: 'var(--space-4)', gridTemplateColumns: '1fr 1fr' }}>
+        <div className="field-row">
           <Field label="Days">
             <Input
               type="number"

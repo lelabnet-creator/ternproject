@@ -72,7 +72,18 @@ export default defineConfig({
     }),
   ],
   server: {
-    port: 5173,
+    // Listen on every interface so the admin can be opened from a phone or a
+    // second machine on the LAN, not just the machine running the dev server.
+    host: true,
+    /*
+     * Off the 5173+ ladder on purpose. Vite picks the next free port when its
+     * own is taken, so a second project already holding 5173/5174 silently
+     * pushes this one to 5175 — and the address you bookmarked yesterday now
+     * belongs to something else. `strictPort` turns that into a startup error
+     * instead of a wrong page.
+     */
+    port: 5180,
+    strictPort: true,
     proxy: {
       // Same-origin in development, so the session cookie behaves exactly as it
       // will in production behind a single reverse proxy.

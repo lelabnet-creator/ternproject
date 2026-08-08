@@ -475,14 +475,7 @@ function AgentRow({
       )}
 
       {editing && (
-        <div
-          style={{
-            display: 'grid',
-            gap: 'var(--space-3)',
-            gridTemplateColumns: '1fr 1fr',
-            marginTop: 'var(--space-3)',
-          }}
-        >
+        <div className="field-row" style={{ gap: 'var(--space-3)', marginTop: 'var(--space-3)' }}>
           <Field label="Name" hint="What the people running it call it.">
             <Input value={name} onChange={(e) => setName(e.target.value)} />
           </Field>

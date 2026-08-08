@@ -10,6 +10,7 @@ import { BadgesPanel } from '../../features/settings/BadgesPanel'
 import { CapacityPanel } from '../../features/settings/CapacityPanel'
 import { DangerPanel } from '../../features/settings/DangerPanel'
 import { PasskeysPanel } from '../../features/settings/PasskeysPanel'
+import { TourPanel } from '../../features/settings/TourPanel'
 
 /**
  * Everything about a tenant that is a setting rather than a decision.
@@ -50,7 +51,12 @@ export function OptionsScreen({ slug, canWrite }: { slug: string; canWrite: bool
         {/* The one tab here that is about the reader rather than the page. It
             takes no `slug`, and that is the point: these passkeys follow the
             person across every tenant they administer. */}
-        {tab === 'account' && <PasskeysPanel />}
+        {tab === 'account' && (
+          <div style={{ display: 'grid', gap: 'var(--space-4)' }}>
+            <PasskeysPanel />
+            <TourPanel />
+          </div>
+        )}
         {tab === 'notifications' && <NotificationsPanels slug={slug} canWrite={canWrite} />}
         {/* No `canWrite`: a badge is a URL anyone who can read the page can
             already construct, so there is nothing here to withhold from a

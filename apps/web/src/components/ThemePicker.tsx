@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Monitor, Moon, Sun } from 'lucide-react'
 
 /**
  * Light, dark, or whatever the system says.
@@ -38,10 +39,16 @@ function apply(choice: ThemeChoice): void {
   }
 }
 
-const OPTIONS: { id: ThemeChoice; label: string }[] = [
-  { id: 'system', label: 'Auto' },
-  { id: 'light', label: 'Light' },
-  { id: 'dark', label: 'Dark' },
+/*
+ * The glyph is not decoration: in the admin's app bar the label is hidden below
+ * the rail's breakpoint, and this is what is left to tell the three apart. The
+ * accessible name comes from `aria-label` either way, so the control reads the
+ * same to a screen reader in both shapes.
+ */
+const OPTIONS: { id: ThemeChoice; label: string; Icon: typeof Monitor }[] = [
+  { id: 'system', label: 'Auto', Icon: Monitor },
+  { id: 'light', label: 'Light', Icon: Sun },
+  { id: 'dark', label: 'Dark', Icon: Moon },
 ]
 
 export function ThemePicker({ compact = false }: { compact?: boolean }) {
@@ -73,13 +80,17 @@ export function ThemePicker({ compact = false }: { compact?: boolean }) {
             type="button"
             role="radio"
             aria-checked={selected}
+            aria-label={option.label}
+            // Sized from CSS, not from here: in the admin's app bar these
+            // become square 44px targets, and an inline height cannot be
+            // overridden by a media query.
+            className={compact ? 'theme-option is-compact' : 'theme-option'}
             onClick={() => setChoice(option.id)}
             style={{
-              // 32px rather than 44 in the compact case: this sits in a header
-              // beside other chrome, and three 44px targets there would push
-              // the page's own content down for a control used twice a year.
-              minHeight: compact ? 32 : 36,
-              padding: `0 ${compact ? 'var(--space-2)' : 'var(--space-3)'}`,
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 'var(--space-1)',
               borderRadius: 'calc(var(--radius-sm) - 2px)',
               border: 0,
               background: selected ? 'var(--color-accent-soft)' : 'transparent',
@@ -90,7 +101,10 @@ export function ThemePicker({ compact = false }: { compact?: boolean }) {
               cursor: 'pointer',
             }}
           >
-            {option.label}
+            <option.Icon size={14} aria-hidden="true" />
+            {/* Dropped in the admin's app bar, where three labelled segments
+                would leave no room for the tenant's name. */}
+            <span className="chrome-label">{option.label}</span>
           </button>
         )
       })}
