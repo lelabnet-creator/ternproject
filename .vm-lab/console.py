@@ -89,24 +89,57 @@ def main(name: str) -> int:
             return 1
         ssh(name, "chmod +x render")
 
+        t = TARGETS[name]
         for mode, lang, label in ECRANS:
-            # `openvt -s -w` bascule sur la console et attend la fin du
-            # programme : sans `-s` l'écran photographié resterait celui de la
-            # connexion, et sans `-w` la capture arriverait avant le dessin.
+            # `openvt -s -w` prend une console libre, y bascule, et attend la fin
+            # du programme. Sans `-s` l'écran photographié resterait celui qui
+            # est affiché ; sans `-w` openvt rendrait la main et la console
+            # reviendrait à `getty` avant la capture.
             #
-            # `TERM=linux` et la locale sont passés explicitement : c'est ce que
-            # la console porte réellement, et c'est ce dont la détection de jeu
-            # de caractères se sert pour choisir entre `+` et `✓`.
-            ssh(name,
-                f"sudo openvt -c 1 -s -w -- env TERM=linux LANG=C.UTF-8 "
-                f"TERN_LANG={lang} ./render {mode} > /dev/null 2>&1 &",
-                timeout=30)
-            time.sleep(6)
-            err = screenshot(name, f"../console/{label}")
-            print(f"  {'✗' if err else '✓'} {label}" + (f" — {err}" if err else ""))
-            # La console est rendue avant l'écran suivant, sinon les deux se
-            # superposent et la capture ne montre ni l'un ni l'autre.
-            ssh(name, "sudo chvt 1 && sudo clear > /dev/tty1", timeout=20)
+            # Pas de `-c 1` : tty1 porte déjà une invite de connexion, openvt
+            # refuse de s'y installer, et le refus ressemblait à un succès —
+            # la première version de ce script annonçait quatre captures
+            # réussies de l'écran de login.
+            #
+            # `TERM=linux` et la locale passés explicitement : c'est ce que la
+            # console porte, et c'est ce dont la détection de jeu de caractères
+            # se sert pour choisir entre `+` et `✓`.
+            drawing = subprocess.Popen(
+                ["ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null",
+                 "-o", "LogLevel=ERROR", "-i", str(LAB / "id_lab"), "-p", str(t["ssh_port"]),
+                 f"{VM_USER}@127.0.0.1",
+                 # `sleep` après le rendu : `states` et `prompts` dessinent et
+                 # rendent la main tout de suite, `openvt -w` cesse alors
+                 # d'attendre, `getty` reprend la console, et la capture arrive
+                 # sur une invite de connexion. Seul `docker`, qui simule une
+                 # installation avec ses temps d'attente, tenait assez longtemps
+                 # pour être photographié.
+                 f"sudo openvt -s -w -- env TERM=linux LANG=C.UTF-8 TERN_LANG={lang} "
+                 f"sh -c '/home/{VM_USER}/render {mode}; sleep 40'"],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            )
+            try:
+                time.sleep(6)
+                err = screenshot(name, f"../console/{label}")
+            finally:
+                drawing.terminate()
+                try:
+                    drawing.wait(timeout=15)
+                except subprocess.TimeoutExpired:
+                    drawing.kill()
+
+            # Une console vide et une console pleine ne pèsent pas la même
+            # chose : le PNG d'un écran noir avec deux lignes fait un kilo-octet,
+            # celui d'un écran dessiné en fait plusieurs. C'est grossier, et
+            # c'est exactement ce qu'il fallait pour que « capture prise » cesse
+            # de vouloir dire « capture réussie ».
+            png = out / f"{label}.png"
+            drawn = png.is_file() and png.stat().st_size > 2500
+            ok = not err and drawn
+            print(f"  {'✓' if ok else '✗'} {label}"
+                  + (f" — {err}" if err else "" if drawn else " — écran vide"))
+
+            ssh(name, "sudo chvt 1", timeout=20)
             time.sleep(1)
 
     finally:
