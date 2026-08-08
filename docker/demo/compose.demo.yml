@@ -1,0 +1,97 @@
+# The demonstration, as it runs on demo.qualif.tern-project.eu.
+#
+#   docker compose -f docker/demo/compose.demo.yml up -d
+#
+# One service, no volumes, nothing to back up. The image carries its own
+# database; this file's whole job is to say that the container may not write to
+# itself, and to give it the handful of RAM-backed directories that keep that
+# true.
+#
+# Resetting the demo is `docker compose -f … restart`. Rebuilding it — because
+# the product moved, or because the 90 days have drifted too far into the past —
+# is `scripts/demo-image.sh`, then `pull` and `up -d`.
+
+services:
+  demo:
+    image: ${TERN_DEMO_IMAGE:-ghcr.io/lelabnet-creator/ternproject-demo:latest}
+    container_name: tern-demo
+    restart: unless-stopped
+
+    # The point of the exercise. Nothing in the image can be modified by
+    # anything the container does, so the only state that exists is the tmpfs
+    # below — and that dies with the container.
+    #
+    # This is the third of the three locks, and the least important of them:
+    # the tenant is `readOnly` in the database and the API refuses every write
+    # before it reaches a route. This one is what makes that hard to undo.
+    read_only: true
+
+    tmpfs:
+      # The cluster the entrypoint copies out of the image. `size` is the one
+      # number to revisit: it has to hold the seeded database with room for
+      # Postgres to work, and a tmpfs that fills up looks exactly like a
+      # corrupt database. 1 GB fits 90 days comfortably; drop the seed window
+      # instead of this if the host is small — see TERN_SEED_DAYS.
+      - /home/postgres/pgdata:size=1g,mode=0700,uid=1000,gid=1000
+      # `/run` whole, not `/run/postgresql`: with the root filesystem read-only
+      # the entrypoint cannot create the socket directory, and a tmpfs mounted
+      # at a path whose parent is read-only is a mount Docker cannot make
+      # either. Owned by the postgres uid because that is who mkdirs in it.
+      - /run:size=64m,mode=0755,uid=1000,gid=1000
+      - /tmp:size=64m,mode=1777
+      # Where the API writes the local agent's config. Without it the
+      # local-agent job fails on every tick with an ENOENT.
+      - /var/lib/tern:size=32m,mode=0700,uid=1000,gid=1000
+
+    environment:
+      # The address a browser uses. Everything the product generates from it —
+      # the links in the page, the install snippets, the agent's own idea of
+      # where it reports — is reused as it stands, so this is not decoration.
+      PUBLIC_BASE_URL: ${TERN_DEMO_PUBLIC_URL:-https://demo.qualif.tern-project.eu}
+
+      # Behind the reverse proxy that terminates TLS for that name. Without it
+      # every visitor is logged, and rate-limited, as the proxy.
+      TRUSTED_PROXIES: ${TERN_DEMO_TRUSTED_PROXIES:-172.16.0.0/12,10.0.0.0/8}
+
+      API_HOST: 0.0.0.0
+      API_PORT: 3011
+
+    # Published on the loopback only: the TLS name is the proxy's, and a demo
+    # reachable by IP on :8088 is a second address serving the same page, which
+    # is how a canonical URL stops being canonical.
+    ports:
+      - '127.0.0.1:8088:3011'
+
+    # It cannot write to its own filesystem and it holds no secret worth having.
+    # Dropping the rest costs nothing and takes the container out of the class
+    # of things worth attacking.
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+    # A demo on a shared host must not be the reason the host falls over. The
+    # seeded database is read-repeatedly and written never, so this is generous.
+    deploy:
+      resources:
+        limits:
+          memory: 2g
+
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://127.0.0.1:3011/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      start_period: 90s
+      retries: 5
+
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '3'

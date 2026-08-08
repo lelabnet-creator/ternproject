@@ -27,6 +27,7 @@ pub enum Lang {
 
 impl Lang {
     /// The catalog that goes with this language.
+    #[must_use]
     pub fn catalog(self) -> &'static Catalog {
         match self {
             Lang::En => &EN,
@@ -55,6 +56,7 @@ pub fn detect(read: impl Fn(&str) -> Option<String>) -> Lang {
 }
 
 /// The language of this process.
+#[must_use]
 pub fn detect_from_env() -> Lang {
     detect(|name| std::env::var(name).ok())
 }
@@ -67,6 +69,7 @@ pub fn detect_from_env() -> Lang {
 /// piece, which matters when the two languages do not put the value in the same
 /// spot. A missing argument leaves its `{}` visible rather than panicking:
 /// a clumsy message beats an installer that dies while reporting something.
+#[must_use]
 pub fn fill(template: &str, args: &[&str]) -> String {
     let mut out = String::with_capacity(template.len());
     let mut rest = template;
@@ -243,6 +246,12 @@ pub struct Catalog {
     /// What is true of this machine now that the run is over — not a repeat of
     /// the checklist, which has just been read.
     pub done_state: &'static str,
+    /// The same, for a machine where Docker does not start on its own.
+    ///
+    /// Two wordings rather than one that hedges. This sentence is what decides
+    /// whether the operator thinks there is anything left to do, and "should
+    /// normally come back" tells them nothing about which case they are in.
+    pub done_state_manual: &'static str,
     pub done_admin: &'static str,
     pub done_public: &'static str,
     pub done_body: &'static str,
@@ -255,7 +264,7 @@ pub struct Catalog {
 
 // ── english ──────────────────────────────────────────────────────────────────
 pub static EN: Catalog = Catalog {
-    title: "TERN — setting up an instance",
+    title: "TERN - setting up an instance",
     no_tty: "This installer is interactive: download it, then run it (no pipe).",
     docker_docs: "Install guide: https://docs.docker.com/engine/install/",
     then_rerun: "Then run this installer again.",
@@ -304,7 +313,7 @@ pub static EN: Catalog = Catalog {
     sock_manual: "Without that: sudo usermod -aG docker {}, then open a new session.",
     sock_usermod_failed: "Could not add {} to the docker group.",
     sock_added: "Added. It takes effect at your next login.",
-    sock_reexec: "Picking the install back up with the rights just granted…",
+    sock_reexec: "Picking the install back up with the rights just granted...",
     sock_just_added: "Your account has just been added to the docker group.",
     sock_relogin: "Close this session, open a new one, and run this installer again.",
 
@@ -315,7 +324,7 @@ pub static EN: Catalog = Catalog {
 
     pacman_sync_why: "Arch installs against a local package database. If it is older than\n\
          the mirrors, installing anything fails on a version they no longer\n\
-         carry — and Arch supports no upgrade smaller than the whole system.",
+         carry - and Arch supports no upgrade smaller than the whole system.",
     pacman_sync_q: "Upgrade the system first (pacman -Syu)?",
     step_pacman_sync: "Upgrading the system",
     pacman_sync_failed: "The system upgrade failed.",
@@ -327,7 +336,7 @@ pub static EN: Catalog = Catalog {
          Adding it outlives this installation: from then on this machine takes\n\
          those packages from Docker rather than from its distribution.",
     repo_add_q: "Add Docker's repository?",
-    repo_added: "Docker's repository added — {} is now available.",
+    repo_added: "Docker's repository added - {} is now available.",
     repo_failed: "Could not add Docker's repository.",
     repo_empty: "The repository was added but publishes nothing for this machine.",
 
@@ -370,10 +379,10 @@ pub static EN: Catalog = Catalog {
          Remote agents, links in outgoing mail and generated install scripts all\n\
          reuse it as it stands. Fix it in .env if anyone else has to reach this\n\
          instance.",
-    proxy_hint: "Behind a reverse proxy or a domain name, give the external URL —\n\
+    proxy_hint: "Behind a reverse proxy or a domain name, give the external URL -\n\
          that is the one reused everywhere.",
     q_trusted_proxies: "Trusted proxy CIDRs (empty for direct access)",
-    q_proxies_none: "none — this instance is reached directly",
+    q_proxies_none: "none - this instance is reached directly",
 
     head_agent: "What the agent should be able to watch",
     agent_intro: "By default it sees the internet and this instance, but neither this\n\
@@ -388,7 +397,7 @@ pub static EN: Catalog = Catalog {
 
     env_written: "{}, mode 600",
     secret_new: "APP_SECRET generated locally, never transmitted",
-    env_head: "# Written by the TERN installer — do not commit (.gitignore blocks .env*).",
+    env_head: "# Written by the TERN installer - do not commit (.gitignore blocks .env*).",
     env_db: "# ── Database ────────────────────────────────────────────────────────────────",
     env_secret: "# ── Instance secret ─────────────────────────────────────────────────────────\n\
          # Encrypts TOTP secrets, probe authentication headers and subscriber\n\
@@ -396,10 +405,10 @@ pub static EN: Catalog = Catalog {
          # database, never regenerate it.",
     env_access: "# ── Access ──────────────────────────────────────────────────────────────────",
     env_agent: "# ── What this instance's agent can measure ───────────────────────────────────\n\
-         # service:app — it shares the API's network stack. The internet and this\n\
+         # service:app - it shares the API's network stack. The internet and this\n\
          #               instance's containers; neither the machine's loopback nor the\n\
          #               other Docker networks.\n\
-         # host        — it shares the machine's own stack. Its loopback services, its\n\
+         # host        - it shares the machine's own stack. Its loopback services, its\n\
          #               local network and the other Docker networks become visible.\n\
          #               Linux only.\n\
          #\n\
@@ -409,7 +418,7 @@ pub static EN: Catalog = Catalog {
          # Nothing here, and that is deliberate: the page name, its address, the\n\
          # administrator account and the outgoing mail server are all entered the\n\
          # first time the admin console is opened, by the person sitting in front of\n\
-         # it. No password has to travel through this file — a cleartext password\n\
+         # it. No password has to travel through this file - a cleartext password\n\
          # left lying about ends up being read.\n\
          #\n\
          # For an instance exposed before anyone opens it, setting TERN_TENANT_SLUG,\n\
@@ -425,9 +434,9 @@ pub static EN: Catalog = Catalog {
     legacy_5: "Then restore the dump into the fresh database. See docs/operations.md.",
     dump_file: "tern-before-migration.dump",
 
-    no_sources: "No sources here — published image: {}",
+    no_sources: "No sources here - published image: {}",
     build_hint: "The first build takes a few minutes. To use a published image instead:\n\
-         TERN_IMAGE=… tern-setup",
+         TERN_IMAGE=... tern-setup",
     image_not_found: "Image not found: {}",
     build_failed: "The build failed.",
     start_failed: "Startup failed.",
@@ -437,13 +446,19 @@ pub static EN: Catalog = Catalog {
     no_volume: "The database does not appear to sit on a volume. It works, but one\n\
          `docker compose up -d` would destroy it. Check the `volumes:` block of the\n\
          `db` service in {}.",
-    volume_ok: "Database on the db-data volume — it survives a container recreation.",
+    volume_ok: "Database on the db-data volume - it survives a container recreation.",
 
     done_panel_title: "Installation complete",
     done_state: "TERN is up on this machine: the API, its agent and the database,\n\
          each in its own container, restarted with the machine. The whole\n\
          configuration is in .env, which this installer can replay to change\n\
          any of it.",
+    done_state_manual: "TERN is up on this machine: the API, its agent and the database,\n\
+         each in its own container. Docker does not start with this machine, so\n\
+         this instance will not come back on its own after a reboot - until\n\
+         somebody runs a Docker command. `sudo systemctl enable docker` is what\n\
+         changes that. The whole configuration is in .env, which this installer\n\
+         can replay to change any of it.",
     done_admin: "Admin console : {}",
     done_public: "Public page   : {}",
     done_body: "Open the admin console now: the page is named there, the\n\
@@ -453,12 +468,12 @@ pub static EN: Catalog = Catalog {
          the admin address becomes the administrator of this instance.",
     stop_label: "Stop          : docker compose -f {} down",
     logs_label: "Logs          : docker compose -f {} logs -f app",
-    outro_ready: "Ready — {}",
+    outro_ready: "Ready - {}",
 };
 
 // ── français ─────────────────────────────────────────────────────────────────
 pub static FR: Catalog = Catalog {
-    title: "TERN — installation d'une instance",
+    title: "TERN - installation d'une instance",
     no_tty: "Installateur interactif : téléchargez-le puis exécutez-le (pas de pipe).",
     docker_docs: "Installation : https://docs.docker.com/engine/install/",
     then_rerun: "Puis relancez cet installateur.",
@@ -507,7 +522,7 @@ pub static FR: Catalog = Catalog {
     sock_manual: "Sans cela : sudo usermod -aG docker {}, puis rouvrez votre session.",
     sock_usermod_failed: "Impossible d'ajouter {} au groupe docker.",
     sock_added: "Ajouté. Prend effet à la prochaine ouverture de session.",
-    sock_reexec: "Reprise de l'installation avec les droits acquis…",
+    sock_reexec: "Reprise de l'installation avec les droits acquis...",
     sock_just_added: "Votre compte vient d'être ajouté au groupe docker.",
     sock_relogin: "Fermez cette session, rouvrez-en une, et relancez cet installateur.",
 
@@ -519,7 +534,7 @@ pub static FR: Catalog = Catalog {
 
     pacman_sync_why: "Arch installe à partir d'une base de paquets locale. Si elle est plus\n\
          ancienne que les miroirs, toute installation échoue sur une version\n\
-         qu'ils ne portent plus — et Arch ne connaît pas de mise à jour plus\n\
+         qu'ils ne portent plus - et Arch ne connaît pas de mise à jour plus\n\
          petite que le système entier.",
     pacman_sync_q: "Mettre le système à jour d'abord (pacman -Syu) ?",
     step_pacman_sync: "Mise à jour du système",
@@ -532,7 +547,7 @@ pub static FR: Catalog = Catalog {
          L'ajouter survit à cette installation : à partir de là, cette machine\n\
          prend ces paquets chez Docker plutôt que chez sa distribution.",
     repo_add_q: "Ajouter le dépôt de Docker ?",
-    repo_added: "Dépôt de Docker ajouté — {} est maintenant disponible.",
+    repo_added: "Dépôt de Docker ajouté - {} est maintenant disponible.",
     repo_failed: "Impossible d'ajouter le dépôt de Docker.",
     repo_empty: "Le dépôt a été ajouté mais ne publie rien pour cette machine.",
 
@@ -576,10 +591,10 @@ pub static FR: Catalog = Catalog {
          Les agents distants, les liens des courriels et les scripts d'installation\n\
          générés la reprendront telle quelle. À corriger dans .env si des tiers\n\
          doivent accéder à cette instance.",
-    proxy_hint: "Derrière un reverse proxy ou un nom de domaine, indiquez l'URL externe —\n\
+    proxy_hint: "Derrière un reverse proxy ou un nom de domaine, indiquez l'URL externe -\n\
          c'est elle qui sera reprise partout.",
     q_trusted_proxies: "CIDR des proxys de confiance (vide si accès direct)",
-    q_proxies_none: "aucun — cette instance est jointe directement",
+    q_proxies_none: "aucun - cette instance est jointe directement",
 
     head_agent: "Ce que l'agent doit pouvoir surveiller",
     agent_intro: "Par défaut il voit Internet et cette instance, mais pas les services de\n\
@@ -594,7 +609,7 @@ pub static FR: Catalog = Catalog {
 
     env_written: "{}, mode 600",
     secret_new: "APP_SECRET généré localement, jamais transmis",
-    env_head: "# Écrit par l'installateur TERN — ne pas committer (.gitignore bloque .env*).",
+    env_head: "# Écrit par l'installateur TERN - ne pas committer (.gitignore bloque .env*).",
     env_db: "# ── Base de données ─────────────────────────────────────────────────────────",
     env_secret: "# ── Secret d'instance ───────────────────────────────────────────────────────\n\
          # Chiffre les secrets TOTP, les en-têtes d'authentification des sondes et les\n\
@@ -602,10 +617,10 @@ pub static FR: Catalog = Catalog {
          # avec la base, jamais à régénérer.",
     env_access: "# ── Accès ───────────────────────────────────────────────────────────────────",
     env_agent: "# ── Ce que l'agent de l'instance peut mesurer ───────────────────────────────\n\
-         # service:app — il partage la pile réseau de l'API. Internet et les conteneurs\n\
+         # service:app - il partage la pile réseau de l'API. Internet et les conteneurs\n\
          #               de cette instance ; ni la loopback de la machine, ni les autres\n\
          #               réseaux Docker.\n\
-         # host        — il partage celle de la machine. Ses services en loopback, son\n\
+         # host        - il partage celle de la machine. Ses services en loopback, son\n\
          #               réseau local et les autres réseaux Docker deviennent visibles.\n\
          #               Linux uniquement.\n\
          #\n\
@@ -615,7 +630,7 @@ pub static FR: Catalog = Catalog {
          # Rien ici, et c'est voulu : le nom de la page, son adresse, le compte\n\
          # administrateur et le serveur d'envoi se saisissent au premier chargement de\n\
          # l'administration, par la personne qui est devant. Aucun mot de passe n'a donc\n\
-         # à passer par ce fichier — un mot de passe en clair qui traîne finit par être\n\
+         # à passer par ce fichier - un mot de passe en clair qui traîne finit par être\n\
          # lu.\n\
          #\n\
          # Pour une instance exposée avant que quiconque ne l'ouvre, définir\n\
@@ -630,9 +645,9 @@ pub static FR: Catalog = Catalog {
     legacy_5: "Puis restaurez le dump dans la base neuve. Voir docs/operations.md.",
     dump_file: "tern-avant-migration.dump",
 
-    no_sources: "Pas de sources ici — image publiée : {}",
+    no_sources: "Pas de sources ici - image publiée : {}",
     build_hint: "La première construction prend quelques minutes. Pour utiliser une image\n\
-         publiée : TERN_IMAGE=… tern-setup",
+         publiée : TERN_IMAGE=... tern-setup",
     image_not_found: "Image introuvable : {}",
     build_failed: "La construction a échoué.",
     start_failed: "Le démarrage a échoué.",
@@ -642,13 +657,20 @@ pub static FR: Catalog = Catalog {
     no_volume: "La base ne semble pas reposer sur un volume. Elle fonctionne, mais un\n\
          `docker compose up -d` la détruirait. Vérifiez le bloc `volumes:` du service\n\
          `db` dans {}.",
-    volume_ok: "Base sur le volume db-data — elle survit à une recréation du conteneur.",
+    volume_ok: "Base sur le volume db-data - elle survit à une recréation du conteneur.",
 
     done_panel_title: "Installation terminée",
     done_state: "TERN tourne sur cette machine : l'API, son agent et la base, chacun\n\
          dans son conteneur, redémarrés avec la machine. Toute la configuration\n\
          est dans .env, que cet installateur sait rejouer pour en changer\n\
          n'importe quelle valeur.",
+    done_state_manual: "TERN tourne sur cette machine : l'API, son agent et la base, chacun\n\
+         dans son conteneur. Docker ne démarre pas avec cette machine : cette\n\
+         instance ne reviendra donc pas d'elle-même après un redémarrage, tant\n\
+         que personne n'aura tapé une commande Docker.\n\
+         `sudo systemctl enable docker` y remédie. Toute la configuration est\n\
+         dans .env, que cet\n\
+         installateur sait rejouer pour en changer n'importe quelle valeur.",
     done_admin: "Administration : {}",
     done_public: "Page publique  : {}",
     done_body: "Ouvrez l'administration maintenant : c'est là que la page se nomme,\n\
@@ -659,7 +681,7 @@ pub static FR: Catalog = Catalog {
          instance.",
     stop_label: "Arrêt          : docker compose -f {} down",
     logs_label: "Journaux       : docker compose -f {} logs -f app",
-    outro_ready: "Prêt — {}",
+    outro_ready: "Prêt - {}",
 };
 
 #[cfg(test)]
@@ -763,6 +785,64 @@ mod tests {
                 widths.windows(2).all(|pair| pair[0] == pair[1]),
                 "columns do not line up: {widths:?}"
             );
+        }
+    }
+
+    /// The one claim this installer makes about tomorrow, and the only wording
+    /// allowed to make it.
+    ///
+    /// The panel used to say "restarted with the machine" whatever the operator
+    /// had just answered about enabling Docker at boot. Two wordings now, and
+    /// this is what keeps the second one from quietly gaining the promise back
+    /// the next time somebody edits it.
+    #[test]
+    fn only_one_closing_wording_promises_a_restart() {
+        for (catalog, promise) in [
+            (&EN, "restarted with the machine"),
+            (&FR, "redémarrés avec la machine"),
+        ] {
+            assert!(catalog.done_state.contains(promise), "{promise}");
+            assert!(
+                !catalog.done_state_manual.contains(promise),
+                "the manual wording promises a restart it has not arranged"
+            );
+        }
+        // And it says what to do instead, rather than only withholding the
+        // promise: a panel that leaves someone wondering is a panel that gets
+        // ignored.
+        for catalog in [&EN, &FR] {
+            assert!(catalog
+                .done_state_manual
+                .contains("systemctl enable docker"));
+        }
+    }
+
+    /// Nothing the screen shows may need a character a server console cannot
+    /// draw. Latin-1 is what the kernel font carries; the typographic dash and
+    /// the ellipsis are not in it.
+    #[test]
+    fn no_catalogue_string_leaves_latin_1() {
+        for (name, catalog) in [("EN", &EN), ("FR", &FR)] {
+            for text in [
+                catalog.title,
+                catalog.done_state,
+                catalog.done_state_manual,
+                catalog.boot_why,
+                catalog.boot_declined,
+                catalog.done_body,
+                catalog.volume_ok,
+                catalog.outro_ready,
+                catalog.localhost_warn,
+                catalog.agent_intro,
+                catalog.done_first_admin,
+                catalog.sock_reexec,
+                catalog.build_hint,
+                catalog.no_sources,
+            ] {
+                if let Some(bad) = text.chars().find(|c| *c as u32 > 0xFF) {
+                    panic!("{name}: U+{:04X} in {text:?}", bad as u32);
+                }
+            }
         }
     }
 

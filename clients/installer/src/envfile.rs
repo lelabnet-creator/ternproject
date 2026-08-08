@@ -37,6 +37,7 @@ pub const MANAGED: &[&str] = &[
 /// The last assignment wins, the way a shell sourcing the file would resolve
 /// it, and surrounding double quotes are dropped: people write both forms and
 /// both mean the same thing here.
+#[must_use]
 pub fn get(text: &str, key: &str) -> Option<String> {
     let prefix = format!("{key}=");
     text.lines()
@@ -69,6 +70,7 @@ fn assignment(line: &str) -> Option<&str> {
 }
 
 /// The lines of a previous `.env` that this installer does not write itself.
+#[must_use]
 pub fn carried_over(previous: &str) -> Vec<String> {
     previous
         .lines()
@@ -99,6 +101,7 @@ pub struct Settings {
 /// would have meant two copies of an already unwieldy heredoc. There is no such
 /// constraint here, and an English-speaking server has no business receiving a
 /// configuration file commented in French.
+#[must_use]
 pub fn render(settings: &Settings, previous: Option<&str>, catalog: &Catalog) -> String {
     let mut out = String::new();
 

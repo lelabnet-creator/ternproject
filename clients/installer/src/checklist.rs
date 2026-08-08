@@ -201,6 +201,7 @@ pub struct Checklist {
 
 impl Checklist {
     /// Draws the whole box at once, every step pending.
+    #[must_use]
     pub fn new(c: &'static Catalog, title: &str, labels: Vec<String>) -> Checklist {
         let multi = MultiProgress::new();
         // `indicatif` hides its bars when stderr is not a terminal, which is
@@ -643,6 +644,7 @@ fn progress_tail(inner: usize, counter_width: usize, done: usize, total: usize) 
 /// top, and the end of the output is where the reason lives: a package manager
 /// or a compose run says what went wrong on its way out. The rest stays in the
 /// journal, which is where anyone diagnosing this seriously will be looking.
+#[must_use]
 pub fn tail(output: &str, lines: usize) -> Vec<String> {
     let kept: Vec<&str> = output
         .lines()

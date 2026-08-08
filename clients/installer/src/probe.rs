@@ -21,6 +21,7 @@ pub enum PackageManager {
 }
 
 impl PackageManager {
+    #[must_use]
     pub fn name(self) -> &'static str {
         match self {
             PackageManager::Apt => "apt",
@@ -31,6 +32,7 @@ impl PackageManager {
     }
 
     /// The command that installs, without asking anything back.
+    #[must_use]
     pub fn install_argv(self, packages: &[&str]) -> Vec<String> {
         let head: Vec<&str> = match self {
             PackageManager::Apt => vec!["apt-get", "install", "-y"],
@@ -119,6 +121,7 @@ pub fn docker_repo_from(read_os_release: impl Fn() -> Option<String>) -> Option<
 }
 
 /// The rule above, against this machine.
+#[must_use]
 pub fn docker_repo() -> Option<&'static str> {
     docker_repo_from(|| std::fs::read_to_string("/etc/os-release").ok())
 }
@@ -164,6 +167,7 @@ pub fn first_available(
 ///
 /// Walking `PATH` ourselves rather than spawning `command -v`: it is the same
 /// answer, and this gets asked a dozen times before anything has happened.
+#[must_use]
 pub fn has_command(program: &str) -> bool {
     let Some(path) = std::env::var_os("PATH") else {
         return false;
@@ -185,6 +189,7 @@ fn is_executable(path: &Path) -> bool {
 /// dependency of its own, and the two places that need the id — deciding
 /// whether to reach for sudo, and deciding whether the docker group question
 /// even applies — are not hot paths.
+#[must_use]
 pub fn uid() -> u32 {
     Command::new("id")
         .arg("-u")
@@ -196,6 +201,7 @@ pub fn uid() -> u32 {
 }
 
 /// The login name. Not `$USER`, which says the wrong thing under sudo.
+#[must_use]
 pub fn username() -> String {
     Command::new("id")
         .arg("-un")
@@ -208,6 +214,7 @@ pub fn username() -> String {
 }
 
 /// `uname -s`, the name this kernel gives itself.
+#[must_use]
 pub fn kernel() -> String {
     Command::new("uname")
         .arg("-s")
@@ -256,12 +263,14 @@ pub fn kernel_modules_missing_for(release: &str, exists: impl Fn(&Path) -> bool)
 }
 
 /// The rule above, against this machine.
+#[must_use]
 pub fn kernel_modules_missing() -> bool {
     kernel_modules_missing_for(&kernel_release(), |path| path.is_dir())
 }
 
 /// `uname -r` — the kernel actually running, which after an upgrade is not the
 /// kernel that is installed.
+#[must_use]
 pub fn kernel_release() -> String {
     Command::new("uname")
         .arg("-r")
@@ -277,6 +286,7 @@ pub fn kernel_release() -> String {
 /// `systemctl` can exist without systemd running the machine — containers, WSL
 /// without systemd, systems that keep the tool for compatibility.
 /// `/run/systemd/system` only appears when systemd is genuinely up.
+#[must_use]
 pub fn systemd_is_init() -> bool {
     Path::new("/run/systemd/system").is_dir() && has_command("systemctl")
 }
@@ -325,6 +335,7 @@ pub fn primary_address(journal: &Journal) -> Option<String> {
 }
 
 /// Pulls the `src …` address out of `ip route get`.
+#[must_use]
 pub fn parse_route_src(output: &str) -> Option<String> {
     let mut words = output.split_whitespace();
     while let Some(word) = words.next() {
@@ -336,6 +347,7 @@ pub fn parse_route_src(output: &str) -> Option<String> {
 }
 
 /// Pulls the interface name out of `route -n get` on macOS.
+#[must_use]
 pub fn parse_route_interface(output: &str) -> Option<String> {
     output.lines().find_map(|line| {
         let (head, tail) = line.split_once(':')?;
@@ -344,11 +356,13 @@ pub fn parse_route_interface(output: &str) -> Option<String> {
 }
 
 /// The public URL to offer, given whatever address we managed to find.
+#[must_use]
 pub fn default_public_url(address: Option<&str>, port: &str) -> String {
     format!("http://{}:{port}", address.unwrap_or("localhost"))
 }
 
 /// Does this URL only mean anything from this machine?
+#[must_use]
 pub fn is_loopback_url(url: &str) -> bool {
     let url = url.to_ascii_lowercase();
     url.contains("localhost") || url.contains("127.0.0.1") || url.contains("[::1]")
@@ -359,6 +373,7 @@ pub fn is_loopback_url(url: &str) -> bool {
 /// Needed in one place — handing our own path to `sg docker -c` — and that one
 /// place is enough to matter: an installer downloaded into `~/Mes documents/`
 /// would otherwise re-exec a command cut in two.
+#[must_use]
 pub fn shell_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', r"'\''"))
 }
@@ -385,6 +400,7 @@ pub fn random_hex() -> std::io::Result<String> {
 /// for it — climbing a level would install the instance in the parent
 /// directory, which is not the one they created for this. Hence the test: we
 /// only climb when the compose file is genuinely up there.
+#[must_use]
 pub fn install_root(compose_file: &str) -> PathBuf {
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     if cwd.join(compose_file).is_file() {

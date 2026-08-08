@@ -1,0 +1,57 @@
+[
+  {
+    "step": "la machine démarre et SSH répond",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "step": "Docker est absent au départ",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "step": "le binaire local est déposé",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "step": "l'installateur va au bout",
+    "ok": false,
+    "detail": "code=None"
+  },
+  {
+    "step": "rien hors ASCII/cadre/Latin-1 dans le flux",
+    "ok": true,
+    "detail": "U+2014 EM DASH ×5"
+  },
+  {
+    "step": "les trois conteneurs tournent",
+    "ok": false,
+    "detail": "bash: line 1: docker: command not found"
+  },
+  {
+    "step": "docker est activé au démarrage",
+    "ok": false,
+    "detail": "not-found"
+  },
+  {
+    "step": "/health répond avant reboot",
+    "ok": false,
+    "detail": "000"
+  },
+  {
+    "step": "la machine revient",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "step": "/health répond APRÈS reboot, sans commande docker",
+    "ok": false,
+    "detail": "000"
+  },
+  {
+    "step": "les conteneurs sont revenus seuls",
+    "ok": false,
+    "detail": ""
+  }
+]

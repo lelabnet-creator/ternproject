@@ -68,6 +68,104 @@ milestone plan stays finishable.
   which the API spoke nowhere before. `List-Unsubscribe-Post` is now advertised, because the URL
   genuinely answers a POST.
 
+## Open gaps — installer and its deployment recipe
+
+Relevés pendant la campagne du 8 août 2026 sur trois distributions — Ubuntu
+24.04, Rocky 9.8, Arch — qui passent désormais la recette de bout en bout,
+redémarrage compris. Ce qui a été corrigé au même passage est dans l'historique
+git ; ce qui suit est ce qui reste.
+
+### Dans le crate de l'installateur
+
+- [ ] **`clippy::pedantic` et `nursery` ne sont pas appliqués.** La CI passe
+      `-D warnings` sur le jeu par défaut, qui est propre. Les jeux stricts
+      remontent des avertissements tous stylistiques : `module_name_repetitions`
+      (28) et `format!` ajouté à un `String` (10) en sont l'essentiel. Décider la
+      barre, puis la tenir en CI — ou décider de ne pas la tenir, et l'écrire ici.
+- [ ] **Deux fonctions dépassent 100 lignes** — `install_docker` et
+      `build_and_start`. Les deux sont narratives par construction, et les deux
+      sont signalées par `clippy::nursery`.
+- [ ] **Dix `expect()` restent des chemins de panique.** Tous portent sur des
+      invariants de compilation — un gabarit statique, un littéral d'un
+      caractère — mais le profil release pose `panic = "abort"`, donc chacun est
+      un abandon sans déroulement de pile. Acceptable tel qu'évalué ; consigné
+      parce qu'une barre de sûreté (Ferrocene, ISO/IEC 5055 fiabilité) les compte.
+
+### Ce que la campagne a sorti et que personne n'a chassé
+
+- [ ] **Le repli « ASCII » de cliclack pour `└` est un tiret cadratin.**
+      `Emoji("└", "—")` dans `cliclack/src/theme.rs` : le caractère de repli,
+      quand la locale ne sait pas encoder l'Unicode, est U+2014 — qui n'est pas
+      de l'ASCII non plus. Il atteint l'écran sur Arch, dont l'image cloud n'a
+      pas de locale UTF-8. Le cadre que nous dessinons nous-mêmes est corrigé ;
+      celui-ci est amont — surcharge du thème, ou correctif chez cliclack.
+- [ ] **Dix U+FFFD dans la transcription Rocky.** Le caractère de remplacement,
+      donc quelque chose dans le flux n'était pas de l'UTF-8 valide. Sans
+      conséquence sur l'installation, qui a réussi, mais c'est soit de la sortie
+      dnf que nous relayons, soit un défaut de décodage du harnais, et ni l'un ni
+      l'autre n'a été identifié.
+
+### Ce que l'écran dit et qui se lit de travers
+
+- [ ] **« Waiting for `agent.toml` to appear » se lit comme une panne.** C'est
+      l'état correct d'une instance dont le compte administrateur et la page
+      n'existent pas encore, et c'est la première chose que le journal de l'agent
+      affiche après une installation neuve. Le dire dans la ligne, ou le dire
+      dans le panneau.
+
+### Portée non couverte
+
+- [ ] **Le TypeScript n'a jamais été audité.** Le travail sur la console n'a
+      touché aucun fichier `.ts` : la conformité `typescript-eslint` stricte sur
+      `apps/` est *non mesurée*, pas *atteinte*. Consigné pour que personne ne
+      lise le rapport Rust comme couvrant le dépôt.
+
+## À reprendre — passé de main le 8 août 2026
+
+Quatre choses en attente, dont deux qui ne dépendent pas de moi. Consignées ici
+plutôt que perdues dans un fil de conversation : les deux premières sont du
+travail, les deux dernières sont des accès.
+
+- [ ] **Finir WebSocket et Docker comme genres de contrôle.** Le gros est écrit —
+      `websocketProbeSchema` et `dockerProbeSchema` dans
+      `packages/shared/src/probe.ts`, l'enum `controlKind` étendu, la migration
+      `0017_flimsy_doctor_faustus.sql`, les deux sondes côté API et côté agent
+      Rust. Il manque les trois endroits qui déclarent les genres autorisés, et
+      tant qu'ils ne sont pas faits **l'API refuse de créer un contrôle de ces
+      deux genres** :
+      - `CONTROL_KINDS` dans `packages/shared/src/control-import.ts:96`, toujours
+        aux six anciens genres ;
+      - `kind: z.enum([...])` dans `apps/api/src/routes/controls.ts:229`, idem ;
+      - `strictProbeSchema` dans le même fichier d'import, qui n'accepte ni l'une
+        ni l'autre des deux nouvelles sondes.
+
+      Restent ensuite les modèles de `templates.ts`, les chaînes i18n web dans
+      les deux langues, et les tests. Deux décisions sont déjà gelées dans la
+      migration et méritent d'être connues avant d'y toucher : le genre s'appelle
+      `websocket` et non `ws`, et la sonde WebSocket n'a délibérément pas de
+      message à envoyer.
+
+- [ ] **Déployer la démonstration sur `demo.qualif.tern-project.eu`.** L'image
+      est construite, vérifiée en lecture seule et documentée
+      (`docs/demo.md`, `docker/demo/compose.demo.yml`). Il manque deux accès :
+      pousser `ghcr.io/lelabnet-creator/ternproject-demo:latest` au registre, et
+      l'hôte lui-même. Le proxy devant doit terminer le nom, renvoyer sur
+      `127.0.0.1:8088`, envoyer `X-Forwarded-For` et figurer dans
+      `TRUSTED_PROXIES` — sans quoi chaque visiteur est journalisé, et limité en
+      débit, comme étant le proxy.
+
+- [ ] **Intégrer `chore/console-demo-and-incidents`.** Cinq commits, poussés :
+      l'installateur, l'image de démonstration, le bloc incidents plaçable, le
+      backlog et les traces de campagne. Branche plutôt que `main` parce que
+      trois sessions écrivaient dans le même arbre au même moment.
+      `git switch main && git merge --ff-only chore/console-demo-and-incidents`.
+
+- [ ] **Réparer l'accès en écriture par SSH.** La clé présente est celle de
+      `jacquesh82`, qui n'a pas le droit d'écriture sur le dépôt : `git push`
+      répond `Permission denied`. `gh` est authentifié sous `lelabnet-creator`
+      avec la portée `repo`, ce qui a permis de pousser par HTTPS — mais c'est un
+      contournement, pas une configuration.
+
 ## Known limitations to revisit
 
 - Per-tenant retention runs as an application job because TimescaleDB retention policies act per

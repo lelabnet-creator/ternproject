@@ -63,6 +63,11 @@
     "running": "Maintenance under way",
     "none": "Nothing planned."
   },
+  "blocks": {
+    "incidents": "Incidents and maintenance",
+    "addIncidents": "Add incidents",
+    "incidentsHint": "Incidents and maintenance are always shown. Place this block to choose where they go; remove it and they go back above the arrangement."
+  },
   "period": {
     "24h": "24 hours",
     "7d": "7 days",

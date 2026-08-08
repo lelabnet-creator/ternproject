@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { blocksSchema, clampBlock, GRID_COLUMNS, nextFreeRow } from './blocks.js'
+import {
+  blocksSchema,
+  clampBlock,
+  GRID_COLUMNS,
+  hasIncidentsBlock,
+  nextFreeRow,
+  type Block,
+} from './blocks.js'
 
 /**
  * The grid model.
@@ -90,5 +97,48 @@ describe('what the server will accept', () => {
         { type: 'image', id: 'a', url: 'https://example.com/x.png', x: 0, y: 0, w: 1, h: 1 },
       ]).success,
     ).toBe(false)
+  })
+
+  it('takes an incidents block, which is a position and nothing else', () => {
+    const parsed = blocksSchema.safeParse([{ type: 'incidents', id: 'a', x: 0, y: 0, w: 12, h: 2 }])
+    expect(parsed.success).toBe(true)
+  })
+
+  it('holds the incidents block to the grid like any other', () => {
+    expect(
+      blocksSchema.safeParse([{ type: 'incidents', id: 'a', x: 0, y: 0, w: 99, h: 2 }]).success,
+    ).toBe(false)
+  })
+
+  it('drops anything that would configure the incidents block', () => {
+    // The load-bearing assertion of the whole feature. The block says *where*
+    // the incidents go and never *whether*: a severity floor, a "hide when
+    // resolved" or a count cap smuggled through here is how a status page ends
+    // up able to suppress its own bad news.
+    const parsed = blocksSchema.safeParse([
+      { type: 'incidents', id: 'a', x: 0, y: 0, w: 12, h: 2, minSeverity: 'critical', hide: true },
+    ])
+    expect(parsed.success).toBe(true)
+    expect(parsed.data?.[0]).not.toHaveProperty('minSeverity')
+    expect(parsed.data?.[0]).not.toHaveProperty('hide')
+  })
+})
+
+describe('whether the arrangement takes the incidents', () => {
+  const incidents: Block = { type: 'incidents', id: 'i', x: 0, y: 0, w: 12, h: 2 }
+  const text: Block = { type: 'text', id: 't', body: 'x', style: 'body', x: 0, y: 2, w: 6, h: 1 }
+
+  it('says no for an arrangement that never mentions them', () => {
+    // Which is every page arranged before the block existed. They keep being
+    // drawn above the arrangement; nothing had to be migrated.
+    expect(hasIncidentsBlock([text])).toBe(false)
+  })
+
+  it('says no for an empty arrangement', () => {
+    expect(hasIncidentsBlock([])).toBe(false)
+  })
+
+  it('says yes as soon as one is placed', () => {
+    expect(hasIncidentsBlock([text, incidents])).toBe(true)
   })
 })

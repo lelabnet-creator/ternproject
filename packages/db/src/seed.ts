@@ -15,7 +15,21 @@ loadEnv()
  * predictable and are printed once at the end.
  */
 
-const DAYS = 90
+/**
+ * How much history to fabricate.
+ *
+ * Ninety days everywhere by default — that is what makes the retention modes,
+ * the SLA windows and the year-scale charts have anything to show. The override
+ * exists for the demo image, whose cluster is baked at build time and then run
+ * from a tmpfs: there, every day of history is RAM on the host that serves the
+ * page, and the choice between 90 and 30 is a choice about what the demo costs
+ * to run rather than about what it demonstrates.
+ *
+ * Read once, and clamped: a zero or a negative would produce a page with no
+ * history at all and no error, which is the kind of empty demo that gets
+ * reported as a broken product.
+ */
+const DAYS = Math.max(1, Number(process.env.TERN_SEED_DAYS ?? '') || 90)
 const INTERVAL_S = 300 // one sample per 5 minutes — 90 days × 12 controls ≈ 311k rows
 
 const DEMO_PASSWORD = 'tern-demo-password'

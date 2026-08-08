@@ -63,6 +63,11 @@
     "running": "Maintenance en cours",
     "none": "Rien de planifié."
   },
+  "blocks": {
+    "incidents": "Incidents et maintenances",
+    "addIncidents": "Ajouter les incidents",
+    "incidentsHint": "Les incidents et les maintenances sont toujours affichés. Placez ce bloc pour choisir où ; retirez-le et ils reviennent au-dessus de la disposition."
+  },
   "period": {
     "24h": "24 heures",
     "7d": "7 jours",

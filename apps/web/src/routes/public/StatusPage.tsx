@@ -15,7 +15,7 @@ import { SponsorButton } from '../../components/SponsorButton'
 import { SiteFooter } from '../../components/SiteFooter'
 import { previewOverrides } from './preview'
 import { CustomDashboard } from './CustomDashboard'
-import { CustomLayout } from './CustomLayout'
+import { communicationsPlacement, CustomLayout } from './CustomLayout'
 import { blocksSchema } from '@tern/shared/blocks'
 import { DemoBanner } from '../../components/DemoBanner'
 
@@ -99,6 +99,32 @@ export function StatusPage({ slug }: { slug: string }) {
   const parsedBlocks = blocksSchema.safeParse(data.tenant.customBlocks)
   const blocks = parsedBlocks.success ? parsedBlocks.data : []
 
+  // Blocks win over the document when there are any. The two are different
+  // answers to the same question — one arranged, one written — and a page can
+  // only render one. Non-empty is the signal because it is the one an operator
+  // sets by doing something, rather than a mode switch to remember.
+  const arranged = layout === 'custom' && blocks.length > 0
+
+  // Read once and used in two places, which is the point: the notes above the
+  // components and the `incidents` block are the same render, and a page that
+  // computed the condition twice could show both or neither.
+  const placement = communicationsPlacement(layout, blocks)
+
+  const communications = (
+    <Communications
+      incidents={data.incidents}
+      maintenances={data.maintenances}
+      components={data.components}
+      locale={locale}
+      timeZone={timeZone}
+      // Inside a block the width is already whatever the block spans, so the
+      // notes stack; the density only has something to say when they are laid
+      // out against the whole page.
+      layout={placement === 'arranged' ? 'list' : layout}
+      framed={placement === 'above'}
+    />
+  )
+
   return (
     <div
       style={{
@@ -146,31 +172,19 @@ export function StatusPage({ slug }: { slug: string }) {
           the page. The coloured tiles below say *which* things are wrong; this
           says what is happening and what is being done, which is the part a
           reader would otherwise go looking for on social media.
+
+          Skipped only when the arrangement placed the incidents itself — see
+          `communicationsPlacement`, which is the whole of that decision.
         */}
-        <Communications
-          incidents={data.incidents}
-          maintenances={data.maintenances}
-          components={data.components}
-          locale={locale}
-          timeZone={timeZone}
-        />
+        {placement === 'above' && communications}
 
         {/*
           A custom layout replaces the component grid and nothing else. The
-          header, the pulse and the incidents above it are the page's own voice
-          and stay whatever the tenant writes below — a status page that could
-          be made to hide its own incidents would not be one.
+          header and the pulse are the page's own voice and stay whatever the
+          tenant writes below.
         */}
         {layout === 'custom' ? (
-          /*
-           * Blocks win over the document when there are any.
-           *
-           * The two are different answers to the same question — one arranged,
-           * one written — and a page can only render one. Non-empty is the
-           * signal because it is the one an operator sets by doing something,
-           * rather than a mode switch to remember.
-           */
-          blocks.length > 0 ? (
+          arranged ? (
             <CustomLayout
               blocks={blocks}
               data={data}
@@ -188,6 +202,7 @@ export function StatusPage({ slug }: { slug: string }) {
                   layout="list"
                 />
               )}
+              renderCommunications={() => communications}
             />
           ) : (
             <CustomDashboard data={data} />
@@ -702,6 +717,12 @@ function ThemeToggle() {
  * Nothing is drawn when there is nothing to say. A permanent "no incidents"
  * panel is a line of furniture that trains people to skip the place where the
  * news appears.
+ *
+ * It follows the density like everything else on the page. It used to ignore
+ * it: rendered above the components and outside the layout, it kept its full
+ * size on a `compact` page where every card beside it had tightened, and stayed
+ * a full-width stack on a `grid` page where nothing else was. The reader was
+ * told the page had one density and shown two.
  */
 function Communications({
   incidents,
@@ -709,12 +730,22 @@ function Communications({
   components,
   locale,
   timeZone,
+  layout,
+  framed,
 }: {
   incidents: StatusSummary['incidents']
   maintenances: StatusSummary['maintenances']
   components: StatusSummary['components']
   locale: string
   timeZone: string
+  layout: 'list' | 'grid' | 'compact' | 'custom'
+  /**
+   * Whether to draw the surrounding card.
+   *
+   * Off inside an arranged block, which already sits in one — nesting the two
+   * would put a panel inside a panel and read as a mistake.
+   */
+  framed: boolean
 }) {
   const { t } = useTranslation()
   if (incidents.length === 0 && maintenances.length === 0) return null
@@ -725,15 +756,26 @@ function Communications({
       .filter((name): name is string => Boolean(name))
       .join(', ')
 
+  const dense = layout === 'compact'
+  // The same grid the components get, so `grid` flows the notes into the same
+  // columns and `compact` closes the same gaps.
+  const noteStyle = dense ? DENSE_NOTE : undefined
+  const titleSize = dense ? 'var(--text-sm)' : 'var(--text-base)'
+
   return (
-    <section className="page-group" style={{ display: 'grid', gap: 'var(--space-3)' }}>
+    <section className={framed ? 'page-group' : undefined} style={layoutStyle(layout)}>
       {incidents.length > 0 && <SectionTitle>{t('incident.active')}</SectionTitle>}
 
       {incidents.map((incident) => {
         const affected = nameOf(incident.impacts.map((i) => i.controlId))
         return (
-          <article key={incident.id} className="page-note" data-tone={incident.severity}>
-            <h3 style={{ margin: 0, fontSize: 'var(--text-base)' }}>{incident.title}</h3>
+          <article
+            key={incident.id}
+            className="page-note"
+            data-tone={incident.severity}
+            style={noteStyle}
+          >
+            <h3 style={{ margin: 0, fontSize: titleSize }}>{incident.title}</h3>
             <p className="page-note-meta tabular">
               {t('incident.started', { when: formatTime(incident.startedAt, locale, timeZone) })}
               {' · '}
@@ -754,8 +796,8 @@ function Communications({
       {maintenances.map((window) => {
         const affected = nameOf(window.controlIds)
         return (
-          <article key={window.id} className="page-note" data-tone="maintenance">
-            <h3 style={{ margin: 0, fontSize: 'var(--text-base)' }}>{window.title}</h3>
+          <article key={window.id} className="page-note" data-tone="maintenance" style={noteStyle}>
+            <h3 style={{ margin: 0, fontSize: titleSize }}>{window.title}</h3>
             <p className="page-note-meta tabular">
               {window.status === 'in_progress' && <>{t('maintenance.running')} · </>}
               {t('maintenance.window', {
@@ -772,10 +814,29 @@ function Communications({
   )
 }
 
+/**
+ * What `compact` does to a note: tightens the box, never the sentence.
+ *
+ * The mirror of what `ComponentCard` does one screen down — the same padding it
+ * drops to, and the same reason. A compact card also sheds its chart, and this
+ * one deliberately does not shed the latest update: the chart repeats what the
+ * status word beside it already says, while the update is the one paragraph the
+ * reader came for. Saving height by withholding the news would be the density
+ * making an editorial decision.
+ */
+const DENSE_NOTE: React.CSSProperties = {
+  padding: 'var(--space-2) var(--space-3)',
+  gap: 'var(--space-1)',
+}
+
 function SectionTitle({ children }: { children: React.ReactNode }) {
   return (
     <h2
       style={{
+        // A heading is not a column. In `grid` the notes flow into auto-fit
+        // tracks and this must stay a full-width rule over them; in every other
+        // density there is one track and the span costs nothing.
+        gridColumn: '1 / -1',
         fontSize: 'var(--text-sm)',
         fontWeight: 600,
         textTransform: 'uppercase',

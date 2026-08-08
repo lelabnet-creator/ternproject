@@ -1,0 +1,57 @@
+[
+  {
+    "step": "la machine démarre et SSH répond",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "step": "Docker est absent au départ",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "step": "le binaire local est déposé",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "step": "l'installateur va au bout",
+    "ok": false,
+    "detail": "code=None"
+  },
+  {
+    "step": "rien hors ASCII/cadre/Latin-1 dans le flux",
+    "ok": true,
+    "detail": "U+2014 EM DASH ×9, U+FFFD REPLACEMENT CHARACTER ×10, U+2026 HORIZONTAL ELLIPSIS ×1"
+  },
+  {
+    "step": "les trois conteneurs tournent",
+    "ok": true,
+    "detail": "tern-prod-agent-1 Up Less than a second|tern-prod-app-1 Up 6 seconds (healthy)|tern-prod-db-1 Up 11 seconds (healthy)|"
+  },
+  {
+    "step": "docker est activé au démarrage",
+    "ok": true,
+    "detail": "enabled"
+  },
+  {
+    "step": "/health répond avant reboot",
+    "ok": true,
+    "detail": "200"
+  },
+  {
+    "step": "la machine revient",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "step": "/health répond APRÈS reboot, sans commande docker",
+    "ok": true,
+    "detail": "200"
+  },
+  {
+    "step": "les conteneurs sont revenus seuls",
+    "ok": true,
+    "detail": "tern-prod-agent-1 Up 32 seconds|tern-prod-app-1 Up 32 seconds (healthy)|tern-prod-db-1 Up 32 seconds (healthy)|"
+  }
+]

@@ -217,7 +217,11 @@ fn install(c: &'static Catalog) -> Result<(), Stop> {
     ensure_docker_access(&ctx)?;
 
     // And Docker running now is not Docker running on Tuesday. See below.
-    ensure_docker_at_boot(&ctx)?;
+    //
+    // The answer is carried all the way to the closing panel, which is the one
+    // place that would otherwise promise an instance comes back with its
+    // machine when the operator has just declined to arrange it.
+    let starts_with_machine = ensure_docker_at_boot(&ctx)?;
 
     if !run::succeeds(&ctx.journal, "docker", &["compose", "version"]) {
         return Err(Stop::new(c.compose_required).logged(&ctx.journal));
@@ -271,7 +275,10 @@ fn install(c: &'static Catalog) -> Result<(), Stop> {
 
     let public = answers.public_base_url.trim_end_matches('/').to_string();
     let admin = format!("{public}/app");
-    cliclack::note(c.done_panel_title, closing_panel(&ctx, &admin, &public))?;
+    cliclack::note(
+        c.done_panel_title,
+        closing_panel(&ctx, &admin, &public, starts_with_machine),
+    )?;
     cliclack::outro(fill(c.outro_ready, &[&admin]))?;
     ctx.journal.line("run finished: success");
     Ok(())
@@ -286,11 +293,20 @@ fn install(c: &'static Catalog) -> Result<(), Stop> {
 /// is, and the two commands anyone will actually need. Then the warning, which
 /// is the one item here with a deadline: the admin page hands the instance to
 /// whoever opens it first, and it does so exactly once.
-fn closing_panel(ctx: &Ctx, admin: &str, public: &str) -> String {
+fn closing_panel(ctx: &Ctx, admin: &str, public: &str, starts_with_machine: bool) -> String {
     let c = ctx.c;
     let mut body = String::new();
 
-    body.push_str(c.done_state);
+    // The first sentence of this panel is the only claim the installer makes
+    // about tomorrow, and it is the one an operator acts on: it is what decides
+    // whether they think there is anything left to do. Two wordings rather than
+    // one hedged sentence — a panel that says "should normally restart" teaches
+    // nobody which case they are in.
+    body.push_str(if starts_with_machine {
+        c.done_state
+    } else {
+        c.done_state_manual
+    });
     body.push_str("\n\n");
 
     body.push_str(&fill(c.done_admin, &[&style(admin).cyan().to_string()]));
@@ -582,7 +598,7 @@ fn install_docker(ctx: &Ctx) -> Result<(), Stop> {
 fn needs_reboot(ctx: &Ctx) -> Stop {
     let c = ctx.c;
     ctx.journal.line(&format!(
-        "running kernel {} has no module directory — reboot required",
+        "running kernel {} has no module directory - reboot required",
         probe::kernel_release()
     ));
     Stop::new(c.kernel_stale)
@@ -880,14 +896,20 @@ fn ensure_docker_access(ctx: &Ctx) -> Result<(), Stop> {
 /// else's machine. Declined, it says plainly what that costs — this is the one
 /// case where the panel two screens further down would otherwise promise
 /// something untrue.
-fn ensure_docker_at_boot(ctx: &Ctx) -> Result<(), Stop> {
+fn ensure_docker_at_boot(ctx: &Ctx) -> Result<bool, Stop> {
     let c = ctx.c;
 
     // No systemd, nothing to enable: the init in front of us has its own way of
     // starting things, and guessing at it is how an installer breaks a machine
     // it does not understand.
+    //
+    // `false` and not `true`: we have not arranged anything, and we cannot read
+    // what this init will do. The closing panel drops its promise rather than
+    // making one on a machine nobody here understands — and the operator of a
+    // non-systemd box was already told, further up, to start the daemon
+    // themselves.
     if !probe::systemd_is_init() {
-        return Ok(());
+        return Ok(false);
     }
     // `is-enabled` answers zero for every state that comes up on its own —
     // enabled, static, indirect, generated — and non-zero for disabled and
@@ -897,7 +919,7 @@ fn ensure_docker_at_boot(ctx: &Ctx) -> Result<(), Stop> {
         "systemctl",
         &["is-enabled", "--quiet", "docker"],
     ) {
-        return Ok(());
+        return Ok(true);
     }
 
     ctx.journal.section("docker at boot");
@@ -910,7 +932,7 @@ fn ensure_docker_at_boot(ctx: &Ctx) -> Result<(), Stop> {
     {
         ctx.journal.line("declined: docker not enabled at boot");
         cliclack::log::warning(c.boot_declined)?;
-        return Ok(());
+        return Ok(false);
     }
 
     run::prime_sudo(&ctx.journal, ctx.uid);
@@ -929,7 +951,7 @@ fn ensure_docker_at_boot(ctx: &Ctx) -> Result<(), Stop> {
         cliclack::log::warning(c.boot_failed)?;
         cliclack::log::info(c.boot_declined)?;
     }
-    Ok(())
+    Ok(outcome.ok)
 }
 
 // --- the questions -----------------------------------------------------------
