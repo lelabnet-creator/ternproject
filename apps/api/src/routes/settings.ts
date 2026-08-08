@@ -51,7 +51,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
             defaultLocale: z.string(),
             defaultTimezone: z.string(),
             subscriberDisclaimer: z.string().nullable(),
-            layout: z.enum(['list', 'grid', 'compact']),
+            layout: z.enum(['list', 'grid', 'compact', 'custom']),
             /** Chosen accent, from the measured set in the web app. */
             accent: z.string(),
             /** The tenant's own logo, shown in its admin rail. */

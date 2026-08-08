@@ -49,27 +49,36 @@ reasoning.
 
 ## Running an instance
 
-One command, and it asks what it needs to know: the name of the status page,
-the administrator's account, and the SMTP server used for double opt-in,
-incident notifications and password recovery.
+One command, in an empty directory, and it asks what it needs to know: the name
+of the status page, the administrator's account, and the SMTP server used for
+double opt-in, incident notifications and password recovery.
 
 ```bash
-git clone https://github.com/lelabnet-creator/ternproject.git && cd ternproject
-TERN_IMAGE=ghcr.io/lelabnet-creator/ternproject:latest ./scripts/setup.sh
+curl -fsSL -o setup.sh https://raw.githubusercontent.com/lelabnet-creator/ternproject/main/scripts/setup.sh && sh setup.sh
 ```
 
-That pulls a published multi-architecture image (amd64 and arm64). Drop
-`TERN_IMAGE` to build from the checkout instead — slower, and what you want if
-you have changed anything:
+No clone. The script fetches `docker-compose.prod.yml`, the only other file an
+installation reads, and pulls a published multi-architecture image (amd64 and
+arm64) — finding no sources beside it, there is nothing it could build.
+
+It is downloaded rather than piped into `sh` because it asks questions, and a
+pipe leaves it no terminal to ask on; it refuses in that case rather than
+writing an instance full of blank answers. Landing the file first also means
+you can read it before running it.
+
+From a checkout, the same script builds from your working tree instead — which
+is what you want if you have changed anything, and slower:
 
 ```bash
 ./scripts/setup.sh
 ```
 
-It writes `.env` (mode 600), builds the image, runs the migrations, creates the
-tenant and waits for the instance to answer — so when it returns, the page is
-up. Re-running it keeps the previous answers as defaults, and never regenerates
-`APP_SECRET`.
+Set `TERN_IMAGE` there to pull a published image rather than build.
+
+Either way it writes `.env` (mode 600), starts the stack, runs the migrations,
+creates the tenant and waits for the instance to answer — so when it returns,
+the page is up. Re-running it keeps the previous answers as defaults, and never
+regenerates `APP_SECRET`.
 
 Afterwards the stack is ordinary Compose:
 
@@ -106,13 +115,13 @@ installation. For an instance to actually use, see above.
 Linux and macOS:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/tern-status/tern/main/scripts/quickstart.sh | sh
+curl -fsSL https://raw.githubusercontent.com/lelabnet-creator/ternproject/main/scripts/quickstart.sh | sh
 ```
 
 Windows, in PowerShell 7 or later:
 
 ```powershell
-irm https://raw.githubusercontent.com/tern-status/tern/main/scripts/quickstart.ps1 | iex
+irm https://raw.githubusercontent.com/lelabnet-creator/ternproject/main/scripts/quickstart.ps1 | iex
 ```
 
 Clone, secret, database, migrations, demo tenant, dev server. It checks git,
@@ -125,7 +134,7 @@ Piping a script into a shell is a trust decision, and not one you owe anybody.
 Read it first if you would rather:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/tern-status/tern/main/scripts/quickstart.sh -o quickstart.sh
+curl -fsSL https://raw.githubusercontent.com/lelabnet-creator/ternproject/main/scripts/quickstart.sh -o quickstart.sh
 less quickstart.sh
 sh quickstart.sh
 ```
@@ -232,7 +241,7 @@ notifications, history — under AGPL, with no cap on components or tenants and 
 
 A hosted version with some premium features is planned; it is not available yet. Until then the
 project moves at the speed the people using it can fund.
-[GitHub Sponsors](https://github.com/sponsors/tern-status) pays for the code signing certificates
+[GitHub Sponsors](https://github.com/sponsors/lelabnet-creator) pays for the code signing certificates
 that would stop the macOS and Windows builds tripping security warnings, for the time it takes to
 track advisories and keep dependencies current, and for outside review of code that authenticates
 everybody and sees everything.

@@ -35,7 +35,7 @@ import { Tabs } from '../../components/Tabs'
  * buttons are what the keyboard path is tested against.
  */
 
-export type PageLayout = 'list' | 'grid' | 'compact'
+export type PageLayout = 'list' | 'grid' | 'compact' | 'custom'
 
 const DENSITIES: { id: PageLayout; label: string; hint: string }[] = [
   { id: 'list', label: 'List', hint: 'One component per row. The most readable on a phone.' },

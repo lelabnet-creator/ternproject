@@ -170,7 +170,7 @@ export function StatusPage({ slug }: { slug: string }) {
  * saved would not be a preview. `order` is a list of control ids; anything not
  * in it keeps its stored position, so a partial list degrades to "these first".
  */
-function previewOverrides(): { layout?: 'list' | 'grid' | 'compact'; order?: string[] } {
+function previewOverrides(): { layout?: 'list' | 'grid' | 'compact' | 'custom'; order?: string[] } {
   const params = new URLSearchParams(window.location.search)
   if (params.get('preview') !== '1') return {}
 
@@ -183,7 +183,7 @@ function previewOverrides(): { layout?: 'list' | 'grid' | 'compact'; order?: str
   }
 }
 
-function layoutStyle(layout: 'list' | 'grid' | 'compact'): React.CSSProperties {
+function layoutStyle(layout: 'list' | 'grid' | 'compact' | 'custom'): React.CSSProperties {
   if (layout === 'grid') {
     return {
       display: 'grid',
@@ -207,7 +207,7 @@ function ComponentCard({
   showRibbon: boolean
   locale: string
   timeZone: string
-  layout: 'list' | 'grid' | 'compact'
+  layout: 'list' | 'grid' | 'compact' | 'custom'
 }) {
   const { t } = useTranslation()
   const presentation = STATUS_PRESENTATION[component.status]

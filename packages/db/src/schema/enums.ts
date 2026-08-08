@@ -19,8 +19,14 @@ export const memberRole = pgEnum('member_role', ['admin', 'user', 'visitor'])
  *
  * `list` is one component per row with room for a chart; `grid` packs them two
  * or three across; `compact` strips them to a status line for a wall display.
+ *
+ * `custom` is none of those: the tenant supplies the document, and the three
+ * densities stop applying. It is how a free layout is reached without putting
+ * per-breakpoint coordinates in this schema — the operator writes the
+ * arrangement they want instead of dragging one out of a grid editor that would
+ * then owe a keyboard equivalent.
  */
-export const pageLayout = pgEnum('page_layout', ['list', 'grid', 'compact'])
+export const pageLayout = pgEnum('page_layout', ['list', 'grid', 'compact', 'custom'])
 
 /**
  * `unknown` is deliberately distinct from `down`: a control we have stopped

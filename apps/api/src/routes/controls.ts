@@ -359,7 +359,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
       schema: {
         params: z.object({ slug: z.string() }),
         body: z.object({
-          layout: z.enum(['list', 'grid', 'compact']).optional(),
+          layout: z.enum(['list', 'grid', 'compact', 'custom']).optional(),
           order: z
             .array(
               z.object({

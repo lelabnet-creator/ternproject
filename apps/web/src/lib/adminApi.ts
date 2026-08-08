@@ -74,7 +74,7 @@ export interface TenantSettings {
   defaultLocale: string
   defaultTimezone: string
   subscriberDisclaimer: string | null
-  layout: 'list' | 'grid' | 'compact'
+  layout: 'list' | 'grid' | 'compact' | 'custom'
   accent: string
   logoUrl: string | null
   sizingAssumptions: { intervalS: number; concurrentViewers: number }
@@ -411,7 +411,7 @@ export const adminApi = {
 
   updateLayout: (
     slug: string,
-    body: { layout: 'list' | 'grid' | 'compact'; order: { controlId: string }[] },
+    body: { layout: 'list' | 'grid' | 'compact' | 'custom'; order: { controlId: string }[] },
   ) => request<{ ok: boolean; reordered: number }>('PATCH', `/api/v1/${slug}/layout`, body),
 
   incidents: (slug: string, limit = 50) =>

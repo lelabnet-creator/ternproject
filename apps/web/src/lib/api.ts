@@ -42,7 +42,7 @@ export interface StatusSummary {
     defaultLocale: string
     defaultTimezone: string
     subscriberDisclaimer: string | null
-    layout: 'list' | 'grid' | 'compact'
+    layout: 'list' | 'grid' | 'compact' | 'custom'
     branding: Record<string, unknown>
   }
   overall: { status: CheckStatusValue; affectedCount: number }

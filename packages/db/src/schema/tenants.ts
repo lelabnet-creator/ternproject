@@ -50,6 +50,45 @@ export const tenants = pgTable(
      */
     layout: pageLayout().notNull().default('list'),
 
+    /**
+     * The document a `custom` layout renders.
+     *
+     * Only read when `layout` is `custom`, and stored rather than generated so
+     * an operator keeps what they wrote across a change of mind about the mode.
+     *
+     * Rendered inside a sandboxed iframe with no `allow-same-origin`, so it
+     * runs in an opaque origin: no cookies, no session, no parent DOM, and a
+     * CSP that denies the network. That is what makes storing raw HTML, CSS and
+     * script defensible where injecting it into the page would not be — the
+     * document can arrange pixels and nothing else. The status data it draws is
+     * handed in by the parent, precisely so it never needs to fetch anything.
+     * See `docs/security.md`.
+     */
+    customHtml: text(),
+    customCss: text(),
+    customJs: text(),
+
+    /**
+     * A page carrying synthetic data, shown as such.
+     *
+     * The seeded tenant sets it. It changes two things: the public page says
+     * plainly that nothing here is real and offers to create a page that is,
+     * and the admin becomes reachable without signing in — so the product can
+     * be looked at rather than described. Neither is ever true of a tenant an
+     * operator provisioned.
+     */
+    isDemo: boolean().notNull().default(false),
+
+    /**
+     * Refuses every write, whoever is asking.
+     *
+     * Enforced once, in the permission layer, rather than per route: a check
+     * repeated at forty call sites is a check missing from the forty-first. It
+     * is what makes an unauthenticated demo admin safe to offer — a visitor can
+     * open every screen and change nothing.
+     */
+    readOnly: boolean().notNull().default(false),
+
     defaultLocale: text().notNull().default('en'),
     defaultTimezone: text().notNull().default('UTC'),
     /** Shown on the subscription form — jurisdictions differ, so it is text. */

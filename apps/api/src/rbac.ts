@@ -63,11 +63,45 @@ const MATRIX: Record<Role, readonly Permission[]> = {
  */
 const ANONYMOUS: readonly Permission[] = ['status:read', 'history:read']
 
-export function permissionsFor(role: Role | 'anonymous'): readonly Permission[] {
-  return role === 'anonymous' ? ANONYMOUS : MATRIX[role]
+/**
+ * What survives on a read-only tenant.
+ *
+ * An allowlist, not a list of things to block. A denylist answers "is this one
+ * of the dangerous ones", which is the question that goes wrong when a
+ * permission is added later and nobody remembers to classify it; an allowlist
+ * answers "is this known to be safe", and a new permission is refused until
+ * someone says otherwise. On a page anonymous visitors can open, that is the
+ * direction the mistake has to fall.
+ */
+export const READ_ONLY_PERMISSIONS: readonly Permission[] = [
+  'status:read',
+  'status:read:all',
+  'history:read',
+]
+
+/**
+ * What an unauthenticated visitor gets on a demo tenant.
+ *
+ * Enough to walk through Controls, Incidents, Maintenance and the page layout —
+ * the substance of the product — and nothing more. Deliberately short of
+ * `subscriber:manage` (real addresses), `audit:read` (visitor IP addresses),
+ * `apikey:manage` (an ingest key on a public URL) and `tenant:settings` (the
+ * SMTP host and user). Those screens answer "insufficient permissions" to a
+ * demo visitor, which is the honest outcome: a demo that leaks is not a demo.
+ */
+export const DEMO_PERMISSIONS: readonly Permission[] = [
+  'status:read',
+  'status:read:all',
+  'history:read',
+]
+
+export function permissionsFor(role: Role | 'anonymous' | 'demo'): readonly Permission[] {
+  if (role === 'anonymous') return ANONYMOUS
+  if (role === 'demo') return DEMO_PERMISSIONS
+  return MATRIX[role]
 }
 
-export function can(role: Role | 'anonymous', permission: Permission): boolean {
+export function can(role: Role | 'anonymous' | 'demo', permission: Permission): boolean {
   return permissionsFor(role).includes(permission)
 }
 

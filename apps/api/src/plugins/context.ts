@@ -2,7 +2,7 @@ import { and, eq, isNull } from 'drizzle-orm'
 import fp from 'fastify-plugin'
 import type { FastifyInstance, FastifyPluginAsync, FastifyRequest } from 'fastify'
 import { schema } from '@tern/db'
-import { can, VIEWER_ROLE, type Permission, type Role } from '../rbac.js'
+import { can, READ_ONLY_PERMISSIONS, VIEWER_ROLE, type Permission, type Role } from '../rbac.js'
 import { SESSION_COOKIE, findSession, viewerSessionIsLive } from '../services/sessions.js'
 
 /**
@@ -31,13 +31,17 @@ export interface TenantContext {
   rawRetentionHours: number
   defaultLocale: string
   defaultTimezone: string
+  /** Carries synthetic data, and says so. Its admin opens without a session. */
+  isDemo: boolean
+  /** Refuses every write, whoever is asking. */
+  readOnly: boolean
 }
 
 declare module 'fastify' {
   interface FastifyRequest {
     actor: RequestActor
     tenant: TenantContext | null
-    role: Role | 'anonymous'
+    role: Role | 'anonymous' | 'demo'
     can(permission: Permission): boolean
   }
   interface FastifyInstance {
@@ -134,16 +138,31 @@ const plugin: FastifyPluginAsync = async (app) => {
       rawRetentionHours: tenant.rawRetentionHours,
       defaultLocale: tenant.defaultLocale,
       defaultTimezone: tenant.defaultTimezone,
+      isDemo: tenant.isDemo,
+      readOnly: tenant.readOnly,
     }
 
     // A status page is readable by whoever has its address. There is no gate
     // here: `anonymous` is a role with public-read permissions, and every
     // endpoint that needs more asks for it through `requirePermission`.
-    req.role = await resolveRole(app, req, tenant.id)
+    req.role = await resolveRole(app, req, tenant.id, tenant.isDemo)
   })
 
   app.decorate('requirePermission', (permission: Permission) => async (req: FastifyRequest) => {
     if (!req.tenant) throw app.httpErrors.internalServerError('Tenant not resolved')
+
+    /*
+     * Read-only is settled before the role is, and for everyone.
+     *
+     * Here rather than in the permission matrix because it is a property of the
+     * page, not of the caller: an admin of a read-only tenant is still refused,
+     * which is what makes the demo safe to leave open. And here rather than at
+     * each route because a check repeated at forty call sites is a check
+     * missing from the forty-first.
+     */
+    if (req.tenant.readOnly && !READ_ONLY_PERMISSIONS.includes(permission)) {
+      throw app.httpErrors.forbidden('This page is read-only')
+    }
 
     if (!can(req.role, permission)) {
       throw req.role === 'anonymous'
@@ -163,7 +182,8 @@ async function resolveRole(
   app: FastifyInstance,
   req: FastifyRequest,
   tenantId: string,
-): Promise<Role | 'anonymous'> {
+  isDemo: boolean,
+): Promise<Role | 'anonymous' | 'demo'> {
   if (req.actor.kind === 'viewer') return VIEWER_ROLE
 
   if (req.actor.kind === 'user' && req.actor.userId) {
@@ -179,6 +199,16 @@ async function resolveRole(
       .limit(1)
     if (membership) return membership.role
   }
+
+  /*
+   * A demo page lets a stranger into its admin.
+   *
+   * That is the whole point of a demo: the product can be looked at rather than
+   * described. It is only defensible next to `readOnly`, which the seeded
+   * tenant also sets — the two are meant to travel together, and a demo tenant
+   * that is writable would be a public page anyone could edit.
+   */
+  if (isDemo) return 'demo'
 
   // No membership: `anonymous`, which grants public read and nothing more.
   // What that is enough for is each endpoint's decision, expressed as the

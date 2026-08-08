@@ -121,7 +121,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
               defaultTimezone: z.string(),
               /** Consent text for the subscribe form; null when unset. */
               subscriberDisclaimer: z.string().nullable(),
-              layout: z.enum(['list', 'grid', 'compact']),
+              layout: z.enum(['list', 'grid', 'compact', 'custom']),
               branding: z.record(z.string(), z.unknown()),
             }),
             overall: z.object({
