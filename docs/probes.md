@@ -39,15 +39,34 @@ Two halves, and they are separated on purpose:
 
 ## Targets
 
-| Type   | Fields                                                             | Notes                                                                                         |
-| ------ | ------------------------------------------------------------------ | --------------------------------------------------------------------------------------------- |
-| `http` | `url`, `method`, `headers`, `body`, `followRedirects`, `tlsVerify` | The body is read before the clock stops: a server that sends headers fast then stalls is slow |
-| `tcp`  | `host`, `port`                                                     | Connect only                                                                                  |
-| `ping` | `host`, `count`                                                    | Real ICMP in the agent; a TCP connect to port 7 on the server                                 |
-| `dns`  | `name`, `recordType`, `resolver`                                   | Uses the host's own resolver, so it measures what an application beside it would experience   |
-| `cert` | `host`, `port`                                                     | Completes a real handshake against the trust store, then reads the expiry                     |
+| Type        | Fields                                                             | Notes                                                                                                   |
+| ----------- | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------- |
+| `http`      | `url`, `method`, `headers`, `body`, `followRedirects`, `tlsVerify` | The body is read before the clock stops: a server that sends headers fast then stalls is slow           |
+| `tcp`       | `host`, `port`                                                     | Connect only                                                                                            |
+| `ping`      | `host`, `count`                                                    | Real ICMP in the agent; a TCP connect to port 7 on the server                                           |
+| `dns`       | `name`, `recordType`, `resolver`                                   | Uses the host's own resolver, so it measures what an application beside it would experience             |
+| `cert`      | `host`, `port`                                                     | Completes a real handshake against the trust store, then reads the expiry                               |
+| `websocket` | `url` (`ws://`/`wss://`), `subprotocol`, `headers`                 | The opening handshake only. A `101` is success, so `status_code` and `latency` assert on it unchanged   |
+| `docker`    | `container`, `requireHealthcheck`                                  | **Agent only.** Reads `GET /containers/<name>/json`; the JSON is the body, so `json_path` asserts on it |
 
 All carry `timeoutMs` (default 10 000) and `assertions`.
+
+**`websocket` has no `send`/`expect`.** The handshake answers the question a
+status page asks — is the endpoint accepting connections, and how quickly. A
+frame worth sending is specific to the application riding on top, which makes it
+a different feature rather than a field on this one. It also has no `tlsVerify`,
+unlike `http`: an endpoint whose certificate does not verify is a broken
+endpoint, and neither implementation carries a permissive TLS verifier to say
+otherwise.
+
+**`docker` is agent-only, and off by default.** The server refuses the type
+outright — running it would mean handing the API process a Docker socket, which
+is root on the host. The agent needs `TERN_DOCKER_SOCKET` set explicitly, and
+`tern-agent doctor` reports whether the path exists and is readable. Mount the
+socket read-only. The observation is the container's own JSON, so
+`$.State.Health.Status == "healthy"` is an ordinary `json_path` assertion rather
+than a special case in the engine; a container that is not running fails as
+unreachable, because an absent service is not a slow one.
 
 **Why ping differs between the two implementations.** A web process must not
 hold a raw socket, so the server approximates reachability with a TCP connect.

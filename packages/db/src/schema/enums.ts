@@ -42,8 +42,27 @@ export const checkStatus = pgEnum('check_status', [
   'unknown',
 ])
 
-/** How a control receives data. */
-export const controlKind = pgEnum('control_kind', ['push', 'http', 'tcp', 'ping', 'dns', 'cert'])
+/**
+ * How a control receives data.
+ *
+ * Appended to, never reordered: PostgreSQL stores an enum by its ordinal, so
+ * inserting a value in the middle rewrites the meaning of every row already
+ * written. New kinds go on the end.
+ *
+ * `websocket` and `docker` are the two the agent grew last. `docker` is the
+ * only kind in this list the server cannot run itself — see the note on
+ * `dockerProbeSchema` in `@tern/shared` for why it is agent-only.
+ */
+export const controlKind = pgEnum('control_kind', [
+  'push',
+  'http',
+  'tcp',
+  'ping',
+  'dns',
+  'cert',
+  'websocket',
+  'docker',
+])
 
 /**
  * Who runs a probe when several agents could.

@@ -291,6 +291,7 @@ than failing later on a request.
 | `TERN_AGENT_NETWORK_MODE`                         | service:app    | Which network that agent measures from. `host` lets it reach this machine's own services — see [`Agent-local-tern`](#agent-local-tern)    |
 | `TERN_LOCAL_AGENT_SERVER`                         | —              | Where that agent reports. Required with `host`, where the API is only at the published port                                               |
 | `TERN_DATA_DIR`                                   | /var/lib/tern  | That agent's `agent.toml` and offline queue. Relative paths resolve from the repository root                                              |
+| `TERN_DOCKER_SOCKET`                              | unset          | Path to the Docker socket. Unset means `docker` controls are refused. Mount it read-only; `tern-agent doctor` reports whether it opens    |
 
 ### Watching the values above under load
 

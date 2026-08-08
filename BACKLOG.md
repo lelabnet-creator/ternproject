@@ -117,7 +117,7 @@ git ; ce qui suit est ce qui reste.
 
 - [ ] **Le TypeScript n'a jamais été audité.** Le travail sur la console n'a
       touché aucun fichier `.ts` : la conformité `typescript-eslint` stricte sur
-      `apps/` est *non mesurée*, pas *atteinte*. Consigné pour que personne ne
+      `apps/` est _non mesurée_, pas _atteinte_. Consigné pour que personne ne
       lise le rapport Rust comme couvrant le dépôt.
 
 ## À reprendre — passé de main le 8 août 2026
@@ -126,24 +126,23 @@ Quatre choses en attente, dont deux qui ne dépendent pas de moi. Consignées ic
 plutôt que perdues dans un fil de conversation : les deux premières sont du
 travail, les deux dernières sont des accès.
 
-- [ ] **Finir WebSocket et Docker comme genres de contrôle.** Le gros est écrit —
-      `websocketProbeSchema` et `dockerProbeSchema` dans
-      `packages/shared/src/probe.ts`, l'enum `controlKind` étendu, la migration
-      `0017_flimsy_doctor_faustus.sql`, les deux sondes côté API et côté agent
-      Rust. Il manque les trois endroits qui déclarent les genres autorisés, et
-      tant qu'ils ne sont pas faits **l'API refuse de créer un contrôle de ces
-      deux genres** :
-      - `CONTROL_KINDS` dans `packages/shared/src/control-import.ts:96`, toujours
-        aux six anciens genres ;
-      - `kind: z.enum([...])` dans `apps/api/src/routes/controls.ts:229`, idem ;
-      - `strictProbeSchema` dans le même fichier d'import, qui n'accepte ni l'une
-        ni l'autre des deux nouvelles sondes.
-
-      Restent ensuite les modèles de `templates.ts`, les chaînes i18n web dans
-      les deux langues, et les tests. Deux décisions sont déjà gelées dans la
-      migration et méritent d'être connues avant d'y toucher : le genre s'appelle
-      `websocket` et non `ws`, et la sonde WebSocket n'a délibérément pas de
-      message à envoyer.
+- [x] **Finir WebSocket et Docker comme genres de contrôle.** Fait. Les trois
+      déclarations qui bloquaient — `CONTROL_KINDS` et `strictProbeSchema` dans
+      `packages/shared/src/control-import.ts`, le `kind: z.enum([...])` de
+      `apps/api/src/routes/controls.ts` — acceptent les deux genres, et l'API
+      crée désormais ces contrôles. La route ne réécrit plus la liste : elle
+      importe `CONTROL_KINDS`, puisque c'est précisément d'avoir épelé les mêmes
+      six genres à trois endroits que venait la panne. Deux tests d'intégration
+      couvrent la création, un test de fixture vérifie que le fichier d'exemple
+      contient bien tous les genres déclarés, et un autre fige la décision de
+      conception : une sonde WebSocket refuse un `send`, parce qu'elle n'envoie
+      rien. Deux choses trouvées en chemin et corrigées : la migration `0017`
+      n'avait jamais été appliquée, et `schemas/probe.schema.json` — le contrat
+      entre l'implémentation TypeScript et l'agent Rust — ignorait les deux
+      nouvelles sondes ; il est régénéré. Enfin, ce que le relevé annonçait et
+      qui s'est révélé sans objet : `templates.ts` ne produit que des scripts
+      push, et les libellés de genres sont en dur dans `AdminApp.tsx` comme ceux
+      des six autres — il n'y avait donc ni modèle ni chaîne i18n à ajouter.
 
 - [ ] **Déployer la démonstration sur `demo.qualif.tern-project.eu`.** L'image
       est construite, vérifiée en lecture seule et documentée

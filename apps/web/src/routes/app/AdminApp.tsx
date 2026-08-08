@@ -2049,6 +2049,16 @@ const CONTROL_KINDS = [
   { id: 'ping', label: 'Ping', hint: 'ICMP echo to a host.' },
   { id: 'dns', label: 'DNS', hint: 'Resolve a name and check the answer.' },
   { id: 'cert', label: 'TLS certificate', hint: 'Read the certificate and its expiry.' },
+  {
+    id: 'websocket',
+    label: 'WebSocket',
+    hint: 'Open the handshake to a ws:// or wss:// endpoint.',
+  },
+  {
+    id: 'docker',
+    label: 'Docker container',
+    hint: 'A container on an agent’s host. Needs an agent with the Docker socket.',
+  },
 ] as const
 
 const KIND_HINT: Record<string, string> = Object.fromEntries(
@@ -2082,6 +2092,10 @@ function probeConfig(form: {
       return { name: form.dnsName.trim(), recordType: form.recordType }
     case 'cert':
       return { host: form.host.trim(), port: form.port }
+    case 'websocket':
+      return { url: form.url.trim() }
+    case 'docker':
+      return { container: form.host.trim() }
     default:
       // `push` carries no probe. An empty object rather than the previous spec,
       // so switching a control to push actually stops it being probed.
@@ -2321,6 +2335,35 @@ function ControlEditor({
                   </select>
                 </Field>
               </div>
+            )}
+
+            {form.kind === 'websocket' && (
+              <Field
+                label="URL"
+                hint="ws:// or wss://. The handshake is measured; no frames are sent."
+              >
+                <Input
+                  value={form.url}
+                  onChange={(e) => setForm({ ...form, url: e.target.value })}
+                  placeholder="wss://example.com/socket"
+                />
+              </Field>
+            )}
+
+            {/* Reuses `host` as the container field rather than adding a state
+                key: the form is one flat object, and a `container` that only
+                ever holds what `host` would has no reason to exist. */}
+            {form.kind === 'docker' && (
+              <Field
+                label="Container"
+                hint="Name or ID, as docker ps prints it. Runs on the agent's host — the server cannot run this kind."
+              >
+                <Input
+                  value={form.host}
+                  onChange={(e) => setForm({ ...form, host: e.target.value })}
+                  placeholder="api"
+                />
+              </Field>
             )}
 
             {(form.kind === 'tcp' || form.kind === 'cert') && (

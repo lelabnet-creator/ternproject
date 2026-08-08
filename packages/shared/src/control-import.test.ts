@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  CONTROL_KINDS,
   formatImportIssue,
   MAX_CONTROLS_PER_IMPORT,
   MAX_IMPORT_BYTES,
@@ -93,6 +94,22 @@ controls:
           days: 14
           severity: degraded
 
+  - key: socket
+    name: Live socket
+    kind: websocket
+    config:
+      url: wss://example.com/socket
+      assertions:
+        - type: status_code
+          eq: 101
+
+  - key: api.container
+    name: API container
+    kind: docker
+    config:
+      container: api
+      requireHealthcheck: true
+
   - key: nightly-backup
     name: Nightly backup
     expectedIntervalS: 86400
@@ -111,6 +128,8 @@ controls:
       'gateway',
       'dns.apex',
       'tls',
+      'socket',
+      'api.container',
       'nightly-backup',
     ])
     expect(result.controls.map((c) => c.kind)).toEqual([
@@ -119,8 +138,16 @@ controls:
       'ping',
       'dns',
       'cert',
+      'websocket',
+      'docker',
       undefined,
     ])
+
+    // The name of this test is a claim about coverage, so it is checked rather
+    // than trusted: every kind the product declares appears above. A kind added
+    // to the enum and forgotten here fails at the line that promised otherwise.
+    const covered = new Set(result.controls.map((c) => c.kind ?? 'push'))
+    expect([...covered].sort()).toEqual([...CONTROL_KINDS].sort())
   })
 
   it('leaves out what the file left out, rather than inventing defaults', () => {
@@ -260,7 +287,10 @@ describe('unknown kinds and types', () => {
     expect(issue.path).toBe('controls[0].kind')
     expect(issue.line).toBe(lineOf(source, 'kind: htp'))
     expect(issue.received).toBe('"htp"')
-    expect(issue.expected).toBe('push, http, tcp, ping, dns, cert')
+    expect(issue.expected).toBe(CONTROL_KINDS.join(', '))
+    // Spelt out once, so a reordering of the enum is caught here rather than
+    // only in whatever reads the message.
+    expect(issue.expected).toBe('push, http, tcp, ping, dns, cert, websocket, docker')
     expect(formatImportIssue(issue)).toContain('expected push, http, tcp, ping, dns, cert')
   })
 
@@ -333,6 +363,42 @@ describe('unknown kinds and types', () => {
     expect(issue.path).toBe('controls[0].config.url')
     expect(issue.message).toMatch(/url/i)
     expect(issue.received).toBe('"example.com"')
+  })
+
+  /*
+   * A design decision, held by a test because a comment does not fail.
+   *
+   * The WebSocket probe measures the opening handshake and nothing else: no
+   * frame is sent, so there is no `send`/`expect` pair to configure. Someone
+   * will reasonably assume otherwise and write one — importing strictly means
+   * they are told, rather than having the field dropped in silence and left
+   * wondering why their expected reply never matched.
+   */
+  it('refuses a message to send on a websocket probe, which has none', () => {
+    const source = `controls:
+  - key: socket
+    name: Live socket
+    kind: websocket
+    config:
+      url: wss://example.com/socket
+      send: '{"op":"ping"}'
+`
+    const issue = only(source)
+    expect(issue.path).toBe('controls[0].config.send')
+    expect(issue.line).toBe(lineOf(source, 'send:'))
+  })
+
+  it('requires the container a docker probe watches', () => {
+    const source = `controls:
+  - key: api.container
+    name: API container
+    kind: docker
+    config:
+      requireHealthcheck: true
+`
+    const issue = only(source)
+    expect(issue.path).toBe('controls[0].config.container')
+    expect(issue.message).toMatch(/required/i)
   })
 })
 

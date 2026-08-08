@@ -180,12 +180,83 @@ export const certProbeSchema = z.object({
   ...baseProbe,
 })
 
+/**
+ * A WebSocket endpoint, measured by its opening handshake.
+ *
+ * The handshake and nothing more: connect, send the `Upgrade` request, and stop
+ * the clock on the server's status line. That answers the question a status
+ * page asks — is the endpoint accepting connections, and how quickly — and it
+ * answers it without holding a socket open or inventing an application-level
+ * message that would be wrong for every protocol riding on top.
+ *
+ * So there is no `send`/`expect` pair here. It was considered and left out: a
+ * frame worth sending is specific to the application, which makes it a
+ * different feature (a scripted probe) rather than a field on this one.
+ *
+ * The result reuses the assertions that already exist. A successful handshake
+ * is `101`, so `status_code` and `latency` work unchanged and the conformance
+ * suite needs no new assertion type — the whole point of separating targets
+ * from assertions.
+ */
+export const websocketProbeSchema = z.object({
+  type: z.literal('websocket'),
+  /** `ws://` or `wss://`. The scheme decides whether TLS is used. */
+  url: z.string().url(),
+  /** Sent as `Sec-WebSocket-Protocol`, when the server requires one. */
+  subprotocol: z.string().optional(),
+  headers: z.record(z.string(), z.string()).default({}),
+  /** As `http`: off is occasionally necessary, and always an explicit choice. */
+  tlsVerify: z.boolean().default(true),
+  ...baseProbe,
+})
+
+/**
+ * A container on the machine the agent runs on.
+ *
+ * ── Agent only, and deliberately ──────────────────────────────────────────
+ * There is no server-side implementation of this target and there will not be.
+ * The API process would have to be handed a Docker socket to run it, and the
+ * Docker socket is root on the host: an HTTP service that can create a
+ * privileged container bind-mounting `/` is not a monitoring feature, it is a
+ * remote root shell with extra steps. `probe-transport.ts` refuses this type
+ * with a message that says so.
+ *
+ * The agent asks for it explicitly. `TERN_DOCKER_SOCKET` is unset by default,
+ * `tern-agent doctor` reports whether the socket is readable, and the operator
+ * mounts it read-only if they want this. An opt-in that has to be taken twice —
+ * once in the agent's environment and once on the control — is the right shape
+ * for a capability this sharp.
+ *
+ * ── What it observes ──────────────────────────────────────────────────────
+ * `GET /containers/<name>/json`, from which it takes `State.Running`,
+ * `State.Health.Status` where a healthcheck is defined, and `RestartCount`. The
+ * observation is JSON, so `json_path` asserts on it exactly as it does on an
+ * HTTP body — `$.State.Health.Status == "healthy"` is an ordinary assertion,
+ * not a special case in the engine.
+ */
+export const dockerProbeSchema = z.object({
+  type: z.literal('docker'),
+  /** Container name or ID, as `docker ps` prints it. */
+  container: z.string().min(1),
+  /**
+   * Treat a container with no healthcheck defined as healthy.
+   *
+   * Most images define none, and the alternative default — everything without
+   * a healthcheck is unknown — would make the first check of most containers
+   * fail for a reason that is not about the service.
+   */
+  requireHealthcheck: z.boolean().default(false),
+  ...baseProbe,
+})
+
 export const probeSchema = z.discriminatedUnion('type', [
   pingProbeSchema,
   tcpProbeSchema,
   httpProbeSchema,
   dnsProbeSchema,
   certProbeSchema,
+  websocketProbeSchema,
+  dockerProbeSchema,
 ])
 export type Probe = z.infer<typeof probeSchema>
 
