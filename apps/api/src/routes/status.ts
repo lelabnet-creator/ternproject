@@ -138,6 +138,8 @@ const routes: FastifyPluginAsyncZod = async (app) => {
                   js: z.string(),
                 })
                 .nullable(),
+              /** Blocks on a grid. Non-empty is what makes them win over the document. */
+              customBlocks: z.array(z.unknown()),
               branding: z.record(z.string(), z.unknown()),
             }),
             overall: z.object({
@@ -382,6 +384,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
           layout: tenantRow.layout,
           isDemo: tenantRow.isDemo,
           readOnly: tenantRow.readOnly,
+          customBlocks: tenantRow.layout === 'custom' ? tenantRow.customBlocks : [],
           custom:
             tenantRow.layout === 'custom'
               ? {

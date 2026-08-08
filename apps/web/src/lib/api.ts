@@ -48,6 +48,8 @@ export interface StatusSummary {
     readOnly: boolean
     /** The document a `custom` layout renders; null for every other layout. */
     custom: { html: string; css: string; js: string } | null
+    /** Blocks on a grid. Non-empty is what makes them win over the document. */
+    customBlocks: unknown[]
     branding: Record<string, unknown>
   }
   overall: { status: CheckStatusValue; affectedCount: number }

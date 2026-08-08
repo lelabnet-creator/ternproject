@@ -1,3 +1,4 @@
+import type { Block } from '@tern/shared/blocks'
 import type { IncidentImpactValue } from '@tern/shared/status'
 import { ApiError } from './api'
 
@@ -417,6 +418,7 @@ export const adminApi = {
       customHtml?: string
       customCss?: string
       customJs?: string
+      customBlocks?: Block[]
     },
   ) => request<{ ok: boolean; reordered: number }>('PATCH', `/api/v1/${slug}/layout`, body),
 

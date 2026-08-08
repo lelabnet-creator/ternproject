@@ -13,6 +13,8 @@ import { rememberPage } from '../../lib/recentPages'
 import { SponsorButton } from '../../components/SponsorButton'
 import { SiteFooter } from '../../components/SiteFooter'
 import { CustomDashboard } from './CustomDashboard'
+import { CustomLayout } from './CustomLayout'
+import { blocksSchema } from '@tern/shared/blocks'
 import { DemoBanner } from '../../components/DemoBanner'
 
 /**
@@ -79,6 +81,11 @@ export function StatusPage({ slug }: { slug: string }) {
   const preview = previewOverrides()
   const layout = preview.layout ?? data.tenant.layout
 
+  // Parsed rather than trusted: the column is JSON, and a page arranged by a
+  // future version must degrade to the document rather than throw on a visitor.
+  const parsedBlocks = blocksSchema.safeParse(data.tenant.customBlocks)
+  const blocks = parsedBlocks.success ? parsedBlocks.data : []
+
   return (
     <div
       style={{
@@ -142,7 +149,37 @@ export function StatusPage({ slug }: { slug: string }) {
           be made to hide its own incidents would not be one.
         */}
         {layout === 'custom' ? (
-          <CustomDashboard data={data} />
+          /*
+           * Blocks win over the document when there are any.
+           *
+           * The two are different answers to the same question — one arranged,
+           * one written — and a page can only render one. Non-empty is the
+           * signal because it is the one an operator sets by doing something,
+           * rather than a mode switch to remember.
+           */
+          blocks.length > 0 ? (
+            <CustomLayout
+              blocks={blocks}
+              data={data}
+              days={(component) =>
+                uptime.data?.days.filter((d) => d.controlId === component.id) ?? []
+              }
+              locale={locale}
+              timeZone={timeZone}
+              renderComponent={(component, componentDays) => (
+                <ComponentCard
+                  component={component}
+                  days={componentDays}
+                  showRibbon={data.tenant.retentionMode === 'historical'}
+                  locale={locale}
+                  timeZone={timeZone}
+                  layout="list"
+                />
+              )}
+            />
+          ) : (
+            <CustomDashboard data={data} />
+          )
         ) : (
           groupTree(data, preview.order).map(({ group, components }) => (
             <section key={group?.id ?? 'ungrouped'} className="page-group">

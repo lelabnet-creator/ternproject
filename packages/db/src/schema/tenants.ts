@@ -69,6 +69,19 @@ export const tenants = pgTable(
     customJs: text(),
 
     /**
+     * The same `custom` layout, arranged rather than written.
+     *
+     * A list of blocks on a twelve-column grid — a component, a line of text,
+     * an image — each with its own position and span. Kept beside the document
+     * rather than replacing it: one is for arranging, the other for writing,
+     * and a builder that emitted HTML would lose every hand edit the next time
+     * anybody dragged something.
+     *
+     * Non-empty is what decides which of the two renders.
+     */
+    customBlocks: jsonb().$type<unknown[]>().notNull().default([]),
+
+    /**
      * A page carrying synthetic data, shown as such.
      *
      * The seeded tenant sets it. It changes two things: the public page says

@@ -12,6 +12,7 @@ import {
   renderAllTemplates,
   SCRIPT_TEMPLATES,
 } from '@tern/shared'
+import { blocksSchema } from '@tern/shared/blocks'
 import { config } from '../config.js'
 import { audit } from '../services/audit.js'
 import { runProbe } from '../services/probe-transport.js'
@@ -373,6 +374,12 @@ const routes: FastifyPluginAsyncZod = async (app) => {
           customHtml: z.string().max(200_000).nullable().optional(),
           customCss: z.string().max(200_000).nullable().optional(),
           customJs: z.string().max(200_000).nullable().optional(),
+          /*
+           * The arranged form of the same layout. Validated properly, unlike
+           * the document beside it — these are coordinates the server renders
+           * from, so a bad one is a broken page rather than a sandboxed one.
+           */
+          customBlocks: blocksSchema.optional(),
           order: z
             .array(
               z.object({
@@ -406,6 +413,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
 
       await app.db.transaction(async (tx) => {
         const document = {
+          ...(req.body.customBlocks !== undefined && { customBlocks: req.body.customBlocks }),
           ...(req.body.customHtml !== undefined && { customHtml: req.body.customHtml }),
           ...(req.body.customCss !== undefined && { customCss: req.body.customCss }),
           ...(req.body.customJs !== undefined && { customJs: req.body.customJs }),

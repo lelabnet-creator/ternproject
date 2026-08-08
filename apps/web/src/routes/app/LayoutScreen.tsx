@@ -17,7 +17,9 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
+import { blocksSchema, type Block } from '@tern/shared/blocks'
 import { adminApi, ApiError, type Control } from '../../lib/adminApi'
+import { BlockCanvas } from '../../features/layout-builder/BlockCanvas'
 import { api } from '../../lib/api'
 import { Banner, Button, Card, CodeBlock, EmptyState, Field, Textarea } from '../../components/ui'
 import { Tabs } from '../../components/Tabs'
@@ -63,6 +65,7 @@ export function LayoutScreen({ slug, canWrite }: { slug: string; canWrite: boole
   const [saved, setSaved] = useState(false)
   const [view, setView] = useState('order')
   const [custom, setCustom] = useState<{ html: string; css: string; js: string } | null>(null)
+  const [design, setDesign] = useState<Block[] | null>(null)
 
   // The server is the source of truth until the first edit; after that the
   // local draft is, or a background refetch would undo a move mid-edit.
@@ -83,6 +86,16 @@ export function LayoutScreen({ slug, canWrite }: { slug: string; canWrite: boole
       setCustom(summary.data.tenant.custom ?? { html: '', css: '', js: '' })
     }
   }, [summary.data, custom])
+
+  // Parsed rather than trusted: the column is JSON, and a page arranged by an
+  // older version should degrade to an empty canvas rather than crash the
+  // screen that would let someone fix it.
+  useEffect(() => {
+    if (summary.data && design === null) {
+      const parsed = blocksSchema.safeParse(summary.data.tenant.customBlocks)
+      setDesign(parsed.success ? parsed.data : [])
+    }
+  }, [summary.data, design])
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -105,6 +118,7 @@ export function LayoutScreen({ slug, canWrite }: { slug: string; canWrite: boole
           customCss: custom.css,
           customJs: custom.js,
         }),
+        ...(design && { customBlocks: design }),
       }),
     onSuccess: async () => {
       setError(null)
@@ -216,10 +230,28 @@ export function LayoutScreen({ slug, canWrite }: { slug: string; canWrite: boole
         onChange={setView}
         tabs={[
           { id: 'order', label: 'Order' },
-          ...(density === 'custom' ? [{ id: 'document', label: 'Document' }] : []),
+          ...(density === 'custom'
+            ? [
+                { id: 'design', label: 'Design' },
+                { id: 'document', label: 'Document' },
+              ]
+            : []),
           { id: 'preview', label: 'Preview' },
         ]}
       >
+        {view === 'design' && design && (
+          <div style={{ display: 'grid', gap: 'var(--space-3)' }}>
+            <p
+              className="measure"
+              style={{ margin: 0, fontSize: 'var(--text-sm)', color: 'var(--color-fg-subtle)' }}
+            >
+              Place components, headings, text and images on a twelve-column grid. Anything here
+              wins over the Document tab — that one is the escape hatch for a page this cannot
+              express, and the two are kept apart so neither overwrites the other.
+            </p>
+            <BlockCanvas blocks={design} controls={controls.data ?? []} onChange={setDesign} />
+          </div>
+        )}
         {view === 'document' && custom && (
           <CustomDocumentEditor value={custom} onChange={setCustom} />
         )}
@@ -450,7 +482,17 @@ function LayoutPreview({
           style={{
             display: 'block',
             width: width === 'phone' ? 'min(390px, 100%)' : '100%',
-            height: width === 'phone' ? 700 : 520,
+            /*
+             * The desktop preview takes the height it can get.
+             *
+             * It was a fixed 520px, which on a laptop showed three components
+             * of a twelve-component page and on a large display left half the
+             * screen empty — the one view whose job is showing the arrangement,
+             * showing the least of it. Floored so a short window still gets a
+             * usable frame, capped so it does not outgrow the page around it.
+             * The phone keeps its own height: that number is the device.
+             */
+            height: width === 'phone' ? 700 : 'max(26rem, min(78vh, 60rem))',
             border: 0,
             // The screen's own radius, inside the shell's.
             borderRadius: width === 'phone' ? 32 : 0,

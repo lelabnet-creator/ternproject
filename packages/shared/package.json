@@ -15,7 +15,8 @@
     "./templates": "./src/templates.ts",
     "./sizing": "./src/sizing.ts",
     "./crypto": "./src/crypto.ts",
-    "./password": "./src/password.ts"
+    "./password": "./src/password.ts",
+    "./blocks": "./src/blocks.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

@@ -1,0 +1,1 @@
+ALTER TABLE "tenants" ADD COLUMN "custom_blocks" jsonb DEFAULT '[]'::jsonb NOT NULL;
