@@ -2,7 +2,8 @@
 
 ## Current Task
 
-Rien en cours. `v0.1.11` est taguée. Elle apporte la vue Fleet des proxies — rôle,
+Rien en cours. `v0.1.12` est taguée. La `v0.1.11` a échoué sans rien publier —
+un fichier mal formaté a fait tomber le job TypeScript, dont `Image` dépend. Elle apporte la vue Fleet des proxies — rôle,
 IP, flux agent → proxy → TERN — et trois correctifs sortis d'un essai réel où
 l'agent, le relais et le serveur se parlaient. Vert : 742 tests JS, 46 côté
 agent, e2e 21/21.
@@ -23,8 +24,9 @@ agent, e2e 21/21.
 - Une instance en 0.1.8 ne peut pas détecter cette version : son image ne connaît
   pas son propre numéro. Il faut un `docker compose pull && up -d` manuel, une
   fois, pour passer à une image ≥ 0.1.10.
-- Le binaire `x86_64-pc-windows-msvc` bloque la release GitHub depuis la 0.1.8.
-  L'épinglage sur `ring` est sur main ; cette version est la première à
-  l'éprouver.
+- Le binaire Windows échouait parce que `observe_docker` utilisait
+  `tokio::net::UnixStream` — la sonde `docker` de la 0.1.7 avait coûté une
+  plateforme. Corrigé, mais non vérifié localement : ni `rustup` ni la cible
+  Windows ici. C'est la CI de cette version qui le prouve.
 - Trous de couverture : aucun test serveur pour HTTP, TCP, DNS ; `ping` couvert
   seulement par son checksum.
