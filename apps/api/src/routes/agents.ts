@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNull, notInArray, sql } from 'drizzle-orm'
+import { and, eq, inArray, isNotNull, isNull, notInArray, sql } from 'drizzle-orm'
 import { z } from 'zod'
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod'
 import { schema } from '@tern/db'
@@ -301,6 +301,22 @@ const routes: FastifyPluginAsyncZod = async (app) => {
         throw app.httpErrors.forbidden('Only a proxy declares a zone')
       }
 
+      /*
+       * A zone agent is identified by its name *among rows this server never
+       * paired* — never by name alone.
+       *
+       * Found end to end, not by reading: a proxy and a direct agent running on
+       * the same machine send the same hostname, so matching on name across the
+       * tenant filed the direct agent behind the proxy and overwrote its last
+       * contact. The view then showed a relayed machine that was talking to the
+       * server itself.
+       *
+       * `apiKeyId IS NULL` is the discriminator that cannot collide: an agent
+       * that paired here holds a key, an agent known only through a proxy never
+       * has one. It also survives an agent leaving the zone and coming back —
+       * unlinking clears the parent, and a match on parent alone would then
+       * create a second row for the same machine.
+       */
       await app.db.transaction(async (tx) => {
         const seen = req.body.agents.map((agent) => agent.name)
 
@@ -316,6 +332,24 @@ const routes: FastifyPluginAsyncZod = async (app) => {
             ),
           )
 
+        /*
+         * And repairs what the first version of this endpoint got wrong.
+         *
+         * It matched by name across the tenant, so an agent that had paired
+         * here directly could be filed behind a proxy that merely reported the
+         * same hostname. Those rows exist in the wild; this clears them on the
+         * next declaration rather than leaving an operator to notice a machine
+         * drawn in a zone it never belonged to.
+         *
+         * Safe as an invariant, not only as a repair: an agent holding a key of
+         * this server's issuing reaches it directly, by definition, and is
+         * therefore behind nothing.
+         */
+        await tx
+          .update(schema.agents)
+          .set({ parentAgentId: null })
+          .where(and(eq(schema.agents.parentAgentId, proxy.id), isNotNull(schema.agents.apiKeyId)))
+
         for (const agent of req.body.agents) {
           const values = {
             tenantId: proxy.tenantId,
@@ -330,7 +364,11 @@ const routes: FastifyPluginAsyncZod = async (app) => {
             .select({ id: schema.agents.id })
             .from(schema.agents)
             .where(
-              and(eq(schema.agents.tenantId, proxy.tenantId), eq(schema.agents.name, agent.name)),
+              and(
+                eq(schema.agents.tenantId, proxy.tenantId),
+                eq(schema.agents.name, agent.name),
+                isNull(schema.agents.apiKeyId),
+              ),
             )
             .limit(1)
 

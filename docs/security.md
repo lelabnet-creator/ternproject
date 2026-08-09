@@ -71,18 +71,50 @@ every legitimate sign-in from one.
 
 This is the table worth reading.
 
-| Stolen                                   | They get                                                        | They do not get                                                                                                                   |
-| ---------------------------------------- | --------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| A session cookie                         | That user's role until it expires or is revoked                 | The password. There is **no** step-up re-authentication: a stolen admin session can do anything an admin can, until it is revoked |
-| An **API key**                           | The ability to push measurements to the controls in its scope   | Any read of the admin, any other tenant, any history                                                                              |
-| An `agent.toml`                          | The same as an API key                                          | Nothing more — it holds no session and no user identity                                                                           |
-| A **proxy** config                       | The zone's upstream key, and hashes of the local keys it issued | The local keys themselves; a stolen proxy config cannot impersonate its agents                                                    |
-| A **PIN**                                | One key, if used within its window before the intended agent    | Anything, once used or expired — five wrong guesses kill it                                                                       |
-| A database dump **without** `APP_SECRET` | Structure, and measurements                                     | Subscriber addresses, webhook secrets, sessions — all encrypted or hashed with it                                                 |
-| A database dump **with** `APP_SECRET`    | Everything except passwords                                     | Passwords remain Argon2id hashes                                                                                                  |
+| Stolen                                   | They get                                                                                                                         | They do not get                                                                                                                   |
+| ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| A session cookie                         | That user's role until it expires or is revoked                                                                                  | The password. There is **no** step-up re-authentication: a stolen admin session can do anything an admin can, until it is revoked |
+| An **API key**                           | The ability to push measurements to the controls in its scope                                                                    | Any read of the admin, any other tenant, any history                                                                              |
+| An `agent.toml`                          | The same as an API key                                                                                                           | Nothing more — it holds no session and no user identity                                                                           |
+| A **proxy** config                       | The zone's upstream key, hashes of the local keys it issued, and the zone's inventory — names, last contacts, internal addresses | The local keys themselves; a stolen proxy config cannot impersonate its agents                                                    |
+| A **PIN**                                | One key, if used within its window before the intended agent                                                                     | Anything, once used or expired — five wrong guesses kill it                                                                       |
+| A database dump **without** `APP_SECRET` | Structure, and measurements                                                                                                      | Subscriber addresses, webhook secrets, sessions — all encrypted or hashed with it                                                 |
+| A database dump **with** `APP_SECRET`    | Everything except passwords                                                                                                      | Passwords remain Argon2id hashes                                                                                                  |
 
 The consequence for operations: back up `APP_SECRET` separately from the dump,
 and never in the same place.
+
+## What an isolated zone discloses
+
+A proxy exists so that a network with no route out can be monitored. It is worth
+being precise about what crosses that boundary, because the answer changed.
+
+**Upward, from the zone to TERN.** Measurements, which is the point. And, since
+the fleet view learned to draw the chain, an inventory: for each agent the proxy
+serves, its **name**, its **last contact**, and the **address the proxy sees it
+at** — an address on the isolated network, which is the one fact here that did
+not previously leave it. Not its OS, not its version, not its probes: the proxy
+does not know them and will not invent them.
+
+That is a real widening, and it is deliberate. Before it, an operator asking
+"what is behind this relay?" had to log into the relay. The alternative — a view
+that showed one dot for nine machines — was not neutral either: it made an
+unreachable zone indistinguishable from a healthy one.
+
+**It is the proxy's choice, not the server's.** The declaration is something the
+proxy sends. A deployment that wants the zone opaque runs a proxy that does not,
+and the fleet view shows the relay alone, exactly as it did before. Nothing on
+the server asks for it, and nothing degrades without it.
+
+**Downward, from TERN to the zone.** The assignment, and nothing else. The
+upstream credential never enters the zone: the proxy issues its own PINs and its
+own keys, so a compromised host inside cannot reach TERN, and revoking the proxy
+revokes the whole zone in one act.
+
+**What the endpoint refuses.** Only an agent that paired as a proxy may declare a
+zone; an ordinary key posting there receives a `403`. An agent inventing machines
+would be writing into the view an operator trusts, which is worth refusing
+flatly rather than filtering later.
 
 ## Storage of secrets
 

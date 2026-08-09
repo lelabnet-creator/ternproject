@@ -551,3 +551,91 @@ describe('page layout', () => {
     expect(response.statusCode).toBe(403)
   })
 })
+
+/**
+ * A partial write must carry no opinion nobody expressed.
+ *
+ * `controlBody.partial()` was the PATCH body, and `.partial()` does not remove a
+ * `.default()` — a field that was already optional keeps it. So every PATCH that
+ * omitted `kind` wrote `push`, and the control stopped being probed without a
+ * word. `config`, `enabled`, `isPublic` and `position` failed the same way.
+ *
+ * Found by editing one control's URL during an end-to-end run of the agent,
+ * proxy and server together. The importer states this rule for itself in its own
+ * documentation; this endpoint had quietly broken it.
+ */
+describe('patching a control leaves alone what it does not mention', () => {
+  it('keeps the kind, the config and the switches', async () => {
+    const cookie = await login(fx.app, fx.users.admin.email)
+
+    const created = await fx.app.inject({
+      method: 'POST',
+      url: `/api/v1/${fx.slug}/controls`,
+      headers: { cookie },
+      payload: {
+        key: `partial-${Date.now()}`,
+        name: 'Probed',
+        kind: 'http',
+        config: { url: 'https://example.com/health' },
+        isPublic: false,
+        enabled: false,
+        position: 3,
+      },
+    })
+    expect(created.statusCode).toBe(201)
+    const id = created.json().id
+
+    // The smallest possible edit: a new name, and nothing else.
+    const patched = await fx.app.inject({
+      method: 'PATCH',
+      url: `/api/v1/${fx.slug}/controls/${id}`,
+      headers: { cookie },
+      payload: { name: 'Renamed' },
+    })
+    expect(patched.statusCode).toBe(200)
+
+    const rows = await fx.app.inject({
+      method: 'GET',
+      url: `/api/v1/${fx.slug}/controls`,
+      headers: { cookie },
+    })
+    const row = (rows.json() as Record<string, unknown>[]).find((c) => c.id === id)!
+
+    expect(row.name).toBe('Renamed')
+    // Each of these was reset by the old body, and each is a different kind of
+    // damage: a probe that stops, a spec that is wiped, a control somebody
+    // silenced that starts alerting again, and a private one that goes public.
+    expect(row.kind, 'a renamed control must still be probed').toBe('http')
+    expect(row.config).toMatchObject({ url: 'https://example.com/health' })
+    expect(row.enabled, 'a disabled control must stay disabled').toBe(false)
+    expect(row.isPublic, 'a private control must not be published by a rename').toBe(false)
+    expect(row.position).toBe(3)
+  })
+
+  it('still changes what it does mention', async () => {
+    const cookie = await login(fx.app, fx.users.admin.email)
+    const created = await fx.app.inject({
+      method: 'POST',
+      url: `/api/v1/${fx.slug}/controls`,
+      headers: { cookie },
+      payload: { key: `partial-on-${Date.now()}`, name: 'Switch', kind: 'push' },
+    })
+    const id = created.json().id
+
+    await fx.app.inject({
+      method: 'PATCH',
+      url: `/api/v1/${fx.slug}/controls/${id}`,
+      headers: { cookie },
+      payload: { enabled: false, isPublic: false },
+    })
+
+    const rows = await fx.app.inject({
+      method: 'GET',
+      url: `/api/v1/${fx.slug}/controls`,
+      headers: { cookie },
+    })
+    const row = (rows.json() as Record<string, unknown>[]).find((c) => c.id === id)!
+    expect(row.enabled).toBe(false)
+    expect(row.isPublic).toBe(false)
+  })
+})

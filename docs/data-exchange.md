@@ -121,6 +121,7 @@ with the same bodies as TERN. An agent pointed at a proxy is an ordinary agent.
    │ tern-agent│──── pair ─────▶│tern-proxy│──── pair ─▶│   TERN   │
    │           │──── jobs ─────▶│  cache   │──── jobs ─▶│          │
    │           │──── ingest ───▶│  queue   │──── ingest▶│          │
+   │           │                │inventory │──── zone ─▶│          │
    └───────────┘                └──────────┘            └──────────┘
       local key issued            upstream key            tenant key
       by the proxy                held here only
@@ -132,6 +133,17 @@ with the same bodies as TERN. An agent pointed at a proxy is an ordinary agent.
 - It **caches the assignment**, so agents restarting during an upstream outage
   still get their jobs — and it starts even when upstream is down, because
   refusing to would take the zone's monitoring with it.
+- It **declares its zone** upstream: `POST /api/v1/agent/zone`, on the same loop
+  that refreshes the assignment. A name, a last contact in Unix seconds, and the
+  address the proxy sees inside the zone — nothing else, because nothing else is
+  known to it. The server files those agents behind the proxy so the fleet view
+  can draw the chain instead of one dot standing for nine machines. The list
+  replaces rather than merges: an agent the proxy no longer serves has to
+  disappear from the view, and it is unlinked rather than deleted, because
+  losing a relay must not erase the record of what was behind it. Only an agent
+  that paired as a proxy may post there; anything else is a `403`, since
+  inventing machines is not a benign misconfiguration. See
+  [what the zone discloses](./security.md#what-an-isolated-zone-discloses).
 - It **acknowledges ingest immediately** and forwards from a bounded on-disk
   queue. Blocking every agent in the zone on a link that may be down is exactly
   backwards.

@@ -840,7 +840,24 @@ mod tls {
     pub async fn days_until_expiry(host: &str, port: u16) -> Result<i64> {
         let mut roots = tokio_rustls::rustls::RootCertStore::empty();
         roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+        days_until_expiry_against(host, port, roots).await
+    }
 
+    /// The same, against a trust store the caller chooses.
+    ///
+    /// Split out for one reason: the success path could not be tested at all.
+    /// A locally generated certificate is by definition not signed by anything
+    /// webpki trusts, so any test of the nominal case would have had to weaken
+    /// the verification it exists to prove — and a probe that accepted an
+    /// untrusted certificate in a test build is a probe nobody should ship.
+    ///
+    /// Nothing about production changes: the caller above passes the real roots
+    /// and is the only caller outside the tests.
+    pub async fn days_until_expiry_against(
+        host: &str,
+        port: u16,
+        roots: tokio_rustls::rustls::RootCertStore,
+    ) -> Result<i64> {
         let config = tokio_rustls::rustls::ClientConfig::builder()
             .with_root_certificates(roots)
             .with_no_client_auth();
@@ -969,6 +986,70 @@ mod tests {
         assert!(error.contains("ws://"), "{error}");
     }
 
+    /*
+     * The nominal path: a certificate that verifies, and the days it has left.
+     *
+     * This is what the failure test below could not reach. It needed the trust
+     * anchor to be a parameter — see `days_until_expiry_against` — because a
+     * locally generated certificate is by definition not signed by anything
+     * webpki trusts, and the alternative was a test build that accepted an
+     * unverified certificate. That would have proved the opposite of the point.
+     *
+     * A CA and a leaf it signs, rather than one self-signed certificate: path
+     * building is what the probe actually does, and a self-signed leaf used as
+     * its own anchor would skip it.
+     */
+    #[tokio::test]
+    async fn cert_reports_the_days_a_trusted_certificate_has_left() {
+        use tokio_rustls::rustls::pki_types::{CertificateDer, PrivatePkcs8KeyDer};
+
+        let mut ca_params = rcgen::CertificateParams::new(Vec::new()).unwrap();
+        ca_params.is_ca = rcgen::IsCa::Ca(rcgen::BasicConstraints::Unconstrained);
+        let ca_key = rcgen::KeyPair::generate().unwrap();
+        let ca = ca_params.clone().self_signed(&ca_key).unwrap();
+        let issuer = rcgen::Issuer::new(ca_params, ca_key);
+
+        let mut leaf_params = rcgen::CertificateParams::new(vec!["localhost".to_string()]).unwrap();
+        // Far out, so the assertion below is about a number the probe computed
+        // rather than about a default nobody chose.
+        leaf_params.not_after = rcgen::date_time_ymd(2999, 1, 1);
+        let leaf_key = rcgen::KeyPair::generate().unwrap();
+        let leaf = leaf_params.signed_by(&leaf_key, &issuer).unwrap();
+
+        let server_config = tokio_rustls::rustls::ServerConfig::builder()
+            .with_no_client_auth()
+            .with_single_cert(
+                vec![CertificateDer::from(leaf.der().to_vec())],
+                PrivatePkcs8KeyDer::from(leaf_key.serialize_der()).into(),
+            )
+            .unwrap();
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let acceptor = tokio_rustls::TlsAcceptor::from(std::sync::Arc::new(server_config));
+
+        tokio::spawn(async move {
+            if let Ok((socket, _)) = listener.accept().await {
+                // The handshake is the whole exchange; nothing is written after.
+                let _ = acceptor.accept(socket).await;
+            }
+        });
+
+        let mut roots = tokio_rustls::rustls::RootCertStore::empty();
+        roots.add(CertificateDer::from(ca.der().to_vec())).unwrap();
+
+        let days = tls::days_until_expiry_against("localhost", port, roots)
+            .await
+            .expect("a certificate signed by a trusted root must verify");
+
+        // Far in the future, and positive — the sign is what the
+        // `cert_expires_in` assertion compares against.
+        assert!(
+            days > 300_000,
+            "expected a long-lived certificate, got {days}"
+        );
+    }
+
     #[tokio::test]
     async fn cert_reports_a_port_that_does_not_speak_tls() {
         // The success path needs a certificate and a TLS server, which would
@@ -996,6 +1077,65 @@ mod tests {
      * two functions setting it would race and fail in whichever order the
      * scheduler chose. One function owns the variable for its lifetime.
      */
+    /*
+     * The same probe, against a real daemon.
+     *
+     * The test below talks to a socket this file writes the answers for, so it
+     * pins the HTTP dialogue and the parsing and nothing about what Docker
+     * actually replies. That gap matters: the shape of `/containers/<id>/json`
+     * is Docker's to change, and every assertion an operator writes —
+     * `$.State.Health.Status`, `$.State.Running` — reads it.
+     *
+     * Opt-in, by two environment variables, because the suite has to stay green
+     * on a machine with no Docker and in a CI runner with no socket. Run it
+     * with:
+     *
+     *   TERN_DOCKER_SOCKET=/var/run/docker.sock \
+     *   TERN_DOCKER_TEST_CONTAINER=some-running-container \
+     *   cargo test docker_against_a_real_daemon -- --ignored --nocapture
+     *
+     * `--ignored` rather than a silent early return: a test that skips itself
+     * quietly is a test everyone believes ran.
+     */
+    #[tokio::test]
+    #[ignore = "needs a Docker socket and a named running container"]
+    async fn docker_against_a_real_daemon() {
+        let container = std::env::var("TERN_DOCKER_TEST_CONTAINER")
+            .expect("set TERN_DOCKER_TEST_CONTAINER to a running container");
+
+        let observation = observe_docker(&container, false, 5_000).await;
+        assert!(observation.error.is_none(), "{observation:?}");
+
+        let body = observation
+            .body
+            .expect("the container JSON is the observation body");
+        let parsed: serde_json::Value =
+            serde_json::from_str(&body).expect("what Docker returned must parse as JSON");
+
+        // The two pointers every docker assertion is written against. If Docker
+        // ever moves them, this is where it should be found out — not by an
+        // operator whose control silently stopped meaning anything.
+        assert_eq!(
+            parsed.pointer("/State/Running").and_then(|v| v.as_bool()),
+            Some(true),
+            "a running container must report State.Running = true"
+        );
+        assert!(
+            parsed
+                .pointer("/State/Status")
+                .and_then(|v| v.as_str())
+                .is_some(),
+            "State.Status is what a stopped container is named by"
+        );
+
+        // And the failure an operator meets most often, from the same daemon.
+        let missing = observe_docker("tern-no-such-container", false, 5_000).await;
+        assert!(missing
+            .error
+            .expect("an unknown container is an error")
+            .contains("no container named"));
+    }
+
     #[tokio::test]
     async fn docker_reads_a_container_through_the_socket_it_is_given() {
         use tokio::io::AsyncReadExt;

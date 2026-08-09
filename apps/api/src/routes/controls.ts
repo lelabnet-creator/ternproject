@@ -262,6 +262,34 @@ const routes: FastifyPluginAsyncZod = async (app) => {
     position: z.number().int().min(0).default(0),
   })
 
+  /*
+   * The same fields, with every default removed.
+   *
+   * `controlBody.partial()` was used for the PATCH, and it is wrong in a way
+   * nothing reveals: `.partial()` makes a field optional, and a field carrying
+   * `.default()` was already optional — the default survives. So a PATCH that
+   * did not restate `kind` was parsed as `kind: 'push'` and written, and a
+   * probed control silently stopped being probed. `config` was wiped to `{}`,
+   * `enabled` came back to `true` on a control somebody had switched off, and
+   * `isPublic` came back to `true` on one they had made private.
+   *
+   * Found by editing a control's URL through the API during an end-to-end run:
+   * the probe stopped, and nothing said why.
+   *
+   * This is the same rule the import format states for itself — absent is not
+   * default, because a partial write must not carry opinions nobody expressed.
+   * The importer got it right; this endpoint did not.
+   */
+  const controlPatch = controlBody
+    .extend({
+      kind: z.enum(CONTROL_KINDS),
+      config: z.record(z.string(), z.unknown()),
+      isPublic: z.boolean(),
+      enabled: z.boolean(),
+      position: z.number().int().min(0),
+    })
+    .partial()
+
   app.post(
     '/:slug/controls',
     {
@@ -306,7 +334,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
       preHandler: [app.requirePermission('control:write')],
       schema: {
         params: z.object({ slug: z.string(), id: z.string().uuid() }),
-        body: controlBody.partial(),
+        body: controlPatch,
         response: { 200: z.object({ ok: z.boolean() }) },
       },
     },

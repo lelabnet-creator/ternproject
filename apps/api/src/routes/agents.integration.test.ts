@@ -773,6 +773,50 @@ describe('a proxy declaring its zone', () => {
     expect(rows.find((row) => row.name === 'staying')?.parentAgentId).toBe(proxy.id)
   })
 
+  it('does not adopt an agent that paired here under the same name', async () => {
+    /*
+     * The failure this pins was found by running a proxy and a direct agent on
+     * one machine: both send the same hostname, so a match on name alone filed
+     * the direct agent behind the proxy and overwrote its last contact. The
+     * view then drew a machine inside a zone it was never in.
+     */
+    const direct = await pairAs('0.1.0')
+    const rows = await fleet()
+    const name = rows.find((row) => row.id === direct.id)!.name
+
+    const proxy = await pairAs('proxy/0.1.0')
+    await declare(proxy.key, [{ name, lastSeenUnix: 1_786_000_000, ip: '10.0.0.4' }])
+
+    const after = await fleet()
+    const untouched = after.find((row) => row.id === direct.id)
+    expect(untouched?.parentAgentId, 'an agent with a key of ours is behind nothing').toBeNull()
+
+    // And the zone agent exists as its own row, behind this proxy. Narrowed to
+    // this proxy on purpose: the fixture is shared, and every agent paired by a
+    // test in this file derives the same name from the same hostname.
+    const zone = after.filter((row) => row.parentAgentId === proxy.id)
+    expect(zone).toHaveLength(1)
+    expect(zone[0]?.id).not.toBe(direct.id)
+  })
+
+  it('unlinks a keyed agent a previous version had adopted', async () => {
+    // The repair clause. Rows written by the first version of this endpoint are
+    // already in the wild; the next declaration has to clear them rather than
+    // leave somebody to find a machine drawn in the wrong zone.
+    const direct = await pairAs('0.1.0')
+    const proxy = await pairAs('proxy/0.1.0')
+
+    await fx.app.db
+      .update(schema.agents)
+      .set({ parentAgentId: proxy.id })
+      .where(eq(schema.agents.id, direct.id))
+
+    await declare(proxy.key, [{ name: 'unrelated', lastSeenUnix: null, ip: null }])
+
+    const after = await fleet()
+    expect(after.find((row) => row.id === direct.id)?.parentAgentId).toBeNull()
+  })
+
   it('refuses an ordinary agent that tries to invent machines', async () => {
     const agent = await pairAs('0.1.0')
     const attempt = await declare(agent.key, [{ name: 'ghost', lastSeenUnix: null, ip: null }])
