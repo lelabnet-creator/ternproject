@@ -16,8 +16,11 @@ Plan complet et raisonné :
   l'option, pas le mécanisme.
 - **Le binaire proxy est déjà dans l'image publiée** (vérifié en tirant la
   `0.1.12`) et `routes/download.ts` le sert déjà.
-- **Les huit genres marchent déjà derrière un relais** — ce sont les agents de
-  la zone qui sondent, le proxy relaie. Vérifié de bout en bout.
+- ~~**Les huit genres marchent déjà derrière un relais**~~ — vrai de la
+  **source**, faux du **produit**, et le point 6 l'a montré sur une vraie
+  machine. Le relayage n'est pas en cause : ce sont les binaires pré-construits
+  que sert `install.sh` qui sont gelés au 08-08 et ignorent `websocket` et
+  `docker`. Détail dans le point 6.
 
 ## Une limite à écrire, pas à contourner
 
@@ -128,7 +131,41 @@ clair comme en sombre, le cas à deux relais et celui du relais sans agent.
 
 </details>
 
-### 6. La recette sur VM Ubuntu
+### 6. ~~La recette sur VM Ubuntu~~ — jouée ; six points sur sept, le septième arrêté par un défaut extérieur
+
+Trace : `deploy-tests/ubuntu/proxy-0.1.12/`.
+
+Prouvé sur Ubuntu 24.04.4 vierge, contre une instance servie par cette branche :
+la une-ligne `--proxy` pose le binaire, appaire, écrit `proxy.toml` en 0600 et
+enregistre l'unité systemd — code 0, aucune étape manuelle. Le lingering est
+vérifié (`Linger=yes`), le relais **revient d'un redémarrage** (SSH en ~20 s,
+service actif, 8787 réouvert), il émet son propre PIN de zone, un agent s'y
+appaire, et il paraît dans la flotte en `role=proxy` avec son IP. Lu à l'écran
+et pas seulement au journal : la console porte l'état réel, `1 key(s) issued in
+this zone`, pas un écran de connexion.
+
+**Le septième point échoue, et pas à cause du relais.** L'agent de zone mesure
+`tcp`, `ping`, `dns` ; il refuse `websocket` et `docker`, et **panique** sur
+`cert` — la panique remonte à `main` et avorte la passe, si bien que les
+contrôles suivants ne sont jamais tentés et que rien ne le signale côté serveur.
+
+La cause est en amont de cette branche, et elle est enchaînée :
+
+- `cf529df` (08-09 00:48) ajoute `websocket` et `docker`, et casse la cible
+  Windows avec `tokio::net::UnixStream` ;
+- le job `collect` porte `needs: binaries` sur toute la matrice — à dessein :
+  « _a half-populated bin/ is worse than none_ » ;
+- une cible qui ne construit pas gèle donc `clients/agent/bin/`, figé à
+  `a664b2d`, **08-08 22:13** ;
+- le `Dockerfile` fait `COPY clients/agent/bin/`, et `install.sh` sert ces
+  fichiers-là.
+
+`v0.1.8` à `v0.1.12` ont donc **toutes** livré l'agent d'avant ces sondes. Les
+deux correctifs (`bc176e0` pour Windows, `b9b48b2` pour rustls) sont déjà dans
+l'arbre ; ils ne prendront effet qu'une fois `collect` reparti sur `main`. C'est
+un `push`, que la boucle s'interdit — d'où l'arrêt ici plutôt qu'une improvisation.
+
+<details><summary>Description d'origine</summary>
 
 Les préalables sont réunis sur cette machine : `ubuntu.img`, pont `br0`,
 `/dev/kvm` accessible, `bridge.conf` autorisant `br0`.
@@ -149,6 +186,8 @@ Ce que cette phase doit prouver, et que le labo en conteneurs ne peut pas :
   d'un écran de connexion ont déjà trompé cette recette
 
 Déposer la trace dans `deploy-tests/`, comme les recettes précédentes.
+
+</details>
 
 ## Règles de la boucle
 
