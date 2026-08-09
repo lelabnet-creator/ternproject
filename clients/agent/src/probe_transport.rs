@@ -343,6 +343,15 @@ where
 /// special case in the engine. A container that is not running, or unhealthy
 /// when `require_healthcheck` is set, fails as unreachable — the state is not a
 /// slow response, it is an absent service.
+/*
+ * A Docker socket is a Unix socket, so this target exists only where those do.
+ *
+ * It was written without that condition, and it broke the Windows build the day
+ * it landed — `tokio::net::UnixStream` simply is not there. The agent has
+ * shipped no Windows binary since, and the release job that depends on them has
+ * not run: a target added for Linux quietly cost the product a platform.
+ */
+#[cfg(unix)]
 async fn observe_docker(
     container: &str,
     require_healthcheck: bool,
@@ -450,6 +459,23 @@ async fn observe_docker(
     observation.latency_ms = Some(started.elapsed().as_millis() as i64);
     observation.body = Some(json.to_string());
     observation
+}
+
+/// The same target where there is no Unix socket to reach a daemon through.
+///
+/// An error rather than a silent skip, and the same rule the server follows when
+/// it refuses this target: a control that is not being run has to say so, or
+/// "nothing happened" becomes the way somebody learns it.
+#[cfg(not(unix))]
+async fn observe_docker(
+    container: &str,
+    _require_healthcheck: bool,
+    _timeout_ms: u64,
+) -> Observation {
+    failed(format!(
+        "docker controls need a Unix socket, which this build has none of — \
+         assign {container} to an agent on a Unix host"
+    ))
 }
 
 fn failed(error: impl std::fmt::Display) -> Observation {
@@ -1097,6 +1123,7 @@ mod tests {
      * `--ignored` rather than a silent early return: a test that skips itself
      * quietly is a test everyone believes ran.
      */
+    #[cfg(unix)]
     #[tokio::test]
     #[ignore = "needs a Docker socket and a named running container"]
     async fn docker_against_a_real_daemon() {
@@ -1136,6 +1163,7 @@ mod tests {
             .contains("no container named"));
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn docker_reads_a_container_through_the_socket_it_is_given() {
         use tokio::io::AsyncReadExt;

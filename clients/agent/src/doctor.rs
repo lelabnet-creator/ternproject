@@ -278,12 +278,25 @@ fn docker_check() -> Verdict {
         return Verdict::Ok("TERN_DOCKER_SOCKET empty — docker controls disabled".into());
     }
 
-    match std::os::unix::net::UnixStream::connect(&path) {
-        Ok(_) => Verdict::Ok(format!("{path} is readable")),
-        Err(error) => Verdict::Fail(format!(
-            "TERN_DOCKER_SOCKET is {path}, but it cannot be opened: {error}. \
-             Mount the socket read-only, and check the agent's user is in the docker group"
-        )),
+    #[cfg(unix)]
+    {
+        match std::os::unix::net::UnixStream::connect(&path) {
+            Ok(_) => Verdict::Ok(format!("{path} is readable")),
+            Err(error) => Verdict::Fail(format!(
+                "TERN_DOCKER_SOCKET is {path}, but it cannot be opened: {error}. \
+                 Mount the socket read-only, and check the agent's user is in the docker group"
+            )),
+        }
+    }
+
+    // A Docker socket is a Unix socket. Said as a failure rather than a warning
+    // because the variable is set: somebody asked for this and it will not work.
+    #[cfg(not(unix))]
+    {
+        Verdict::Fail(format!(
+            "TERN_DOCKER_SOCKET is {path}, but docker controls need a Unix socket \
+             and this build does not have one. Run them from an agent on a Unix host"
+        ))
     }
 }
 

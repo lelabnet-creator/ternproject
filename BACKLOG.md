@@ -105,14 +105,14 @@ les trois morceaux.
 
 Modes exercés, chacun de bout en bout :
 
-| Mode | Vérifié par |
-| --- | --- |
-| agent local de l'instance | présent dans la flotte au démarrage |
-| agent → TERN | appairage, jobs, sonde, ingestion, battement |
-| proxy → TERN | appairage (rôle détecté), assignation en cache, déclaration de zone |
-| agent → proxy → TERN | PIN émis par le proxy, job servi du cache, `Operational`, point remonté par la file |
-| push par clé, direct | `POST /api/v1/ingest`, `accepted: 1` |
-| push par clé, via le relais | idem contre le proxy, valeur visible sur la page publique |
+| Mode                        | Vérifié par                                                                         |
+| --------------------------- | ----------------------------------------------------------------------------------- |
+| agent local de l'instance   | présent dans la flotte au démarrage                                                 |
+| agent → TERN                | appairage, jobs, sonde, ingestion, battement                                        |
+| proxy → TERN                | appairage (rôle détecté), assignation en cache, déclaration de zone                 |
+| agent → proxy → TERN        | PIN émis par le proxy, job servi du cache, `Operational`, point remonté par la file |
+| push par clé, direct        | `POST /api/v1/ingest`, `accepted: 1`                                                |
+| push par clé, via le relais | idem contre le proxy, valeur visible sur la page publique                           |
 
 Trois défauts trouvés et corrigés, chacun mis à l'épreuve en le remettant :
 heartbeat absent du proxy, déclaration de zone happant les agents directs par
