@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { adminApi } from '../../lib/adminApi'
 import { Banner, Card } from '../../components/ui'
+import { ApplyUpdateButton, UpdatePanel, useUpdateProgress } from '../../components/UpdateProgress'
 
 /**
  * Running the instance, as opposed to running a status page on it.
@@ -23,6 +24,24 @@ export function PlatformScreen() {
     refetchInterval: 30_000,
   })
   const load = useQuery({ queryKey: ['system', 'load'], queryFn: () => adminApi.systemLoad(24) })
+  /**
+   * The same query the shell's update banner uses, so this costs nothing — but
+   * this is where the whole answer goes. The banner only ever fires for `update`;
+   * "could not reach the registry" and "this build carries no version" belong on
+   * the page somebody opens *to find out*, not in a notice they cannot act on.
+   */
+  const release = useQuery({
+    queryKey: ['system', 'release'],
+    queryFn: adminApi.systemRelease,
+    staleTime: 3_600_000,
+    retry: false,
+  })
+  /**
+   * Always asked here, unlike in the banner, which only asks once there is
+   * something to apply. This is the screen where "no updater is deployed" is
+   * itself the answer somebody came for.
+   */
+  const update = useUpdateProgress(true)
 
   if (overview.isPending || health.isPending) {
     return <p style={{ paddingTop: 'var(--space-6)' }}>Measuring the instance…</p>
@@ -99,6 +118,108 @@ export function PlatformScreen() {
                 </li>
               ))}
             </ul>
+          </Card>
+
+          <Card>
+            <h2 style={{ margin: '0 0 var(--space-3)', fontSize: 'var(--text-base)' }}>Version</h2>
+            {release.isPending ? (
+              <p style={{ margin: 0, fontSize: 'var(--text-sm)', color: 'var(--color-fg-subtle)' }}>
+                Asking the registry…
+              </p>
+            ) : release.data ? (
+              <>
+                <dl
+                  className="tabular"
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'auto 1fr',
+                    gap: 'var(--space-2) var(--space-4)',
+                    margin: 0,
+                    fontSize: 'var(--text-sm)',
+                  }}
+                >
+                  <dt style={{ color: 'var(--color-fg-subtle)' }}>Running</dt>
+                  <dd style={{ margin: 0 }}>
+                    {release.data.current ?? 'unstamped build'}
+                    {release.data.revision && (
+                      <span style={{ color: 'var(--color-fg-subtle)' }}>
+                        {' '}
+                        · {release.data.revision}
+                      </span>
+                    )}
+                  </dd>
+                  <dt style={{ color: 'var(--color-fg-subtle)' }}>Published</dt>
+                  <dd
+                    style={{
+                      margin: 0,
+                      fontWeight: release.data.state === 'update' ? 600 : 400,
+                      color: release.data.state === 'update' ? 'var(--status-degraded)' : undefined,
+                    }}
+                  >
+                    {/* An em dash, never a version: showing the running one here
+                        when the registry did not answer would read as "you are
+                        on the newest", which is the reassuring wrong answer. */}
+                    {release.data.latest ?? '—'}
+                  </dd>
+                </dl>
+                <p
+                  className="measure"
+                  style={{
+                    margin: 'var(--space-3) 0 0',
+                    fontSize: 'var(--text-xs)',
+                    color: 'var(--color-fg-subtle)',
+                  }}
+                >
+                  {release.data.detail}
+                  {release.data.state !== 'unknown' && (
+                    <>
+                      {' '}
+                      Checked against {release.data.image} at{' '}
+                      {new Date(release.data.checkedAt).toLocaleTimeString()}.
+                    </>
+                  )}
+                </p>
+
+                {/*
+                  Applying it, where somebody came looking for it.
+
+                  The banner across the admin carries the same button, and this
+                  is the screen an operator opens when they went to find it
+                  rather than being told. Both read one query, so having it in
+                  two places costs one request.
+                */}
+                {release.data.state === 'update' && update.data?.state !== 'running' && (
+                  <div style={{ marginTop: 'var(--space-4)' }}>
+                    <ApplyUpdateButton progress={update.data} />
+                    {update.data?.state === 'unavailable' && (
+                      <p
+                        className="measure"
+                        style={{
+                          margin: 'var(--space-2) 0 0',
+                          fontSize: 'var(--text-xs)',
+                          color: 'var(--color-fg-subtle)',
+                        }}
+                      >
+                        {update.data.detail} Start the <code>updater</code> profile beside this
+                        instance to apply upgrades from here.
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                {(update.data?.state === 'running' ||
+                  update.data?.state === 'succeeded' ||
+                  update.data?.state === 'failed') && (
+                  <div style={{ marginTop: 'var(--space-4)' }}>
+                    <UpdatePanel progress={update.data} unreachable={update.isError} />
+                  </div>
+                )}
+              </>
+            ) : (
+              <p style={{ margin: 0, fontSize: 'var(--text-sm)', color: 'var(--color-fg-subtle)' }}>
+                Could not read the version of this build.
+              </p>
+            )}
           </Card>
 
           <Card>

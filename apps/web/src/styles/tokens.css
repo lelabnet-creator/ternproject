@@ -537,6 +537,18 @@ a.tern-target {
   display: none;
 }
 
+/* Between the page's own screens and everything that leaves them. A tick along
+   the scrolling tab strip, because a horizontal rule in a horizontal list would
+   be a line drawn along the reading direction and separate nothing. */
+.admin-nav-rule {
+  flex: 0 0 auto;
+  align-self: center;
+  width: 1px;
+  height: 24px;
+  margin: 0 var(--space-1);
+  background: var(--color-border);
+}
+
 .admin-nav-item {
   display: inline-flex;
   align-items: center;
@@ -576,6 +588,41 @@ a.tern-target {
 .admin-main {
   padding: var(--space-4) var(--space-4) var(--space-12);
   min-width: 0;
+}
+
+/*
+ * A bar for a step whose end is not a number.
+ *
+ * The image pull can count layers, so it gets a real percentage. Verifying and
+ * restarting have two states each and no fraction between them — a bar creeping
+ * to 50% there would be a figure invented to fill the space. This sweeps
+ * instead, which says "still going" and claims nothing else. The reduced-motion
+ * rule above stops it dead, leaving a static segment, which says the same thing
+ * more quietly.
+ */
+@keyframes tern-indeterminate {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(285%);
+  }
+}
+
+/*
+ * The notices above every screen, spaced by one rule rather than by whatever
+ * margin each happened to carry. Empty on most loads, and an empty grid takes
+ * no height — the screen below keeps its own top padding either way.
+ */
+.admin-notices {
+  display: grid;
+  gap: var(--space-3);
+}
+
+/* Its own bottom margin is for the public page, where it stands alone. Inside
+   this stack the gap owns the spacing, and both would be one gap too many. */
+.admin-notices .demo-banner {
+  margin-bottom: 0;
 }
 
 /*
@@ -687,6 +734,24 @@ a.tern-target {
   .admin-nav {
     flex-direction: column;
     overflow: visible;
+  }
+
+  /* Turned across the column, and faded at both ends like the rule under the
+     brand — the rail's right edge is a hard line, and a second one meeting it
+     squarely draws a box. Inset on the left by the width of the current-item
+     marker, so it starts where the labels do rather than in the gutter. */
+  .admin-nav-rule {
+    align-self: stretch;
+    width: auto;
+    height: 1px;
+    margin: var(--space-2) 0 var(--space-2) 3px;
+    background: linear-gradient(
+      90deg,
+      transparent,
+      var(--color-border) 15%,
+      var(--color-border) 85%,
+      transparent
+    );
   }
 
   .admin-nav-item {

@@ -274,24 +274,28 @@ Everything is environment variables, validated at boot by
 `apps/api/src/config.ts` — the process refuses to start on a bad value rather
 than failing later on a request.
 
-| Variable                                          | Default        | What it decides                                                                                                                           |
-| ------------------------------------------------- | -------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| `APP_SECRET`                                      | —              | Signs sessions and encrypts stored secrets. **Rotating it invalidates every session and makes encrypted subscriber addresses unreadable** |
-| `DATABASE_URL`                                    | —              | PostgreSQL                                                                                                                                |
-| `PUBLIC_BASE_URL`                                 | —              | Appears in generated scripts, pairing commands and email links                                                                            |
-| `DB_POOL_MAX`                                     | 10             | Connections per API instance. Each is a backend process                                                                                   |
-| `INGEST_RATE_LIMIT_MAX`                           | 600            | Ingest requests per minute per API key                                                                                                    |
-| `AUTH_RATE_LIMIT_MAX`                             | 10             | Sign-in attempts per minute per IP                                                                                                        |
-| `PAIR_RATE_LIMIT_MAX`                             | 10             | Pairing attempts per minute per IP                                                                                                        |
-| `SUBSCRIBE_RATE_LIMIT_MAX`                        | 5              | Subscription attempts per minute per IP                                                                                                   |
-| `SMTP_HOST`/`_PORT`/`_USER`/`_PASSWORD`/`_SECURE` | localhost:1025 | Mail. Shared by every tenant                                                                                                              |
-| `MAIL_FROM`                                       | —              | Envelope sender                                                                                                                           |
-| `LOG_LEVEL`                                       | info           |                                                                                                                                           |
-| `TERN_LOCAL_AGENT`                                | true           | Whether the instance runs `Agent-local-tern` for itself                                                                                   |
-| `TERN_AGENT_NETWORK_MODE`                         | service:app    | Which network that agent measures from. `host` lets it reach this machine's own services — see [`Agent-local-tern`](#agent-local-tern)    |
-| `TERN_LOCAL_AGENT_SERVER`                         | —              | Where that agent reports. Required with `host`, where the API is only at the published port                                               |
-| `TERN_DATA_DIR`                                   | /var/lib/tern  | That agent's `agent.toml` and offline queue. Relative paths resolve from the repository root                                              |
-| `TERN_DOCKER_SOCKET`                              | unset          | Path to the Docker socket. Unset means `docker` controls are refused. Mount it read-only; `tern-agent doctor` reports whether it opens    |
+| Variable                                          | Default                              | What it decides                                                                                                                           |
+| ------------------------------------------------- | ------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `APP_SECRET`                                      | —                                    | Signs sessions and encrypts stored secrets. **Rotating it invalidates every session and makes encrypted subscriber addresses unreadable** |
+| `DATABASE_URL`                                    | —                                    | PostgreSQL                                                                                                                                |
+| `PUBLIC_BASE_URL`                                 | —                                    | Appears in generated scripts, pairing commands and email links                                                                            |
+| `DB_POOL_MAX`                                     | 10                                   | Connections per API instance. Each is a backend process                                                                                   |
+| `INGEST_RATE_LIMIT_MAX`                           | 600                                  | Ingest requests per minute per API key                                                                                                    |
+| `AUTH_RATE_LIMIT_MAX`                             | 10                                   | Sign-in attempts per minute per IP                                                                                                        |
+| `PAIR_RATE_LIMIT_MAX`                             | 10                                   | Pairing attempts per minute per IP                                                                                                        |
+| `SUBSCRIBE_RATE_LIMIT_MAX`                        | 5                                    | Subscription attempts per minute per IP                                                                                                   |
+| `SMTP_HOST`/`_PORT`/`_USER`/`_PASSWORD`/`_SECURE` | localhost:1025                       | Mail. Shared by every tenant                                                                                                              |
+| `MAIL_FROM`                                       | —                                    | Envelope sender                                                                                                                           |
+| `LOG_LEVEL`                                       | info                                 |                                                                                                                                           |
+| `TERN_LOCAL_AGENT`                                | true                                 | Whether the instance runs `Agent-local-tern` for itself                                                                                   |
+| `TERN_AGENT_NETWORK_MODE`                         | service:app                          | Which network that agent measures from. `host` lets it reach this machine's own services — see [`Agent-local-tern`](#agent-local-tern)    |
+| `TERN_LOCAL_AGENT_SERVER`                         | —                                    | Where that agent reports. Required with `host`, where the API is only at the published port                                               |
+| `TERN_DATA_DIR`                                   | /var/lib/tern                        | That agent's `agent.toml` and offline queue. Relative paths resolve from the repository root                                              |
+| `TERN_DOCKER_SOCKET`                              | unset                                | Path to the Docker socket. Unset means `docker` controls are refused. Mount it read-only; `tern-agent doctor` reports whether it opens    |
+| `TERN_UPDATE_CHECK`                               | true                                 | Whether the instance asks the registry for the newest published tag — see [Upgrading](#upgrading)                                         |
+| `TERN_UPDATE_IMAGE`                               | ghcr.io/lelabnet-creator/ternproject | Which image repository that check reads. Point it at your own mirror or fork                                                              |
+| `TERN_UPDATE_CHECK_INTERVAL_H`                    | 6                                    | Hours between registry reads                                                                                                              |
+| `TERN_VERSION` / `TERN_REVISION`                  | —                                    | The tag and commit this build came from. Set by the Dockerfile at build time; an unset version reads as _unknown_, never as up to date    |
 
 ### Watching the values above under load
 
@@ -398,6 +402,69 @@ pnpm build && restart the API
 
 Migrations are forward-only. There is no down migration, deliberately: a
 rehearsed restore is a better answer than a reverse migration nobody has run.
+
+### Knowing there is something to upgrade to
+
+The admin says so. An instance built from a published image knows the tag it
+came from, and every few hours it asks the registry which release tags exist —
+the same anonymous listing `docker pull` makes, carrying nothing about this
+instance. When a newer one is published, a banner appears across the admin for
+admins of the system tenant, with the image to pull and a link to the release
+notes. Nobody else sees it: a tenant admin cannot pull an image.
+
+**Platform** carries the full answer, including the two the banner stays quiet
+about — a registry that could not be reached, and a build with no version
+stamped on it. Neither is reported as _up to date_; an unreachable registry has
+not told you anything, and a screen that says otherwise is the one you stop
+believing.
+
+Turn the outbound request off with `TERN_UPDATE_CHECK=false`, or point it at
+your own registry with `TERN_UPDATE_IMAGE` — an instance deployed from a mirror
+should be told about the releases it can actually pull.
+
+```bash
+docker compose -f docker-compose.prod.yml pull
+docker compose -f docker-compose.prod.yml up -d
+```
+
+### Applying it from the admin
+
+Optional, and off until you start it. With the `updater` service running, the
+banner grows a button: it pulls the new image, checks that the image agrees with
+the tag that fetched it, writes the tag into `.env` and recreates `app` and
+`agent` — reporting each step, with a bar for the pull.
+
+```bash
+mkdir -p docker/updater
+curl -fsSL -o docker/updater/updater.sh \
+  https://raw.githubusercontent.com/lelabnet-creator/ternproject/main/docker/updater/updater.sh
+docker compose -f docker-compose.prod.yml --profile updater up -d
+```
+
+**Why it is a second container.** The Docker socket is root on the host, and the
+process answering HTTP is the last one that should hold it — the same reason
+`docker` controls belong to the agent and not to the server. So the API only
+ever writes a request into the shared volume, and the updater, which holds the
+socket, reads it and decides. Nothing the web server can be made to do reaches
+Docker. It is also the only arrangement that can finish: the last step replaces
+the `app` container, and a process cannot outlive its own removal.
+
+The script is mounted from the host, read-only, and deliberately neither shipped
+inside the TERN image nor written into the shared volume. Either would let a
+compromised app container edit the file that runs as root, which is the exact
+escalation the split exists to prevent. What runs is a file you downloaded and
+can read — and `docker/updater/updater.test.ts` runs it against a stub `docker`
+on every CI build.
+
+What it will not do: run a tag that is not a release, install an image whose
+`org.opencontainers.image.version` label disagrees with the tag that fetched it,
+or carry on to the restart after a failed pull. Any of those stops the update
+and says so on the screen, with the running instance untouched. The full pull
+log is left in the volume at `update.pull.log`.
+
+Without the service, everything above still works and the admin shows the two
+commands instead. Nothing about running a status page requires the ability to
+restart the machine it runs on.
 
 ## The agents
 

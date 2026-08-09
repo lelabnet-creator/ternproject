@@ -285,6 +285,28 @@ export interface Monitoring {
   } | null
 }
 
+/**
+ * An upgrade in flight, as the updater container reports it.
+ *
+ * `unavailable` and `idle` are both "nothing is happening" and mean different
+ * things to the reader: one has no updater to ask, the other has one waiting.
+ */
+export interface UpdateProgress {
+  state: 'unavailable' | 'idle' | 'running' | 'succeeded' | 'failed'
+  target: string | null
+  steps: {
+    id: 'pull' | 'verify' | 'restart'
+    label: string
+    state: 'pending' | 'running' | 'done' | 'failed'
+    /** 0–100, and only meaningful on the running step. */
+    percent: number
+    detail: string
+  }[]
+  startedAt: string | null
+  updatedAt: string | null
+  detail: string
+}
+
 export interface ProbeRunResult {
   status: string
   latencyMs: number | null
@@ -700,6 +722,45 @@ export const adminApi = {
       'GET',
       `/api/v1/system/load?hours=${hours}`,
     ),
+
+  /**
+   * Which build this is, and whether the registry has a newer one.
+   *
+   * `unknown` is a real answer and not a failure: an image built by hand
+   * carries no version, and an instance that cannot reach the registry has not
+   * learned that it is up to date. Both must read differently from `current`,
+   * or the notice becomes reassurance nobody can rely on.
+   */
+  systemRelease: () =>
+    request<{
+      state: 'current' | 'update' | 'unknown'
+      current: string | null
+      latest: string | null
+      revision: string | null
+      image: string
+      checkedAt: string
+      detail: string
+    }>('GET', '/api/v1/system/release'),
+
+  /**
+   * How an upgrade is going.
+   *
+   * `unavailable` is the ordinary answer: it means no updater container is
+   * deployed beside the instance, so an upgrade is two commands on the host
+   * rather than a button. Polled every couple of seconds while a bar is moving,
+   * and cheap enough for that — it reads two small files.
+   */
+  updateProgress: () => request<UpdateProgress>('GET', '/api/v1/system/release/update'),
+
+  /**
+   * Asks the updater to apply the newest published release.
+   *
+   * No body: the target is whatever the registry says is newest, decided by the
+   * API. 409 when there is nothing to apply or one is already running, 412 when
+   * no updater is deployed.
+   */
+  applyUpdate: () =>
+    request<{ id: string; target: string }>('POST', '/api/v1/system/release/update'),
 
   assignment: (slug: string, controlId: string) =>
     request<{

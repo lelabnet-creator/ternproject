@@ -234,6 +234,59 @@ services:
       # its own.
       - tern-data:/var/lib/tern
 
+  # Applying an upgrade, from the admin, without a shell on the host.
+  #
+  # ── Why this is a container of its own ────────────────────────────────────
+  # Because the Docker socket is root on the host, and the process that answers
+  # HTTP must never be the one holding it. The API detects that a newer image
+  # exists — that is only an outbound GET to a registry — and then writes what
+  # it wants into `update.request` in the shared volume. This reads it, decides,
+  # and reports back through `update.status.json`. The API cannot pull, cannot
+  # recreate anything, and cannot make this do something it does not agree to.
+  #
+  # It is also the only arrangement that can finish the job: the last step
+  # replaces the `app` container, and a process cannot outlive its own removal.
+  #
+  # ── Off unless asked for ──────────────────────────────────────────────────
+  # Behind a profile, so `docker compose up -d` never starts it by accident.
+  # Nothing about a status page requires the ability to restart the machine it
+  # runs on, and an instance without this service simply shows the two commands
+  # to type instead. Enabling it is two lines:
+  #
+  #   mkdir -p docker/updater && curl -fsSL -o docker/updater/updater.sh \
+  #     https://raw.githubusercontent.com/lelabnet-creator/ternproject/main/docker/updater/updater.sh
+  #   docker compose -f docker-compose.prod.yml --profile updater up -d
+  #
+  # The script is mounted from the host, read-only, and deliberately not shipped
+  # inside the TERN image or written into the shared volume: either would mean a
+  # compromised web server could edit the file that runs as root on the host,
+  # which is the exact escalation this whole arrangement exists to prevent. What
+  # is mounted here is a file the operator downloaded and can read.
+  updater:
+    image: docker:27-cli
+    restart: unless-stopped
+    profiles: ['updater']
+    # `docker:cli`'s own entrypoint expects to be a docker client invocation.
+    entrypoint: ['/bin/sh', '/deploy/docker/updater/updater.sh']
+    environment:
+      TERN_DATA_DIR: /var/lib/tern
+      TERN_DEPLOY_DIR: /deploy
+    volumes:
+      # Root on the host, and the reason for every other line in this service.
+      - /var/run/docker.sock:/var/run/docker.sock
+      # The channel. Read-write because the status and the heartbeat are written
+      # here; the request is only ever read.
+      - tern-data:/var/lib/tern
+      # Read-only: this is the program, and it should not be able to rewrite
+      # itself any more than the API should.
+      - ./docker/updater/updater.sh:/deploy/docker/updater/updater.sh:ro
+      # Read-only for the same reason. Compose needs it to recreate `app`.
+      - ./docker-compose.prod.yml:/deploy/docker-compose.prod.yml:ro
+      # The one thing that is written: TERN_IMAGE, so the tag survives the next
+      # `docker compose up -d` somebody types by hand. A single file rather than
+      # the directory, so nothing else in the deployment is writable from here.
+      - ./.env:/deploy/.env
+
 volumes:
   db-data:
   tern-data:

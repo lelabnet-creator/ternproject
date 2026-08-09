@@ -110,6 +110,51 @@ const schema = z.object({
     .default('true')
     .transform((v) => v !== 'false' && v !== '0'),
 
+  // ── Which build this is, and whether a newer one is published ─────────────
+
+  /**
+   * The tag this image was built from, stamped by the Dockerfile.
+   *
+   * Empty when the answer is not known — running from source, or an image built
+   * by hand without the build argument. Empty is treated as *unknown*, never as
+   * a version: an update notice needs something true to compare against, and a
+   * guessed version is how an instance gets told to upgrade to what it is
+   * already running.
+   */
+  TERN_VERSION: z.string().default(''),
+  /** The commit that tag pointed at. Shown beside the version, never compared. */
+  TERN_REVISION: z.string().default(''),
+
+  /**
+   * Whether this instance asks the registry what the newest published tag is.
+   *
+   * On by default: an operator who never learns a release exists never applies
+   * it, and the security fixes are in the releases. The request carries nothing
+   * about this instance — it is the same anonymous tag listing anyone pulling
+   * the image already makes — but it is still an outbound connection, so an
+   * air-gapped or nothing-leaves-the-building install turns it off here rather
+   * than by firewalling a host and reading timeouts on the admin screen.
+   */
+  TERN_UPDATE_CHECK: z
+    .string()
+    .default('true')
+    .transform((v) => v !== 'false' && v !== '0'),
+
+  /**
+   * The image repository the check reads, as `host/owner/name`.
+   *
+   * Configurable so a fork, or a mirror inside a network that cannot reach
+   * ghcr.io, is checked against the registry it actually deploys from — one
+   * pointed at upstream would announce releases nobody there can pull.
+   */
+  TERN_UPDATE_IMAGE: z.string().default('ghcr.io/lelabnet-creator/ternproject'),
+
+  /**
+   * Hours between registry reads. The answer changes a few times a year; asking
+   * on every admin page load would be several thousand times a day for it.
+   */
+  TERN_UPDATE_CHECK_INTERVAL_H: z.coerce.number().int().min(1).max(720).default(6),
+
   /**
    * Proxy CIDRs whose X-Forwarded-For is believed. Empty by default: IP
    * allowlists are only as trustworthy as this list, and trusting a header
