@@ -50,7 +50,22 @@ côté serveur n'a rien à recevoir et le dessin rien à dessiner.
 
 </details>
 
-### 2. Les deux tests de sonde manquants
+### 2. ~~Les deux tests de sonde manquants~~ — fait
+
+Vérifié : `cargo test` 46 (+1) plus un ignoré, `cargo fmt --check`,
+`cargo clippy -D warnings` ; `pnpm typecheck`, `lint`, `format`, `test` 738
+inchangés. Le test `docker` réel a été **exécuté contre le démon de la machine**
+(`tern-prod-app-1`) : `State.Running`, `State.Status`, et le refus nommé d'un
+conteneur inconnu. Le test `cert` nominal a été mis à l'épreuve en retirant la CA
+du magasin de confiance — il échoue, donc il vérifie bien quelque chose.
+
+`days_until_expiry` a dû être scindé : l'ancre de confiance devient un paramètre.
+Sans ça le chemin nominal était intestable, puisqu'un certificat local n'est par
+définition signé par rien que webpki connaisse — et l'affaiblir en test aurait
+prouvé l'inverse du but. La production passe les vraies racines et reste seule
+appelante.
+
+<details><summary>Description d'origine</summary>
 
 - `cert`, chemin nominal. Demande un générateur de certificats en
   dev-dependency (`rcgen`) et un serveur rustls local. Aujourd'hui seul le
@@ -59,6 +74,8 @@ côté serveur n'a rien à recevoir et le dessin rien à dessiner.
   actuel, qui vérifie le dialogue HTTP et le parsing mais pas que Docker répond
   bien ce qui est supposé. À garder derrière une condition : la suite doit
   rester verte sur une machine sans Docker.
+
+</details>
 
 ### 3. Ce que la zone divulgue désormais
 
