@@ -2,25 +2,29 @@
 
 ## Current Task
 
-Rien en cours. `v0.1.10` est taguée. Elle répare le bandeau de mise à jour, qui
-ne pouvait s'allumer sur aucun déploiement depuis la 0.1.8, et publie la
-référence OpenAPI. Vert — typecheck, lint, format, 728 tests JS, e2e 21/21.
+Rien en cours. `v0.1.11` est taguée. Elle apporte la vue Fleet des proxies — rôle,
+IP, flux agent → proxy → TERN — et trois correctifs sortis d'un essai réel où
+l'agent, le relais et le serveur se parlaient. Vert : 742 tests JS, 46 côté
+agent, e2e 21/21.
 
 ## Key Decisions
 
-- L'étage runtime du Dockerfile ne convertissait pas `ARG TERN_VERSION` en `ENV`.
-  Le label OCI était juste, le serveur ne savait rien, et le pied de page —
-  gravé par vite à la construction — faisait passer l'écran pour correct. Une
-  garde CI interroge désormais l'image poussée avant de la laisser partir.
-- L'OpenAPI est généré depuis les schémas Zod qui valident déjà les requêtes.
-  Aucune route n'est annotée ; les groupes sont dérivés des chemins par un hook.
-- La page publique porte le logo du client à la place du wordmark. TERN signe au
-  centre de l'anneau de statut, sous le verdict et jamais à sa place.
+- Le rôle proxy se détecte depuis `agent_version: "proxy/<version>"`, signal que
+  le proxy envoie déjà. Un nouveau champ aurait fait passer les proxies déjà
+  déployés pour des agents ordinaires.
+- Un agent de zone est identifié parmi les lignes que ce serveur n'a jamais
+  appairées (`apiKeyId IS NULL`). Le nom seul entrait en collision avec un agent
+  direct sur la même machine.
+- `PATCH /controls/:id` ne réécrit plus ce qu'il ne mentionne pas. `.partial()`
+  ne retire pas un `.default()` — cinq champs se réinitialisaient en silence.
 
 ## Next Steps
 
-- Après publication de l'image : `docker compose pull && up -d` à la main sur
-  l'instance. Le bandeau ne peut pas s'annoncer le correctif qui le répare.
-- Le binaire `x86_64-pc-windows-msvc` échoue (exit 101) et bloque le job
-  `Release` depuis la 0.1.8 : l'image GHCR part, la release GitHub non.
-- `apps/web/public/bg.jpeg` est modifié dans l'arbre par quelqu'un d'autre.
+- Une instance en 0.1.8 ne peut pas détecter cette version : son image ne connaît
+  pas son propre numéro. Il faut un `docker compose pull && up -d` manuel, une
+  fois, pour passer à une image ≥ 0.1.10.
+- Le binaire `x86_64-pc-windows-msvc` bloque la release GitHub depuis la 0.1.8.
+  L'épinglage sur `ring` est sur main ; cette version est la première à
+  l'éprouver.
+- Trous de couverture : aucun test serveur pour HTTP, TCP, DNS ; `ping` couvert
+  seulement par son checksum.
