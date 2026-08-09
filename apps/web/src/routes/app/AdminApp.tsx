@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { Fragment, useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { adminApi, ApiError, type Control, type ControlGroup } from '../../lib/adminApi'
 import {
@@ -19,6 +19,7 @@ import { SetupWizard } from '../../features/onboarding/SetupWizard'
 import { FirstRunSetup } from '../../features/onboarding/FirstRunSetup'
 import { GuidedTour } from '../../features/onboarding/GuidedTour'
 import { DemoBanner } from '../../components/DemoBanner'
+import { UpdateNotice } from '../../components/UpdateNotice'
 import { accentById, applyAccent } from '../../lib/accents'
 import { applyFont, fontById } from '../../lib/fonts'
 import { PasskeyCancelled, passkeysSupported, signInWithPasskey } from '../../lib/passkeys'
@@ -379,26 +380,51 @@ export function AdminApp({ slug }: { slug: string }) {
       )}
 
       <main className="admin-main">
-        {/* Said on every screen, not only the first: someone who arrives deep
-            in the admin from a link has had no chance to be told. */}
-        {demo && <DemoBanner variant="admin" />}
-
         {/*
-          Why nothing can be changed, said once for every screen.
-          
-          A disabled button gives no reason and looks exactly like an enabled
-          one that did not work — the report that led here was "I cannot click
-          another density", from a page where all four were disabled and the
-          saved one merely looked chosen. The demo banner above already explains
-          its own case, so this covers the other two.
+          Everything the reader is told before the screen itself starts.
+
+          Grouped rather than left as loose siblings so the gap between two of
+          them is one rule in one place. They stacked flush against each other
+          before, because each carried whatever bottom margin it happened to
+          have and a `Banner` carries none — two warnings touching read as one
+          box with a colour change in the middle.
         */}
-        {!demo && !canWrite && (
-          <Banner tone="maintenance">
-            {summary.data?.tenant.readOnly
-              ? 'This page is read-only: every change is refused, whoever is signed in. Nothing below will save.'
-              : `You are signed in as a ${membership.role}, which can read this page but not change it.`}
-          </Banner>
-        )}
+        <div className="admin-notices">
+          {/* Said on every screen, not only the first: someone who arrives deep
+              in the admin from a link has had no chance to be told. */}
+          {demo && <DemoBanner variant="admin" />}
+
+          {/*
+            A newer image than the running one, said wherever the operator
+            happens to be.
+
+            Three conditions, and each removes a reader who cannot act. Signed
+            in, because a demo visitor and a stranger at the sign-in form are
+            being shown somebody else's instance. An admin of the system tenant,
+            because nobody else can pull an image — and the endpoint answers 404
+            to them, so mounting this for a tenant admin would be a failed
+            request per navigation for a banner that could never appear.
+          */}
+          {signedIn && !demo && membership.isSystem === true && <UpdateNotice />}
+
+          {/*
+            Why nothing can be changed, said once for every screen.
+
+            A disabled button gives no reason and looks exactly like an enabled
+            one that did not work — the report that led here was "I cannot click
+            another density", from a page where all four were disabled and the
+            saved one merely looked chosen. The demo banner above already
+            explains its own case, so this covers the other two.
+          */}
+          {!demo && !canWrite && (
+            <Banner tone="maintenance">
+              {summary.data?.tenant.readOnly
+                ? 'This page is read-only: every change is refused, whoever is signed in. Nothing below will save.'
+                : `You are signed in as a ${membership.role}, which can read this page but not change it.`}
+            </Banner>
+          )}
+        </div>
+
         {section === 'incidents' ? (
           <IncidentsScreen slug={slug} canWrite={canWrite} />
         ) : section === 'maintenance' ? (
@@ -548,9 +574,8 @@ function AdminNav({
     <nav aria-label="Sections" className="admin-nav">
       {SECTIONS.filter((entry) => entry.id !== 'platform' || isSystem).map((entry) => {
         const current = entry.id === section
-        return (
+        const link = (
           <a
-            key={entry.id}
             href={entry.id === 'controls' ? `/app/${slug}` : `/app/${slug}/${entry.id}`}
             // A real link, so it can be opened in a new tab and read by anything
             // that harvests links — the click handler only avoids the reload.
@@ -569,6 +594,28 @@ function AdminNav({
             <NavIcon name={entry.icon} />
             {entry.label}
           </a>
+        )
+
+        /*
+          Where this page's own screens end.
+
+          Everything above the rule edits one status page — its controls, its
+          incidents, its branding. Everything below leaves it: the instance the
+          page runs on, the guide, the page as the public sees it, the issue
+          tracker. Two different jobs sharing one column, and until now nothing
+          said where one stopped.
+
+          A rule and not a heading: the sections are already named, and a
+          "Beyond this page" label would be a word the reader has to read every
+          session to learn nothing new.
+        */
+        return entry.id === 'options' ? (
+          <Fragment key={entry.id}>
+            {link}
+            <div className="admin-nav-rule" role="presentation" />
+          </Fragment>
+        ) : (
+          <Fragment key={entry.id}>{link}</Fragment>
         )
       })}
 
