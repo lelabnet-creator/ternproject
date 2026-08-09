@@ -198,6 +198,7 @@ pub async fn run(
         .route("/api/v1/pair", post(pair))
         .route("/api/v1/ingest", post(ingest))
         .route("/api/v1/agent/jobs", get(jobs_route))
+        .route("/api/v1/agent/heartbeat", post(heartbeat))
         .route("/health", get(health))
         .with_state(state.clone());
 
@@ -414,6 +415,31 @@ async fn pair(State(state): State<AppState>, Json(body): Json<PairBody>) -> impl
         })),
     )
         .into_response()
+}
+
+/// An agent saying it is alive, with nothing else to say.
+///
+/// The proxy claims to speak the same API as TERN, and this was the one verb it
+/// did not: every agent in a zone logged `heartbeat refused (404)` on every
+/// beat. Found by pairing an agent behind a real proxy rather than by reading —
+/// the module's own doc comment says none of the agent's code knows the
+/// difference, and it was wrong.
+///
+/// Not forwarded upstream. The zone's liveness reaches TERN in the inventory
+/// this proxy declares; relaying each beat would tell the server about an agent
+/// it has no row for, one request at a time.
+async fn heartbeat(
+    State(state): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    let mut inner = state.inner.lock().await;
+    let Some(index) = identify(&inner, &headers) else {
+        return unauthorised();
+    };
+    touch(&mut inner, index, Some(peer.ip().to_string()));
+
+    (StatusCode::OK, Json(json!({ "ok": true }))).into_response()
 }
 
 async fn jobs_route(
