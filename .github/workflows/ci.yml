@@ -415,6 +415,7 @@ jobs:
             type=raw,value=latest,enable=${{ !contains(github.ref_name, '-') }}
 
       - uses: docker/build-push-action@v6
+        id: build
         with:
           context: .
           platforms: linux/amd64,linux/arm64
@@ -426,6 +427,30 @@ jobs:
             TERN_REVISION=${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      # The version has to reach the process, not only the label.
+      #
+      # It did not, from 0.1.8 until this check existed: the runtime stage
+      # carried the ARG into its OCI label and never into its environment, so
+      # every deployed instance answered "this build does not say which version
+      # it is" and the update notice could not fire. Nothing failed — the footer
+      # showed a version, because vite bakes that one into the bundle — which is
+      # exactly why it went unnoticed through two releases.
+      #
+      # Pulled back by digest rather than by tag: the tag is a moving target and
+      # this must interrogate the image that was just pushed.
+      - name: The image knows which version it is
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          docker run --rm --entrypoint node \
+            ghcr.io/${{ github.repository }}@${{ steps.build.outputs.digest }} \
+            -e 'const v = process.env.TERN_VERSION || ""
+                if (!/^v?\d+\.\d+\.\d+/.test(v)) {
+                  console.error(`TERN_VERSION is ${JSON.stringify(v)} inside the image.`)
+                  console.error("The update check will answer \"unknown\" on every deployment.")
+                  process.exit(1)
+                }
+                console.log(`TERN_VERSION = ${v}`)'
 
   secrets:
     name: Secret scan

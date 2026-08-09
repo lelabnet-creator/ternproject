@@ -64,6 +64,21 @@ LABEL org.opencontainers.image.title="TERN" \
       org.opencontainers.image.version="${TERN_VERSION}" \
       org.opencontainers.image.revision="${TERN_REVISION}"
 
+# The version the server reads, and not only the one on the label.
+#
+# These two lines were missing, and their absence disabled the whole update
+# notice on every real deployment. The build stage above turns the same ARGs
+# into ENV because vite bakes them into the bundle — which is why the footer
+# showed a version and looked right — but a build argument does not survive into
+# the runtime stage's environment on its own. Without them `config.TERN_VERSION`
+# is empty, `parseVersion` returns null, and the check answers "this build does
+# not say which version it is" without ever reading the registry.
+#
+# The label carries the same value for anyone inspecting the image; this is for
+# the process inside it.
+ENV TERN_VERSION=$TERN_VERSION
+ENV TERN_REVISION=$TERN_REVISION
+
 ENV PNPM_HOME=/pnpm
 ENV PATH=$PNPM_HOME:$PATH
 ENV NODE_ENV=production
