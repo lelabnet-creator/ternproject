@@ -224,10 +224,7 @@ async fn observe_websocket(
             Ok(port) => (host.to_string(), port),
             Err(_) => return failed(format!("{authority} has no valid port")),
         },
-        None => (
-            authority.to_string(),
-            if secure { 443u16 } else { 80u16 },
-        ),
+        None => (authority.to_string(), if secure { 443u16 } else { 80u16 }),
     };
 
     if host.is_empty() {
@@ -267,9 +264,8 @@ async fn observe_websocket(
                 .with_no_client_auth();
 
             let connector = tokio_rustls::TlsConnector::from(std::sync::Arc::new(config));
-            let server_name =
-                tokio_rustls::rustls::pki_types::ServerName::try_from(host.clone())
-                    .map_err(|_| anyhow::anyhow!("{host} is not a valid server name"))?;
+            let server_name = tokio_rustls::rustls::pki_types::ServerName::try_from(host.clone())
+                .map_err(|_| anyhow::anyhow!("{host} is not a valid server name"))?;
 
             let mut stream = connector
                 .connect(server_name, stream)
@@ -347,7 +343,11 @@ where
 /// special case in the engine. A container that is not running, or unhealthy
 /// when `require_healthcheck` is set, fails as unreachable — the state is not a
 /// slow response, it is an absent service.
-async fn observe_docker(container: &str, require_healthcheck: bool, timeout_ms: u64) -> Observation {
+async fn observe_docker(
+    container: &str,
+    require_healthcheck: bool,
+    timeout_ms: u64,
+) -> Observation {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     let socket = match std::env::var("TERN_DOCKER_SOCKET") {
@@ -365,7 +365,9 @@ async fn observe_docker(container: &str, require_healthcheck: bool, timeout_ms: 
     let exchange = async {
         let mut stream = tokio::net::UnixStream::connect(&socket)
             .await
-            .map_err(|error| anyhow::anyhow!("could not open the Docker socket at {socket}: {error}"))?;
+            .map_err(|error| {
+                anyhow::anyhow!("could not open the Docker socket at {socket}: {error}")
+            })?;
 
         // Hand-written HTTP/1.1 over the Unix socket, for the same reason the
         // handshake above is hand-written: a Docker client crate is a large
