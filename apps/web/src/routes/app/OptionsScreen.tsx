@@ -149,7 +149,7 @@ function GeneralPanel({ slug, canWrite }: { slug: string; canWrite: boolean }) {
           </Field>
           <Field
             label="Logo URL"
-            hint="Shown in this tenant's admin. Leave blank for the TERN wordmark."
+            hint="Shown on the public page and in this admin. Leave blank for the TERN wordmark."
           >
             <Input
               type="url"
