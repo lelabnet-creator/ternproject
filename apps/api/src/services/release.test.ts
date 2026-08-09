@@ -1,5 +1,14 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
-import { compareVersions, listTags, newestRelease, parseVersion, splitImage } from './release.js'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { config } from '../config.js'
+import {
+  compareVersions,
+  listTags,
+  newestRelease,
+  parseVersion,
+  releaseState,
+  resetReleaseCache,
+  splitImage,
+} from './release.js'
 
 /**
  * The comparison is the part that can be quietly wrong: a notice that never
@@ -173,5 +182,67 @@ describe('listTags', () => {
 
     await expect(listTags('registry.internal:5000/ops/tern')).resolves.toEqual(['1.0.0'])
     expect((seen[0]?.headers as Record<string, string>).authorization).toBeUndefined()
+  })
+})
+
+/**
+ * The verdict as the process start-up path uses it.
+ *
+ * `server.ts` fires this once after `listen` and never awaits it, so the one
+ * property that path depends on is that it settles rather than rejects — an
+ * unreachable registry is a verdict of "we do not know", not an unhandled
+ * rejection in a process that has just begun serving.
+ */
+describe('releaseState, as the startup call uses it', () => {
+  /*
+   * A version, because a build that has none never reaches the registry at all
+   * — there is nothing to compare a tag to, and the check says so and stops.
+   * That is right, and it is also why these cases have to state one.
+   */
+  const declared = config.TERN_VERSION
+
+  beforeEach(() => {
+    ;(config as { TERN_VERSION: string }).TERN_VERSION = '0.0.1'
+    resetReleaseCache()
+  })
+
+  afterEach(() => {
+    ;(config as { TERN_VERSION: string }).TERN_VERSION = declared
+    vi.unstubAllGlobals()
+    resetReleaseCache()
+  })
+
+  it('settles into a verdict when the registry cannot be reached', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.reject(new Error('getaddrinfo ENOTFOUND ghcr.io'))),
+    )
+
+    const state = await releaseState()
+    expect(state.state).toBe('unknown')
+    // And says which registry and why, because "unknown" alone is the answer
+    // that makes somebody stop believing the screen.
+    expect(state.detail).toMatch(/ghcr\.io/)
+  })
+
+  it('reads the registry once, however many callers ask', async () => {
+    let lists = 0
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string) => {
+        if (url.includes('/token?')) {
+          return Promise.resolve(new Response(JSON.stringify({ token: 't' }), { status: 200 }))
+        }
+        lists += 1
+        return Promise.resolve(new Response(JSON.stringify({ tags: ['0.0.1'] }), { status: 200 }))
+      }),
+    )
+
+    // The startup call and the first admin to load a page are two callers a
+    // moment apart; the second must join the first rather than start a second
+    // round trip to ghcr.io.
+    await Promise.all([releaseState(), releaseState()])
+    await releaseState()
+    expect(lists).toBe(1)
   })
 })
