@@ -1244,7 +1244,8 @@ function FolderSection({ folder, ctx }: { folder: ControlGroup; ctx: FolderConte
   const [error, setError] = useState<string | null>(null)
 
   const remove = useMutation({
-    mutationFn: () => adminApi.deleteControlGroup(ctx.slug, folder.id),
+    mutationFn: (controls: 'unfile' | 'delete') =>
+      adminApi.deleteControlGroup(ctx.slug, folder.id, controls),
     onSuccess: async () => {
       setConfirming(false)
       setError(null)
@@ -1363,12 +1364,54 @@ function FolderSection({ folder, ctx }: { folder: ControlGroup; ctx: FolderConte
             Delete “{folder.name}”? The folder goes and nothing in it does — its{' '}
             {children.length > 0 ? 'folders move up a level and its ' : ''}controls are unfiled,
             still monitored, still on the page.
+            {/*
+              The other intention, offered rather than left to be done by hand.
+              A service being dismantled takes its checks with it, and the way
+              to do that until now was to delete N controls one at a time and
+              then the folder — which is the same act, performed without a
+              transaction and with a chance to stop half way.
+
+              Two buttons rather than a checkbox on one: they destroy different
+              amounts, and a tickbox that silently upgrades "delete the folder"
+              into "delete six controls" is the click nobody remembers making.
+            */}
+            {own.length > 0 && (
+              <>
+                {' '}
+                Unless you are taking the service down with it — the second button does that, and
+                their history goes with them.
+              </>
+            )}
           </Banner>
-          <div style={{ display: 'flex', gap: 'var(--space-2)', marginTop: 'var(--space-2)' }}>
-            <Button variant="danger" busy={remove.isPending} onClick={() => remove.mutate()}>
-              Delete the folder
+          <div
+            style={{
+              display: 'flex',
+              gap: 'var(--space-2)',
+              marginTop: 'var(--space-2)',
+              flexWrap: 'wrap',
+            }}
+          >
+            <Button
+              variant="danger"
+              busy={remove.isPending && remove.variables === 'unfile'}
+              disabled={remove.isPending}
+              onClick={() => remove.mutate('unfile')}
+            >
+              {own.length > 0 ? 'Delete the folder, keep the controls' : 'Delete the folder'}
             </Button>
-            <Button onClick={() => setConfirming(false)}>Keep it</Button>
+            {own.length > 0 && (
+              <Button
+                variant="danger"
+                busy={remove.isPending && remove.variables === 'delete'}
+                disabled={remove.isPending}
+                onClick={() => remove.mutate('delete')}
+              >
+                Delete it and its {own.length} control{own.length === 1 ? '' : 's'}
+              </Button>
+            )}
+            <Button onClick={() => setConfirming(false)} disabled={remove.isPending}>
+              Keep it
+            </Button>
           </div>
         </div>
       )}

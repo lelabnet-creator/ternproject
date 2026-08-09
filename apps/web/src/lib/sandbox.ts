@@ -255,6 +255,8 @@ interface Route {
   id: string | null
   /** A verb after the row or the collection: `updates`, `move`, `import`… */
   action: string | null
+  /** What follows the `?`. Only `controls=delete` is read, on a folder delete. */
+  query: URLSearchParams
 }
 
 /**
@@ -281,7 +283,8 @@ const VERBS = new Set([
 ])
 
 export function parse(path: string): Route | null {
-  const clean = path.split('?')[0] ?? ''
+  const [clean = '', search = ''] = path.split('?')
+  const query = new URLSearchParams(search)
   const parts = clean.split('/').filter(Boolean)
   // api, v1, <slug>, …
   if (parts[0] !== 'api' || parts[1] !== 'v1' || parts.length < 4) return null
@@ -307,7 +310,7 @@ export function parse(path: string): Route | null {
     // falls through to PASS rather than being guessed at.
   }
 
-  return { slug, collection, id, action }
+  return { slug, collection, id, action, query }
 }
 
 /** The server's answer, with this browser's changes laid over it. */
@@ -396,6 +399,35 @@ async function mutate(
   }
 
   if (method === 'DELETE' && id) {
+    /*
+     * A folder taken down with its contents.
+     *
+     * Mirrored here rather than left to diverge: the point of the sandbox is to
+     * see a flow behave as it will, and a confirmation offering to delete six
+     * controls that then quietly unfiled them would teach the opposite of what
+     * the server does. Only the controls filed directly here, as on the server.
+     */
+    if (collection === 'control-groups' && route.query.get('controls') === 'delete') {
+      const controls = applied(
+        await fetchReal(`/api/v1/${route.slug}/controls`),
+        { ...route, collection: 'controls' },
+        overlay,
+      )
+      const inside = (Array.isArray(controls) ? (controls as Row[]) : []).filter(
+        (row) => row.groupId === id,
+      )
+      const gone = (overlay.deleted.controls ??= [])
+      for (const row of inside) gone.push(String(row.id))
+      overlay.created.controls = (overlay.created.controls ?? []).filter(
+        (row) => row.groupId !== id,
+      )
+      ;(overlay.deleted[collection] ??= []).push(id)
+      overlay.created[collection] = (overlay.created[collection] ?? []).filter(
+        (row) => String(row.id) !== id,
+      )
+      return { deleted: inside.length, unfiled: 0 }
+    }
+
     ;(overlay.deleted[collection] ??= []).push(id)
     // Also dropped from the created list, so a row made and unmade here leaves
     // nothing behind at all.

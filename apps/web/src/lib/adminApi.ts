@@ -530,12 +530,22 @@ export const adminApi = {
     request<ControlGroup>('PATCH', `/api/v1/${slug}/control-groups/${id}`, body),
 
   /**
-   * Removes the folder and nothing it held: children move up to its parent, its
-   * controls are unfiled. Deleting a folder is a filing decision, so it must
-   * never be a decision about what is monitored.
+   * Removes the folder.
+   *
+   * `unfile` — the default — keeps everything it held: children move up to its
+   * parent, its controls are unfiled and still monitored. Deleting a folder is
+   * a filing decision, so it must never *silently* be a decision about what is
+   * monitored.
+   *
+   * `delete` is the other intention said out loud, for a service being
+   * dismantled rather than a page being tidied. One transaction on the server,
+   * because a folder half emptied is nobody's intention.
    */
-  deleteControlGroup: (slug: string, id: string) =>
-    request<void>('DELETE', `/api/v1/${slug}/control-groups/${id}`),
+  deleteControlGroup: (slug: string, id: string, controls: 'unfile' | 'delete' = 'unfile') =>
+    request<{ deleted: number; unfiled: number }>(
+      'DELETE',
+      `/api/v1/${slug}/control-groups/${id}?controls=${controls}`,
+    ),
 
   /**
    * Files a whole selection at once.

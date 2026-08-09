@@ -297,7 +297,26 @@ const routes: FastifyPluginAsyncZod = async (app) => {
       preHandler: [app.requirePermission('control:write')],
       schema: {
         params: z.object({ slug: z.string(), id: z.string().uuid() }),
-        response: { 204: z.null() },
+        querystring: z.object({
+          /**
+           * What becomes of the controls filed directly in the folder.
+           *
+           * `unfile` is the default and stays the default: a caller that does
+           * not mention the question must not be answered with deletion. The
+           * other value exists because tidying a page and dismantling a service
+           * are both real intentions, and the first one having been the only
+           * possible answer meant the second was done by hand, one control at a
+           * time, with no transaction around it.
+           */
+          controls: z.enum(['unfile', 'delete']).default('unfile'),
+        }),
+        response: {
+          200: z.object({
+            /** How many controls were removed. Zero whenever `controls=unfile`. */
+            deleted: z.number(),
+            unfiled: z.number(),
+          }),
+        },
       },
     },
     async (req, reply) => {
@@ -309,7 +328,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
       if (!rows.some((row) => row.id === req.params.id)) throw app.httpErrors.notFound()
 
       /*
-       * The folder goes; nothing it held does.
+       * The folder goes; by default, nothing it held does.
        *
        * `parentId` cascades on delete, so removing a group with children would
        * take the whole subtree with it — and the controls inside would survive
@@ -320,24 +339,38 @@ const routes: FastifyPluginAsyncZod = async (app) => {
        *
        * So the subtree is lifted to this group's own parent first, and the
        * controls are unfiled, before the row is removed.
+       *
+       * `controls=delete` is the other intention, and it is a different act
+       * rather than a variant of the same one: a service being dismantled takes
+       * its checks with it, and doing that by hand meant N requests with no
+       * transaction around them — a half-emptied folder is nobody's intention.
+       * It applies to the controls filed *directly* here. A child folder moves
+       * up with everything in it, because the caller asked about this folder
+       * and the count on their screen is this folder's own.
        */
       const [target] = rows.filter((row) => row.id === req.params.id)
+      const mine = and(
+        eq(schema.controls.groupId, req.params.id),
+        eq(schema.controls.tenantId, req.tenant!.id),
+      )
 
-      await app.db.transaction(async (tx) => {
+      const outcome = await app.db.transaction(async (tx) => {
         await tx
           .update(schema.controlGroups)
           .set({ parentId: target!.parentId })
           .where(eq(schema.controlGroups.parentId, req.params.id))
 
-        await tx
-          .update(schema.controls)
-          .set({ groupId: null })
-          .where(
-            and(
-              eq(schema.controls.groupId, req.params.id),
-              eq(schema.controls.tenantId, req.tenant!.id),
-            ),
-          )
+        // Counted by what came back rather than read first: between a count and
+        // a delete another request can file one more control here, and the
+        // number reported has to be the number that happened.
+        const touched =
+          req.query.controls === 'delete'
+            ? await tx.delete(schema.controls).where(mine).returning({ id: schema.controls.id })
+            : await tx
+                .update(schema.controls)
+                .set({ groupId: null })
+                .where(mine)
+                .returning({ id: schema.controls.id })
 
         await tx
           .delete(schema.controlGroups)
@@ -347,6 +380,10 @@ const routes: FastifyPluginAsyncZod = async (app) => {
               eq(schema.controlGroups.tenantId, req.tenant!.id),
             ),
           )
+
+        return req.query.controls === 'delete'
+          ? { deleted: touched.length, unfiled: 0 }
+          : { deleted: 0, unfiled: touched.length }
       })
 
       await audit(app, {
@@ -354,10 +391,14 @@ const routes: FastifyPluginAsyncZod = async (app) => {
         tenantId: req.tenant!.id,
         actorId: req.actor.userId,
         target: req.params.id,
+        // What happened to the contents, not only that the folder went. A
+        // deletion of six controls that leaves no trace of having been six is
+        // the log entry nobody can act on afterwards.
+        meta: { controls: req.query.controls, ...outcome },
         ip: req.ip,
       })
 
-      return reply.code(204).send(null)
+      return reply.code(200).send(outcome)
     },
   )
 

@@ -152,6 +152,41 @@ describe('a real row changed here', () => {
   })
 })
 
+describe('a folder deleted here', () => {
+  const inFolder = (path: string) =>
+    path.endsWith('/controls')
+      ? Promise.resolve([
+          { id: 'c1', key: 'api', name: 'API', groupId: 'g1' },
+          { id: 'c2', key: 'db', name: 'Database', groupId: null },
+        ])
+      : Promise.resolve([])
+
+  it('keeps its controls unless asked otherwise', async () => {
+    await answer('DELETE', '/api/v1/acme/control-groups/g1?controls=unfile', undefined, inFolder)
+    const list = (await answer('GET', '/api/v1/acme/controls', undefined, inFolder)) as {
+      id: string
+    }[]
+    expect(list.map((row) => row.id)).toEqual(['c1', 'c2'])
+  })
+
+  it('takes them when it is', async () => {
+    // The sandbox has to behave as the server does here, or the confirmation
+    // teaches the opposite of what the button will do.
+    const outcome = await answer(
+      'DELETE',
+      '/api/v1/acme/control-groups/g1?controls=delete',
+      undefined,
+      inFolder,
+    )
+    expect(outcome).toEqual({ deleted: 1, unfiled: 0 })
+
+    const list = (await answer('GET', '/api/v1/acme/controls', undefined, inFolder)) as {
+      id: string
+    }[]
+    expect(list.map((row) => row.id)).toEqual(['c2'])
+  })
+})
+
 describe('a selection filed here', () => {
   it('moves every control it names', async () => {
     const moved = (await post('/api/v1/acme/controls/move', {
