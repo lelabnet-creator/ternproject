@@ -16,11 +16,36 @@ import { VitePWA } from 'vite-plugin-pwa'
  * package version and "dev", which is the honest answer for a bundle built from
  * a working tree.
  */
+/*
+ * The repository's version, not this workspace's.
+ *
+ * `./package.json` here is `apps/web/package.json`, which has said `0.1.0` since
+ * the first commit and is not what a release bumps — the root one is. So every
+ * local build, and every `pnpm dev`, has shown `v0.1.0 · dev` while the product
+ * moved on twelve versions. It looked like the version simply was not wired up.
+ *
+ * Two levels up, and deliberately not a workspace lookup: this file already
+ * knows where it sits, and a resolver would be more machinery for a path that
+ * does not move.
+ */
 const pkg = JSON.parse(
-  readFileSync(fileURLToPath(new URL('./package.json', import.meta.url)), 'utf8'),
+  readFileSync(fileURLToPath(new URL('../../package.json', import.meta.url)), 'utf8'),
 ) as { version: string }
 
-const VERSION = process.env.TERN_VERSION?.trim() || pkg.version
+/*
+ * Without its `v`, whatever it arrived with.
+ *
+ * CI passes `github.ref_name`, which is the tag — `v0.1.12` — while a local
+ * build falls back to `package.json`, which is `0.1.12`. Every place that shows
+ * this writes its own `v` in front, so published images have read `vv0.1.12`
+ * since the first tagged release, and no developer ever saw it: the local path
+ * has no `v` to double.
+ *
+ * Normalised here rather than at each display, because there are two of them and
+ * the next one would get it wrong again. The API does the same on its own copy —
+ * see `base.current` in `services/release.ts`.
+ */
+const VERSION = (process.env.TERN_VERSION?.trim() || pkg.version).replace(/^v/, '')
 // Short hash: the full forty characters say nothing more to a human, and this
 // sits in a 16rem rail.
 const BUILD = process.env.TERN_REVISION?.trim().slice(0, 7) || 'dev'
