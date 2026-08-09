@@ -9,7 +9,7 @@ import {
   timestamp,
   uuid,
 } from 'drizzle-orm/pg-core'
-import { agentStatus, apiKeyScope } from './enums.js'
+import { agentRole, agentStatus, apiKeyScope } from './enums.js'
 import { tenants } from './tenants.js'
 import { users } from './auth.js'
 
@@ -115,6 +115,16 @@ export const agents = pgTable(
      */
     isLocal: boolean().notNull().default(false),
 
+    role: agentRole().notNull().default('agent'),
+    /**
+     * The proxy this agent reports through, when it does not reach TERN itself.
+     *
+     * Written by the proxy's own inventory push, never by the agent — an agent
+     * behind a proxy never talks to this server and could not say. `set null`
+     * rather than a cascade: losing the relay must not delete the record of what
+     * was behind it, which is exactly what somebody investigates next.
+     */
+    parentAgentId: uuid(),
     status: agentStatus().notNull().default('active'),
     lastSeenAt: timestamp({ withTimezone: true }),
     pairedIp: inet(),

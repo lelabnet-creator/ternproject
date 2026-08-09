@@ -888,6 +888,175 @@ mod tests {
         tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap()
     }
 
+    /*
+     * ── Transports that had no test at all ────────────────────────────────
+     *
+     * `cert`, `websocket` and `docker` shipped in 0.1.7 implemented, documented
+     * and unexercised. The conformance fixtures do not reach them — they pin
+     * what an observation means, not how it was obtained — so nothing failed
+     * and nothing was violated. `docs/probes.md` now states the rule these
+     * satisfy: a target type arrives with a test on each side that runs it.
+     *
+     * Everything below binds a local listener. No test here touches a network
+     * this machine does not own.
+     */
+
+    /// Answers one connection with a fixed status line, then drops it.
+    async fn handshake_server(status_line: &'static str) -> u16 {
+        let server = listener().await;
+        let port = server.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            if let Ok((mut socket, _)) = server.accept().await {
+                // The request is read far enough to be sure the client sent
+                // one; the handshake is answered without inspecting it.
+                let mut buffer = [0_u8; 1024];
+                let _ = tokio::io::AsyncReadExt::read(&mut socket, &mut buffer).await;
+                let _ = socket
+                    .write_all(format!("{status_line}\r\n\r\n").as_bytes())
+                    .await;
+            }
+        });
+        port
+    }
+
+    #[tokio::test]
+    async fn websocket_reports_the_upgrade_it_was_granted() {
+        let port = handshake_server("HTTP/1.1 101 Switching Protocols").await;
+
+        let observation = observe_websocket(
+            &format!("ws://127.0.0.1:{port}/ws"),
+            None,
+            &HashMap::new(),
+            2_000,
+        )
+        .await;
+
+        assert!(observation.error.is_none(), "{observation:?}");
+        // 101 is what `status_code` asserts on, so the engine needs no special
+        // case for this target — that is the whole design, and it is only true
+        // if the number actually arrives here.
+        assert_eq!(observation.status_code, Some(101));
+        assert!(observation.latency_ms.is_some());
+    }
+
+    #[tokio::test]
+    async fn websocket_reports_a_refused_upgrade_without_calling_it_an_error() {
+        let port = handshake_server("HTTP/1.1 404 Not Found").await;
+
+        let observation = observe_websocket(
+            &format!("ws://127.0.0.1:{port}/ws"),
+            None,
+            &HashMap::new(),
+            2_000,
+        )
+        .await;
+
+        // Reached, answered, and not what was asked for. That is an assertion's
+        // verdict to give, not the transport's: reporting it as unreachable
+        // would lose the difference between a wrong answer and no answer.
+        assert!(observation.error.is_none(), "{observation:?}");
+        assert_eq!(observation.status_code, Some(404));
+    }
+
+    #[tokio::test]
+    async fn websocket_refuses_a_url_that_is_not_a_websocket_url() {
+        let observation =
+            observe_websocket("https://example.com/ws", None, &HashMap::new(), 2_000).await;
+
+        let error = observation
+            .error
+            .expect("an https:// url is not probeable here");
+        assert!(error.contains("ws://"), "{error}");
+    }
+
+    #[tokio::test]
+    async fn cert_reports_a_port_that_does_not_speak_tls() {
+        // The success path needs a certificate and a TLS server, which would
+        // mean a certificate generator in the dependency tree for one test. The
+        // failure this covers is the one operators actually hit: the right host,
+        // the wrong port.
+        let server = listener().await;
+        let port = server.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            if let Ok((mut socket, _)) = server.accept().await {
+                let _ = socket.write_all(b"not tls\r\n").await;
+            }
+        });
+
+        let observation = observe_cert("127.0.0.1", port, 2_000).await;
+
+        assert!(observation.error.is_some(), "{observation:?}");
+        assert!(observation.cert_expires_in_days.is_none());
+    }
+
+    /*
+     * One test for every docker case rather than one per case.
+     *
+     * `TERN_DOCKER_SOCKET` is process-wide and Rust runs tests in parallel, so
+     * two functions setting it would race and fail in whichever order the
+     * scheduler chose. One function owns the variable for its lifetime.
+     */
+    #[tokio::test]
+    async fn docker_reads_a_container_through_the_socket_it_is_given() {
+        use tokio::io::AsyncReadExt;
+
+        let path =
+            std::env::temp_dir().join(format!("tern-docker-test-{}.sock", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        let server = tokio::net::UnixListener::bind(&path).unwrap();
+        std::env::set_var("TERN_DOCKER_SOCKET", &path);
+
+        /// What the fake daemon answers, in the order the cases below ask.
+        const REPLIES: [&str; 4] = [
+            r#"{"State":{"Running":true,"Health":{"Status":"healthy"}}}"#,
+            r#"{"State":{"Running":false,"Status":"exited"}}"#,
+            r#"{"State":{"Running":true}}"#,
+            "",
+        ];
+
+        tokio::spawn(async move {
+            for (index, body) in REPLIES.iter().enumerate() {
+                let Ok((mut socket, _)) = server.accept().await else {
+                    return;
+                };
+                let mut buffer = [0_u8; 1024];
+                let _ = socket.read(&mut buffer).await;
+                let response = if index == 3 {
+                    "HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n".to_string()
+                } else {
+                    format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{body}"
+                    )
+                };
+                let _ = socket.write_all(response.as_bytes()).await;
+            }
+        });
+
+        // Running and healthy: the container's own JSON becomes the body, so
+        // `$.State.Health.Status` is an ordinary json_path assertion rather
+        // than a special case in the engine.
+        let ok = observe_docker("api", true, 2_000).await;
+        assert!(ok.error.is_none(), "{ok:?}");
+        let body = ok.body.expect("the container JSON is the observation body");
+        assert!(body.contains("healthy"), "{body}");
+
+        // Stopped: named as what it is, not as a timeout. An absent service is
+        // not a slow one.
+        let stopped = observe_docker("api", false, 2_000).await;
+        assert!(stopped.error.unwrap().contains("exited"));
+
+        // Running, no healthcheck, and the control demanded one.
+        let unhealthy = observe_docker("api", true, 2_000).await;
+        assert!(unhealthy.error.unwrap().contains("no healthcheck"));
+
+        // Unknown container: 404 from the daemon, said in those words.
+        let missing = observe_docker("ghost", false, 2_000).await;
+        assert!(missing.error.unwrap().contains("no container named ghost"));
+
+        std::env::remove_var("TERN_DOCKER_SOCKET");
+        let _ = std::fs::remove_file(&path);
+    }
+
     #[tokio::test]
     async fn tcp_connect_reports_a_latency() {
         let server = listener().await;

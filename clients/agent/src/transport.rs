@@ -8,6 +8,17 @@ use serde::{Deserialize, Serialize};
 
 use crate::probe::Status;
 
+/// One agent of a proxy's zone, as the server is told about it.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ZoneAgent {
+    pub name: String,
+    /// Unix seconds, or null for one that has paired and never come back.
+    pub last_seen_unix: Option<u64>,
+    /// As the proxy sees it, inside the zone.
+    pub ip: Option<String>,
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PairRequest {
@@ -249,6 +260,30 @@ impl Client {
         if !response.status().is_success() {
             let status = response.status();
             bail!("heartbeat refused ({status})");
+        }
+
+        Ok(())
+    }
+
+    /// Declares the agents a proxy relays for.
+    ///
+    /// Only `tern-proxy` calls this, and the server refuses it from anything
+    /// that did not pair as one. It carries a name, a last contact and the
+    /// address seen inside the zone — not an OS or a version, which the proxy
+    /// has no way to know and would have to invent.
+    pub async fn zone(&self, api_key: &str, agents: &[ZoneAgent]) -> Result<()> {
+        let response = self
+            .http
+            .post(format!("{}/api/v1/agent/zone", self.base_url))
+            .bearer_auth(api_key)
+            .json(&serde_json::json!({ "agents": agents }))
+            .send()
+            .await
+            .context("could not reach the server")?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            bail!("the zone declaration was refused ({status})");
         }
 
         Ok(())

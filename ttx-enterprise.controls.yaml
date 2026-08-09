@@ -218,7 +218,6 @@ controls:
     config:
       url: wss://admin.crisis-lab.eu.localhost/ws
       timeoutMs: 8000
-      tlsVerify: false
     expectedIntervalS: 120
     degradedThresholdMs: 1500
     downThresholdMs: 5000
@@ -301,7 +300,6 @@ controls:
     config:
       url: wss://sales.crisis-lab.eu.localhost/ws
       timeoutMs: 8000
-      tlsVerify: false
     expectedIntervalS: 120
     widget: status-swimlane
     widgetOptions:

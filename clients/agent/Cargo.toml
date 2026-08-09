@@ -39,7 +39,23 @@ toml = "0.8"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 socket2 = "0.6.5"
-tokio-rustls = "0.26.4"
+# One crypto provider, and it has to be the one `reqwest` already brings.
+#
+# With default features this pulled `aws-lc-rs` while reqwest pulled `ring`, so
+# two providers were enabled on the same `rustls` and no process-level default
+# could be resolved. `ClientConfig::builder()` — used by both the `cert` and the
+# `wss://` paths — panics in exactly that situation, which meant two of the seven
+# target types aborted their task the first time anyone ran one. Nothing caught
+# it: neither had a test.
+#
+# `ring` rather than `aws-lc-rs` because reqwest's choice is the one that cannot
+# be changed from here, and because `aws-lc-rs` wants a C toolchain and NASM —
+# for a binary whose whole point is that it drops onto a machine unaided.
+tokio-rustls = { version = "0.26.4", default-features = false, features = [
+  "logging",
+  "ring",
+  "tls12",
+] }
 webpki-roots = "1.0.9"
 x509-parser = "0.18.1"
 axum = { version = "0.8.9", default-features = false, features = ["http1", "json", "tokio"] }

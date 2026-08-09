@@ -478,12 +478,34 @@ function AgentRow({
               this instance
             </span>
           )}
+          {agent.role === 'proxy' && (
+            // Named in the list as well as shaped in the diagram: a picture is
+            // not something a screen reader works through, and this is the one
+            // fact that changes what the row means.
+            <span
+              style={{
+                marginLeft: 'var(--space-2)',
+                fontSize: 'var(--text-xs)',
+                padding: '2px var(--space-2)',
+                borderRadius: 'var(--radius-sm)',
+                border: '1px solid var(--color-border-strong)',
+                color: 'var(--color-fg-muted)',
+              }}
+            >
+              proxy
+            </span>
+          )}
           <div
             className="tabular"
             style={{ fontSize: 'var(--text-xs)', color: 'var(--color-fg-subtle)' }}
           >
             {agent.site ?? 'no site'} · {agent.os ?? 'unknown OS'}
             {agent.arch ? `/${agent.arch}` : ''} · {agent.agentVersion ?? 'version unknown'} ·{' '}
+            {/* The address it paired from. Stored since the table existed and
+                never shown, which left "which box is this?" to be answered by
+                guessing at hostnames. An agent known only through a proxy has
+                none here: this server never saw it. */}
+            {agent.pairedIp ? `${agent.pairedIp} · ` : ''}
             {lastSeen(agent, now)}
           </div>
           {agent.isLocal && agent.networkMode && <Vantage mode={agent.networkMode} />}

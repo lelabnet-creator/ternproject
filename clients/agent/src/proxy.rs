@@ -27,7 +27,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
-use axum::extract::State;
+use axum::extract::{ConnectInfo, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use axum::routing::{get, post};
@@ -64,6 +64,12 @@ pub struct LocalKey {
     pub name: String,
     /// SHA-256 of the key. A stolen proxy config cannot be replayed upstream.
     pub key_hash: String,
+    /// Unix seconds of the last request this agent made. `None` until it makes one.
+    #[serde(default)]
+    pub last_seen: Option<u64>,
+    /// The address it was last seen at, inside the zone.
+    #[serde(default)]
+    pub ip: Option<String>,
 }
 
 fn default_listen() -> String {
@@ -206,13 +212,18 @@ pub async fn run(
         .await
         .with_context(|| format!("could not bind {listen}"))?;
 
-    axum::serve(listener, app)
-        .with_graceful_shutdown(async {
-            let _ = tokio::signal::ctrl_c().await;
-            info!("stopping");
-        })
-        .await
-        .context("the proxy server stopped unexpectedly")?;
+    axum::serve(
+        listener,
+        // ConnectInfo, so a request carries the address it came from — the one
+        // fact about a zone agent that only the proxy can observe.
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .with_graceful_shutdown(async {
+        let _ = tokio::signal::ctrl_c().await;
+        info!("stopping");
+    })
+    .await
+    .context("the proxy server stopped unexpectedly")?;
 
     Ok(())
 }
@@ -239,8 +250,53 @@ fn spawn_refresh(state: AppState, every_s: u64) {
                 // during an upstream outage still get their jobs.
                 Err(error) => warn!(%error, "keeping the cached assignment"),
             }
+
+            declare_zone(&state, &key).await;
         }
     });
+}
+
+/*
+ * Tells the server which agents this proxy relays for.
+ *
+ * On the refresh loop rather than a loop of its own: it is the same
+ * conversation with the same upstream, and a second timer would mean a second
+ * thing to be out of step. Failure is a warning and nothing more — a relay whose
+ * upstream is down must keep serving its zone, which is the entire reason it
+ * exists.
+ *
+ * The inventory is persisted here too. It is the one moment it matters that it
+ * survived: what is written is what the server will be told again after a
+ * restart.
+ */
+async fn declare_zone(state: &AppState, key: &str) {
+    let (agents, config, path) = {
+        let inner = state.inner.lock().await;
+        let agents: Vec<crate::transport::ZoneAgent> = inner
+            .config
+            .local_keys
+            .iter()
+            .map(|local| crate::transport::ZoneAgent {
+                name: local.name.clone(),
+                last_seen_unix: local.last_seen,
+                ip: local.ip.clone(),
+            })
+            .collect();
+        (agents, inner.config.clone(), inner.config_path.clone())
+    };
+
+    if agents.is_empty() {
+        return;
+    }
+
+    if let Err(error) = state.client.zone(key, &agents).await {
+        warn!(%error, "could not declare the zone — the fleet view will be a poll behind");
+        return;
+    }
+
+    if let Err(error) = config.save(&path) {
+        warn!(%error, "could not persist the zone inventory");
+    }
 }
 
 fn spawn_flush(state: AppState) {
@@ -332,6 +388,10 @@ async fn pair(State(state): State<AppState>, Json(body): Json<PairBody>) -> impl
     inner.config.local_keys.push(LocalKey {
         name: name.clone(),
         key_hash: hash(&key),
+        // Paired, not yet heard from. Null rather than "now": an agent that
+        // pairs and never comes back must not look alive upstream.
+        last_seen: None,
+        ip: None,
     });
     let path = inner.config_path.clone();
     if let Err(error) = inner.config.save(&path) {
@@ -356,11 +416,18 @@ async fn pair(State(state): State<AppState>, Json(body): Json<PairBody>) -> impl
         .into_response()
 }
 
-async fn jobs_route(State(state): State<AppState>, headers: HeaderMap) -> impl IntoResponse {
-    let inner = state.inner.lock().await;
-    if !authorised(&inner, &headers) {
+async fn jobs_route(
+    State(state): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    let mut inner = state.inner.lock().await;
+    let Some(index) = identify(&inner, &headers) else {
         return unauthorised();
-    }
+    };
+    // Asking for jobs and pushing a point are the only two moments the proxy
+    // sees an agent at all. Both count as alive.
+    touch(&mut inner, index, Some(peer.ip().to_string()));
 
     (
         StatusCode::OK,
@@ -371,13 +438,15 @@ async fn jobs_route(State(state): State<AppState>, headers: HeaderMap) -> impl I
 
 async fn ingest(
     State(state): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
     headers: HeaderMap,
     Json(body): Json<Value>,
 ) -> impl IntoResponse {
     let mut inner = state.inner.lock().await;
-    if !authorised(&inner, &headers) {
+    let Some(index) = identify(&inner, &headers) else {
         return unauthorised();
-    }
+    };
+    touch(&mut inner, index, Some(peer.ip().to_string()));
 
     // One point or a batch, matching the server — an agent must not have to
     // know which end it is talking to.
@@ -412,20 +481,35 @@ async fn ingest(
         .into_response()
 }
 
-fn authorised(inner: &Inner, headers: &HeaderMap) -> bool {
-    let Some(value) = headers.get("authorization").and_then(|v| v.to_str().ok()) else {
-        return false;
-    };
-    let Some(token) = value.strip_prefix("Bearer ") else {
-        return false;
-    };
-
+/// Which local agent a request belongs to, by the key it carries.
+///
+/// Replaces a plain yes/no because the answer is needed twice: to let the
+/// request through, and to record that this particular agent was alive. The
+/// server upstream learns of a zone agent only through what is written here.
+fn identify(inner: &Inner, headers: &HeaderMap) -> Option<usize> {
+    let value = headers.get("authorization").and_then(|v| v.to_str().ok())?;
+    let token = value.strip_prefix("Bearer ")?;
     let candidate = hash(token.trim());
+
     inner
         .config
         .local_keys
         .iter()
-        .any(|key| key.key_hash == candidate)
+        .position(|key| key.key_hash == candidate)
+}
+
+/// Records that a local agent was heard from, and where from.
+///
+/// In memory only. Persisting on every request would write the config file
+/// once per agent per interval for no gain — the inventory is saved when it is
+/// pushed upstream, which is also the only moment it needs to have survived.
+fn touch(inner: &mut Inner, index: usize, ip: Option<String>) {
+    if let Some(key) = inner.config.local_keys.get_mut(index) {
+        key.last_seen = Some(unix_now());
+        if ip.is_some() {
+            key.ip = ip;
+        }
+    }
 }
 
 fn unauthorised() -> axum::response::Response {
@@ -589,6 +673,65 @@ mod tests {
         assert!(seen.len() > 45, "PINs should not repeat: {seen:?}");
     }
 
+    /// A config as it is written to disk, with one agent already issued a key.
+    fn config_with_one_agent() -> ProxyConfig {
+        ProxyConfig {
+            server: "https://tern.example".into(),
+            api_key: "ternp_upstream".into(),
+            listen: default_listen(),
+            refresh_s: default_refresh(),
+            local_keys: vec![LocalKey {
+                name: "edge-1".into(),
+                key_hash: hash("ternp_local"),
+                last_seen: None,
+                ip: None,
+            }],
+        }
+    }
+
+    #[test]
+    fn an_agent_that_paired_and_never_returned_is_not_reported_alive() {
+        // `None`, not "now". A zone agent that pairs and dies would otherwise
+        // arrive upstream looking fresh, which is the one thing the fleet view
+        // must never invent.
+        let config = config_with_one_agent();
+        assert_eq!(config.local_keys[0].last_seen, None);
+        assert_eq!(config.local_keys[0].ip, None);
+    }
+
+    #[test]
+    fn the_inventory_survives_a_restart() {
+        // What the proxy tells the server after a reboot is what it wrote, so a
+        // round trip through the config file is the whole guarantee.
+        let dir = std::env::temp_dir().join(format!("tern-proxy-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("proxy.toml");
+
+        let mut config = config_with_one_agent();
+        config.local_keys[0].last_seen = Some(1_786_000_000);
+        config.local_keys[0].ip = Some("10.0.0.4".into());
+        config.save(&path).unwrap();
+
+        let reloaded = ProxyConfig::load(&path).unwrap();
+        assert_eq!(reloaded.local_keys[0].last_seen, Some(1_786_000_000));
+        assert_eq!(reloaded.local_keys[0].ip.as_deref(), Some("10.0.0.4"));
+
+        // And a config written before these fields existed still loads: the
+        // upgrade must not strand a proxy that is already deployed.
+        let old = concat!(
+            "server = \"https://tern.example\"\n",
+            "api_key = \"k\"\n\n",
+            "[[local_keys]]\n",
+            "name = \"edge-1\"\n",
+            "key_hash = \"abc\"\n"
+        );
+        std::fs::write(&path, old).unwrap();
+        let legacy = ProxyConfig::load(&path).unwrap();
+        assert_eq!(legacy.local_keys[0].last_seen, None);
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
     #[test]
     fn only_a_hash_of_an_issued_key_is_stored() {
         // A stolen proxy config must not be replayable — neither upstream nor
@@ -597,6 +740,8 @@ mod tests {
         let stored = LocalKey {
             name: "edge".into(),
             key_hash: hash(key),
+            last_seen: None,
+            ip: None,
         };
         assert_ne!(stored.key_hash, key);
         assert_eq!(stored.key_hash.len(), 64);

@@ -240,6 +240,12 @@ export interface Agent {
   arch: string | null
   agentVersion: string | null
   site: string | null
+  /** `agent`, or `proxy` when it relays for a zone with no route out. */
+  role: string
+  /** The proxy this one reports through. Null when it reaches the server itself. */
+  parentAgentId: string | null
+  /** The address it paired from. Null for an agent known only through a proxy. */
+  pairedIp: string | null
   status: string
   lastSeenAt: string | null
   pairedAt: string
