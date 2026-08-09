@@ -29,7 +29,16 @@ l'interface doit le dire.
 
 ## À faire, dans cet ordre
 
-### 1. Le panneau d'appairage choisit un rôle
+### 1. ~~Le panneau d'appairage choisit un rôle~~ — fait
+
+Vérifié : `pnpm typecheck`, `lint`, `format`, `test` — 754 (+6). Les commandes
+sont extraites en `PairCommands` pour être rendues sans mutation ni serveur, et
+la garde est éprouvée : retirer le `--proxy` fait rougir deux cas.
+
+Un premier jet de test n'assertait que sur une chaîne écrite dans le test
+lui-même — décoratif, retiré. C'est ce qui a motivé l'extraction.
+
+<details><summary>Description d'origine</summary>
 
 `apps/web/src/routes/app/FleetScreen.tsx`, `PairPanel`. Deux choix — agent ou
 relais — avant le PIN. Même endpoint : le serveur déduit le rôle du
@@ -39,6 +48,8 @@ La une-ligne gagne `--proxy` (et `-Proxy` en PowerShell), le repli « by hand »
 montre la commande `init`, et une phrase explique le `tern-proxy pin` à venir —
 avec sa raison, parce qu'une limite expliquée se retient et une limite subie se
 signale comme un bug.
+
+</details>
 
 ### 2. L'installateur finit le travail
 
