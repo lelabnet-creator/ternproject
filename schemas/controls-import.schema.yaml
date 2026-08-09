@@ -42,13 +42,13 @@ properties:
             - type: string
               minLength: 1
               maxLength: 200
-            - type: 'null'
+            - type: "null"
         groupId:
           anyOf:
             - type: string
               format: uuid
               pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
-            - type: 'null'
+            - type: "null"
         kind:
           type: string
           enum:
@@ -68,37 +68,37 @@ properties:
             - type: integer
               minimum: 10
               maximum: 86400
-            - type: 'null'
+            - type: "null"
         degradedThresholdMs:
           anyOf:
             - type: integer
               minimum: 0
               exclusiveMinimum: true
               maximum: 9007199254740991
-            - type: 'null'
+            - type: "null"
         downThresholdMs:
           anyOf:
             - type: integer
               minimum: 0
               exclusiveMinimum: true
               maximum: 9007199254740991
-            - type: 'null'
+            - type: "null"
         valueUnit:
           anyOf:
             - type: string
               maxLength: 30
-            - type: 'null'
+            - type: "null"
         valueLabel:
           anyOf:
             - type: string
               maxLength: 60
-            - type: 'null'
+            - type: "null"
         slaTarget:
           anyOf:
             - type: integer
               minimum: 0
               maximum: 10000
-            - type: 'null'
+            - type: "null"
         widget:
           type: string
           maxLength: 60
