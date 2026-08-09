@@ -127,6 +127,13 @@
       "when": 1786225201704,
       "tag": "0017_flimsy_doctor_faustus",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1786269981724,
+      "tag": "0018_square_calypso",
+      "breakpoints": true
     }
   ]
 }

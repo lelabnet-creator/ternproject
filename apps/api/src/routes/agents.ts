@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNull, sql } from 'drizzle-orm'
+import { and, eq, inArray, isNull, notInArray, sql } from 'drizzle-orm'
 import { z } from 'zod'
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod'
 import { schema } from '@tern/db'
@@ -150,6 +150,17 @@ const redeemRoute: FastifyPluginAsyncZod = async (app) => {
           os: req.body.os ?? null,
           arch: req.body.arch ?? null,
           agentVersion: req.body.agentVersion ?? null,
+          /*
+           * A proxy says so by the version it pairs with.
+           *
+           * `tern-proxy` announces `proxy/<version>` where an agent announces a
+           * bare number — see the pairing call in `clients/agent/src/proxy.rs`.
+           * Read here rather than added to the pairing body because the signal
+           * already existed and was already sent; a new field would mean an old
+           * proxy pairing as an ordinary agent, which is precisely the mistake
+           * the fleet view is meant to stop making.
+           */
+          role: (req.body.agentVersion ?? '').startsWith('proxy/') ? 'proxy' : 'agent',
           apiKeyId: issued.id,
           pairingCodeId: pairing.id,
           pairedIp: req.ip,
@@ -215,6 +226,122 @@ const routes: FastifyPluginAsyncZod = async (app) => {
 
       await touchAgent(app, key.id, req.headers['user-agent'])
       return { ok: true }
+    },
+  )
+
+  /**
+   * A proxy declaring the zone it relays for.
+   *
+   * The agents behind a proxy never reach this server — that is the whole point
+   * of the relay — so without this the fleet view showed one dot where there
+   * were nine machines, and an operator had to log into the proxy to find out
+   * what it was serving.
+   *
+   * ## What it does and does not carry
+   *
+   * A name, when it was last heard from, and the address the proxy sees it at.
+   * Not its OS, its version or its probes: the proxy does not know them, and
+   * inventing a shape it cannot fill would make the view lie in a new way.
+   *
+   * This is a deliberate widening of what an isolated zone discloses upstream —
+   * `docs/security.md` says so. It is the proxy's own choice to send it: an
+   * operator who wants the zone opaque runs the proxy without this, and the view
+   * shows the proxy alone, which is what it showed before.
+   *
+   * ## Why it replaces rather than merges
+   *
+   * The list is the zone as the proxy currently knows it. An agent removed from
+   * a proxy must disappear here too, and a merge would leave it on screen for
+   * ever — reporting a machine that no longer exists is worse than reporting
+   * none.
+   */
+  app.post(
+    '/agent/zone',
+    {
+      schema: {
+        body: z.object({
+          agents: z
+            .array(
+              z.object({
+                name: z.string().min(1).max(200),
+                /*
+                 * Unix seconds, not RFC 3339.
+                 *
+                 * The proxy holds this as an integer already, and formatting it
+                 * would have meant a date library in a binary whose whole point
+                 * is being small enough to drop anywhere. The conversion is one
+                 * line here and none there.
+                 */
+                lastSeenUnix: z.number().int().nonnegative().nullable(),
+                /** As the proxy sees it, inside the zone. */
+                ip: z.string().max(64).nullable(),
+              }),
+            )
+            .max(500),
+        }),
+        response: { 200: z.object({ known: z.number() }) },
+      },
+    },
+    async (req) => {
+      const key = await authenticateApiKey(app, req, 'ingest')
+      if (!key) throw app.httpErrors.unauthorized('Invalid or missing API key')
+
+      const [proxy] = await app.db
+        .select()
+        .from(schema.agents)
+        .where(eq(schema.agents.apiKeyId, key.id))
+        .limit(1)
+
+      if (!proxy) throw app.httpErrors.notFound('No agent holds this key')
+
+      // Only a proxy may claim children. An ordinary agent posting here is
+      // either a misconfiguration or an attempt to invent machines, and both
+      // deserve the same flat refusal.
+      if (proxy.role !== 'proxy') {
+        throw app.httpErrors.forbidden('Only a proxy declares a zone')
+      }
+
+      await app.db.transaction(async (tx) => {
+        const seen = req.body.agents.map((agent) => agent.name)
+
+        // Gone from the zone: unlinked, not deleted. The row keeps its history
+        // and stops being drawn behind this proxy.
+        await tx
+          .update(schema.agents)
+          .set({ parentAgentId: null })
+          .where(
+            and(
+              eq(schema.agents.parentAgentId, proxy.id),
+              seen.length > 0 ? notInArray(schema.agents.name, seen) : undefined,
+            ),
+          )
+
+        for (const agent of req.body.agents) {
+          const values = {
+            tenantId: proxy.tenantId,
+            name: agent.name,
+            site: proxy.site,
+            role: 'agent' as const,
+            parentAgentId: proxy.id,
+            lastSeenAt: agent.lastSeenUnix === null ? null : new Date(agent.lastSeenUnix * 1000),
+          }
+
+          const [existing] = await tx
+            .select({ id: schema.agents.id })
+            .from(schema.agents)
+            .where(
+              and(eq(schema.agents.tenantId, proxy.tenantId), eq(schema.agents.name, agent.name)),
+            )
+            .limit(1)
+
+          if (existing)
+            await tx.update(schema.agents).set(values).where(eq(schema.agents.id, existing.id))
+          else await tx.insert(schema.agents).values(values)
+        }
+      })
+
+      await touchAgent(app, key.id, req.headers['user-agent'])
+      return { known: req.body.agents.length }
     },
   )
 
@@ -330,6 +457,20 @@ const routes: FastifyPluginAsyncZod = async (app) => {
               arch: z.string().nullable(),
               agentVersion: z.string().nullable(),
               site: z.string().nullable(),
+              /** `agent` or `proxy`. A proxy relays for a zone with no route out. */
+              role: z.string(),
+              /** The proxy this one reports through, when it does not reach here itself. */
+              parentAgentId: z.string().nullable(),
+              /**
+               * The address it paired from.
+               *
+               * Stored since the table existed and never shown, which made
+               * "which box is this?" a question answered by guessing at
+               * hostnames. Null for an agent behind a proxy: the address the
+               * proxy reports is the one it sees inside the zone, and this
+               * server never saw it at all.
+               */
+              pairedIp: z.string().nullable(),
               status: z.string(),
               lastSeenAt: z.string().nullable(),
               pairedAt: z.string(),
@@ -390,6 +531,9 @@ const routes: FastifyPluginAsyncZod = async (app) => {
           arch: row.arch,
           agentVersion: row.agentVersion,
           site: row.site,
+          role: row.role,
+          parentAgentId: row.parentAgentId,
+          pairedIp: row.pairedIp,
           status: row.status,
           lastSeenAt: row.lastSeenAt?.toISOString() ?? null,
           pairedAt: row.createdAt.toISOString(),

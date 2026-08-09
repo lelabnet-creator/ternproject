@@ -125,4 +125,15 @@ export const apiKeyScope = pgEnum('api_key_scope', ['ingest', 'read'])
 
 export const agentStatus = pgEnum('agent_status', ['active', 'stale', 'revoked'])
 
+/**
+ * What a paired agent is, as opposed to how it is doing.
+ *
+ * A proxy relays for a zone with no route out: it pairs upstream like any agent
+ * and speaks TERN's own API downstream, which is what lets the agents behind it
+ * be unaware of it. Separate from `agent_status` because the two answer
+ * different questions — a proxy can be revoked, an agent can be stale, and the
+ * fleet view needs both.
+ */
+export const agentRole = pgEnum('agent_role', ['agent', 'proxy'])
+
 export const certStatus = pgEnum('cert_status', ['pending', 'issued', 'failed', 'expired'])

@@ -688,3 +688,106 @@ describe('removing agents', () => {
     }
   }, 30_000)
 })
+
+/**
+ * A proxy declaring the zone it relays for.
+ *
+ * The agents behind a proxy never reach this server — that is what the relay is
+ * for — so without this endpoint the fleet view showed one dot where there were
+ * nine machines. What is worth pinning is not the happy path but the two ways it
+ * could quietly go wrong: an ordinary agent inventing machines, and a zone that
+ * shrinks without the view noticing.
+ */
+describe('a proxy declaring its zone', () => {
+  /** Pairs one, and answers with the key it may speak with. */
+  async function pairAs(version: string): Promise<{ key: string; id: string }> {
+    const cookie = await login(fx.app, fx.users.admin.email)
+    const { pin } = await createPin(cookie)
+    const paired = await redeem(pin, { agentVersion: version })
+    expect(paired.statusCode).toBe(200)
+    return { key: paired.json().apiKey, id: paired.json().agentId }
+  }
+
+  const declare = (key: string, agents: unknown[]) =>
+    fx.app.inject({
+      method: 'POST',
+      url: '/api/v1/agent/zone',
+      headers: { authorization: `Bearer ${key}` },
+      payload: { agents },
+    })
+
+  const fleet = async () => {
+    const cookie = await login(fx.app, fx.users.admin.email)
+    const response = await fx.app.inject({
+      method: 'GET',
+      url: `/api/v1/${fx.slug}/agents`,
+      headers: { cookie },
+    })
+    return response.json() as {
+      id: string
+      name: string
+      role: string
+      parentAgentId: string | null
+    }[]
+  }
+
+  it('is recognised as a proxy by the version it pairs with', async () => {
+    // The signal `tern-proxy` already sends. Reading it rather than adding a
+    // field is what lets a proxy deployed before this release be recognised.
+    const proxy = await pairAs('proxy/0.1.0')
+    const rows = await fleet()
+    // By the id pairing returned, not by guessing at the name: the server
+    // derives the agent name itself, and a test that matched on a hostname
+    // would be asserting that derivation rather than the role.
+    expect(rows.find((row) => row.id === proxy.id)?.role).toBe('proxy')
+  })
+
+  it('files its agents behind it', async () => {
+    const proxy = await pairAs('proxy/0.1.0')
+
+    const declared = await declare(proxy.key, [
+      { name: 'zone-a', lastSeenUnix: 1_786_000_000, ip: '10.0.0.4' },
+      { name: 'zone-b', lastSeenUnix: null, ip: null },
+    ])
+    expect(declared.statusCode).toBe(200)
+    expect(declared.json().known).toBe(2)
+
+    const rows = await fleet()
+    const a = rows.find((row) => row.name === 'zone-a')
+    expect(a?.parentAgentId).toBe(proxy.id)
+    expect(a?.role).toBe('agent')
+  })
+
+  it('unlinks an agent the zone no longer has, rather than deleting it', async () => {
+    const proxy = await pairAs('proxy/0.1.0')
+    await declare(proxy.key, [{ name: 'leaving', lastSeenUnix: 1_786_000_000, ip: '10.0.0.9' }])
+    await declare(proxy.key, [{ name: 'staying', lastSeenUnix: null, ip: null }])
+
+    const rows = await fleet()
+    const gone = rows.find((row) => row.name === 'leaving')
+    // Still on record — losing the relay must not erase what was behind it,
+    // which is exactly what somebody investigates next — but no longer drawn
+    // as part of this zone.
+    expect(gone).toBeDefined()
+    expect(gone?.parentAgentId).toBeNull()
+    expect(rows.find((row) => row.name === 'staying')?.parentAgentId).toBe(proxy.id)
+  })
+
+  it('refuses an ordinary agent that tries to invent machines', async () => {
+    const agent = await pairAs('0.1.0')
+    const attempt = await declare(agent.key, [{ name: 'ghost', lastSeenUnix: null, ip: null }])
+    expect(attempt.statusCode).toBe(403)
+
+    const rows = await fleet()
+    expect(rows.find((row) => row.name === 'ghost')).toBeUndefined()
+  })
+
+  it('refuses a caller with no key at all', async () => {
+    const attempt = await fx.app.inject({
+      method: 'POST',
+      url: '/api/v1/agent/zone',
+      payload: { agents: [] },
+    })
+    expect(attempt.statusCode).toBe(401)
+  })
+})
