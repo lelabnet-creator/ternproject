@@ -51,7 +51,17 @@ signale comme un bug.
 
 </details>
 
-### 2. L'installateur finit le travail
+### 2. ~~L'installateur finit le travail~~ — fait
+
+Vérifié : `pnpm typecheck`, `lint`, `format`, `test` — 759 (+5), dont le cas qui
+parse le script en `sh -n`. La garde est éprouvée : recoder `tern-agent` en dur
+dans l'`ExecStart` fait rougir un cas.
+
+Un piège rencontré, que ce fichier documente lui-même : les backticks d'un
+commentaire ferment le template literal TypeScript qui contient le script. Deux
+commentaires réécrits sans.
+
+<details><summary>Description d'origine</summary>
 
 `apps/api/src/routes/download.ts`. Les deux scripts s'arrêtent aujourd'hui sur
 « _tern-proxy installed. It takes no config and no pairing._ », ce qui est faux :
@@ -61,6 +71,8 @@ Remplacer les deux sorties anticipées par la suite déjà écrite pour l'agent,
 trois différences : `init` au lieu de `pair`, la config du proxy, et une unité de
 service qui lance `tern-proxy run`. Réutiliser la machinerie systemd/launchd du
 même script plutôt que d'en écrire une seconde.
+
+</details>
 
 ### 3. ~~La commande d'appairage du proxy~~ — fait, et remonté avant le point 1
 

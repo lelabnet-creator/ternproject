@@ -203,13 +203,31 @@ mkdir -p "$DEST"
 # to a supervisor that starts it from /.
 if [ "$(id -u)" = 0 ]; then
   CONF_DIR=/etc/tern
-  STATE_DIR=/var/lib/tern-agent
+  STATE_DIR="/var/lib/$BIN"
 else
   CONF_DIR="\${XDG_CONFIG_HOME:-$HOME/.config}/tern"
   STATE_DIR="\${XDG_STATE_HOME:-$HOME/.local/state}/tern"
 fi
-CONF="$CONF_DIR/agent.toml"
-QUEUE="$STATE_DIR/queue.jsonl"
+
+# Everything below that differs between the two, decided once.
+#
+# The rest of this script — the download, the service unit, the linger dance —
+# is the same work for both, and was written for the agent alone. Naming the
+# four differences here is what lets a relay reuse it instead of growing a
+# second copy that drifts.
+if [ "$BIN" = "tern-proxy" ]; then
+  CONF="$CONF_DIR/proxy.toml"
+  QUEUE="$STATE_DIR/proxy-queue.jsonl"
+  JOIN=init            # writes a config and its listen address, not just a key
+  LABEL=net.tern.proxy
+  DESC="TERN relay"
+else
+  CONF="$CONF_DIR/agent.toml"
+  QUEUE="$STATE_DIR/queue.jsonl"
+  JOIN=pair
+  LABEL=net.tern.agent
+  DESC="TERN agent"
+fi
 
 echo "Downloading $BIN for $target…"
 if ! curl -fsSL "$SERVER/api/v1/agent/bin/$BIN-$target" -o "$DEST/$BIN.tmp"; then
@@ -226,20 +244,17 @@ case ":$PATH:" in
   *) echo "Note: $DEST is not on your PATH." ;;
 esac
 
-if [ "$BIN" != "tern-agent" ]; then
-  echo
-  echo "tern-proxy installed. It takes no config and no pairing."
-  exit 0
-fi
-
 mkdir -p "$CONF_DIR" "$STATE_DIR"
 
+# The relay used to stop here, on "it takes no config and no pairing" — which
+# was never true. It pairs like an agent and writes a config holding the key and
+# the address it will serve on, so it walks the same path from this line down.
 if [ -n "$PIN" ]; then
   echo
-  "$DEST/$BIN" pair --server "$SERVER" --pin "$PIN" --config "$CONF"
+  "$DEST/$BIN" $JOIN --server "$SERVER" --pin "$PIN" --config "$CONF"
 else
   echo
-  echo "Next: $DEST/$BIN pair --server $SERVER --pin <PIN> --config $CONF"
+  echo "Next: $DEST/$BIN $JOIN --server $SERVER --pin <PIN> --config $CONF"
   echo "Then re-run this installer to register it for boot."
   exit 0
 fi
@@ -259,9 +274,9 @@ fi
 echo
 if [ "$os" = "Darwin" ]; then
   if [ "$(id -u)" = 0 ]; then
-    PLIST=/Library/LaunchDaemons/net.tern.agent.plist
+    PLIST="/Library/LaunchDaemons/$LABEL.plist"
   else
-    PLIST="$HOME/Library/LaunchAgents/net.tern.agent.plist"
+    PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
     mkdir -p "$HOME/Library/LaunchAgents"
   fi
 
@@ -270,10 +285,10 @@ if [ "$os" = "Darwin" ]; then
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>Label</key><string>net.tern.agent</string>
+  <key>Label</key><string>$LABEL</string>
   <key>ProgramArguments</key>
   <array>
-    <string>$DEST/tern-agent</string>
+    <string>$DEST/$BIN</string>
     <string>run</string>
     <string>--config</string><string>$CONF</string>
     <string>--queue</string><string>$QUEUE</string>
@@ -302,17 +317,17 @@ PLIST_EOF
 
 elif [ -d /run/systemd/system ]; then
   if [ "$(id -u)" = 0 ]; then
-    UNIT=/etc/systemd/system/tern-agent.service
+    UNIT="/etc/systemd/system/$BIN.service"
     WANTED=multi-user.target
   else
-    UNIT="\${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/tern-agent.service"
+    UNIT="\${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/$BIN.service"
     WANTED=default.target
     mkdir -p "$(dirname "$UNIT")"
   fi
 
   cat > "$UNIT" <<UNIT_EOF
 [Unit]
-Description=TERN agent
+Description=$DESC
 Documentation=$SERVER
 # network-online, not network: a probe that runs before the interface has an
 # address fails once at every boot and recovers, which reads as a real outage.
@@ -320,7 +335,7 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
-${plainHttp() ? '# The same allowance the pairing needed. Without it here, the agent pairs\n# once and then fails on every report — the shape of failure a monitoring\n# tool can least afford, because the server just shows it as quiet.\nEnvironment=TERN_ALLOW_PLAIN_HTTP=1\n' : ''}ExecStart=$DEST/tern-agent run --config $CONF --queue $QUEUE
+${plainHttp() ? '# The same allowance the pairing needed. Without it here, the agent pairs\n# once and then fails on every report — the shape of failure a monitoring\n# tool can least afford, because the server just shows it as quiet.\nEnvironment=TERN_ALLOW_PLAIN_HTTP=1\n' : ''}ExecStart=$DEST/$BIN run --config $CONF --queue $QUEUE
 Restart=always
 RestartSec=5
 # The agent buffers to disk while the server is unreachable, so a restart loop
@@ -333,13 +348,13 @@ UNIT_EOF
 
   if [ "$(id -u)" = 0 ]; then
     systemctl daemon-reload
-    systemctl enable --now tern-agent.service
+    systemctl enable --now "$BIN.service"
     echo "✓ Registered with systemd — starts at boot."
-    echo "  Status: systemctl status tern-agent"
-    echo "  Logs:   journalctl -u tern-agent -f"
+    echo "  Status: systemctl status $BIN"
+    echo "  Logs:   journalctl -u $BIN -f"
   else
     systemctl --user daemon-reload
-    systemctl --user enable --now tern-agent.service
+    systemctl --user enable --now "$BIN.service"
 
     # Without lingering, a user unit stops when the last session closes and
     # does not come back until somebody logs in — which on a server is never.
@@ -372,28 +387,29 @@ UNIT_EOF
       echo "      sudo loginctl enable-linger $(id -un)"
       echo "  Until then it starts when $(id -un) logs in, and stops at the last logout."
     fi
-    echo "  Status: systemctl --user status tern-agent"
-    echo "  Logs:   journalctl --user -u tern-agent -f"
+    echo "  Status: systemctl --user status $BIN"
+    echo "  Logs:   journalctl --user -u $BIN -f"
   fi
 
 elif [ -x /sbin/openrc-run ] || [ -d /etc/init.d ] && command -v rc-update >/dev/null 2>&1; then
   if [ "$(id -u)" != 0 ]; then
     echo "⚠ OpenRC needs root to register a service. Re-run with sudo, or use --no-service."
   else
-    cat > /etc/init.d/tern-agent <<'RC_EOF'
+    cat > "/etc/init.d/$BIN" <<'RC_EOF'
 #!/sbin/openrc-run
-description="TERN agent"
+description="__DESC__"
 command=__BIN__
 command_args="run --config __CONF__ --queue __QUEUE__"
 command_background=true
 ${plainHttp() ? 'export TERN_ALLOW_PLAIN_HTTP=1\n' : ''}
-pidfile="/run/tern-agent.pid"
+pidfile="/run/__BIN__.pid"
 depend() { need net; }
 RC_EOF
-    sed -i "s|__BIN__|$DEST/tern-agent|; s|__CONF__|$CONF|; s|__QUEUE__|$QUEUE|" /etc/init.d/tern-agent
-    chmod +x /etc/init.d/tern-agent
-    rc-update add tern-agent default
-    rc-service tern-agent restart
+    sed -i "s|__BIN__|$DEST/$BIN|; s|__CONF__|$CONF|; s|__QUEUE__|$QUEUE|; s|__DESC__|$DESC|" "/etc/init.d/$BIN"
+    sed -i "s|/run/$DEST/$BIN.pid|/run/$BIN.pid|" "/etc/init.d/$BIN"
+    chmod +x "/etc/init.d/$BIN"
+    rc-update add "$BIN" default
+    rc-service "$BIN" restart
     echo "✓ Registered with OpenRC — starts at boot."
   fi
 
@@ -401,14 +417,16 @@ else
   # Said plainly rather than guessed at. A wrong unit file that never runs is
   # worse than an honest sentence: it looks installed.
   echo "⚠ No supervisor recognised (no systemd, launchd or OpenRC)."
-  echo "  The agent is installed and paired but will NOT restart after a reboot."
+  echo "  $DESC is installed and paired but will NOT restart after a reboot."
   echo "  Start it with:"
-  echo "    $DEST/tern-agent run --config $CONF --queue $QUEUE"
+  echo "    $DEST/$BIN run --config $CONF --queue $QUEUE"
 fi
 
 # ICMP without root, which is what \`ping\` controls need. Said only where it
 # applies: root already has it, and macOS allows it unprivileged.
-if [ "$os" = "Linux" ] && [ "$(id -u)" != 0 ]; then
+# A relay never probes — it serves the agents that do — so raw sockets are not
+# its problem, and saying so would be advice about a capability it does not use.
+if [ "$BIN" = "tern-agent" ] && [ "$os" = "Linux" ] && [ "$(id -u)" != 0 ]; then
   echo
   echo "Note: ping checks need raw sockets. If they fail, either:"
   echo "  sudo setcap cap_net_raw+ep $DEST/tern-agent"
@@ -416,7 +434,16 @@ if [ "$os" = "Linux" ] && [ "$(id -u)" != 0 ]; then
 fi
 
 echo
-echo "Check it end to end: $DEST/tern-agent doctor --config $CONF"
+if [ "$BIN" = "tern-proxy" ]; then
+  # doctor is the agent's word; the relay reports on itself with status.
+  echo "Check it: $DEST/$BIN status --config $CONF"
+  echo
+  # The one thing this installer cannot do from here, said where it is needed.
+  echo "Add agents to this zone from this machine:"
+  echo "  $DEST/$BIN pin --config $CONF"
+else
+  echo "Check it end to end: $DEST/$BIN doctor --config $CONF"
+fi
 `
 }
 
@@ -451,8 +478,20 @@ if ($Dir -eq "") {
 
 New-Item -ItemType Directory -Force -Path $Dir | Out-Null
 $exe = Join-Path $Dir "$bin.exe"
-$conf = Join-Path $Dir "agent.toml"
-$queue = Join-Path $Dir "queue.jsonl"
+
+# The four things that differ between the two, decided once — everything below
+# is the same work, and was written for the agent alone.
+if ($Proxy) {
+  $conf  = Join-Path $Dir "proxy.toml"
+  $queue = Join-Path $Dir "proxy-queue.jsonl"
+  $join  = "init"          # writes a config and a listen address, not just a key
+  $task  = "TERN relay"
+} else {
+  $conf  = Join-Path $Dir "agent.toml"
+  $queue = Join-Path $Dir "queue.jsonl"
+  $join  = "pair"
+  $task  = "TERN agent"
+}
 
 Write-Host "Downloading $bin for $target…"
 try {
@@ -465,10 +504,8 @@ try {
 Write-Host "Installed $exe"
 if ($env:Path -notlike "*$Dir*") { Write-Host "Note: $Dir is not on your PATH." }
 
-if ($Proxy) {
-  Write-Host "tern-proxy installed. It takes no config and no pairing."
-  exit 0
-}
+# The relay used to stop here, on "it takes no config and no pairing" — which
+# was never true. It pairs and writes a config, so it walks the same path.
 
 ${
   plainHttp()
@@ -485,9 +522,9 @@ $env:TERN_ALLOW_PLAIN_HTTP = "1"
 `
     : ''
 }if ($Pin -ne "") {
-  & $exe pair --server $server --pin $Pin --config $conf
+  & $exe $join --server $server --pin $Pin --config $conf
 } else {
-  Write-Host "Next: $exe pair --server $server --pin <PIN> --config $conf"
+  Write-Host "Next: $exe $join --server $server --pin <PIN> --config $conf"
   Write-Host "Then re-run this installer to register it for boot."
   exit 0
 }
@@ -518,20 +555,20 @@ try {
     $trigger = New-ScheduledTaskTrigger -AtStartup
     $principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccount \`
       -RunLevel Highest
-    Register-ScheduledTask -TaskName "TERN agent" -Action $action -Trigger $trigger \`
+    Register-ScheduledTask -TaskName $task -Action $action -Trigger $trigger \`
       -Principal $principal -Settings $settings -Force | Out-Null
     Write-Host "OK Registered as a scheduled task — starts at boot, as SYSTEM."
   } else {
     $trigger = New-ScheduledTaskTrigger -AtLogOn
-    Register-ScheduledTask -TaskName "TERN agent" -Action $action -Trigger $trigger \`
+    Register-ScheduledTask -TaskName $task -Action $action -Trigger $trigger \`
       -Settings $settings -Force | Out-Null
     Write-Host "OK Registered as a scheduled task — starts when you log in."
     Write-Host "   Run this as Administrator to have it start at boot instead,"
     Write-Host "   without waiting for anyone to sign in."
   }
-  Start-ScheduledTask -TaskName "TERN agent"
-  Write-Host "   Status: Get-ScheduledTask -TaskName 'TERN agent'"
-  Write-Host "   Remove: Unregister-ScheduledTask -TaskName 'TERN agent'"
+  Start-ScheduledTask -TaskName $task
+  Write-Host "   Status: Get-ScheduledTask -TaskName '$task'"
+  Write-Host "   Remove: Unregister-ScheduledTask -TaskName '$task'"
 } catch {
   Write-Warning "Could not register the scheduled task: $_"
   Write-Warning "The agent is installed and paired but will NOT restart after a reboot."
@@ -539,7 +576,15 @@ try {
 }
 
 Write-Host ""
-Write-Host "Check it end to end: $exe doctor --config $conf"
+if ($Proxy) {
+  # doctor is the agent's word; the relay reports on itself with status.
+  Write-Host "Check it: $exe status --config $conf"
+  Write-Host ""
+  Write-Host "Add agents to this zone from this machine:"
+  Write-Host "  $exe pin --config $conf"
+} else {
+  Write-Host "Check it end to end: $exe doctor --config $conf"
+}
 `
 }
 

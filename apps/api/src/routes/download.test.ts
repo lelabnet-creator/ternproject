@@ -53,12 +53,56 @@ describe('the shell installer', () => {
     expect(script).toMatch(/will NOT restart after a reboot/)
   })
 
-  it('gives pairing an absolute config path', () => {
+  it('gives joining an absolute config path', () => {
     // The agent's own default is `agent.toml` in the working directory. A
     // service started from / would look for it in the wrong place, so the unit
-    // and the pairing have to agree on one absolute path.
-    expect(script).toMatch(/pair .*--config "\$CONF"/)
+    // and the joining step have to agree on one absolute path.
+    //
+    // `$JOIN` rather than a literal verb since the relay joins with `init`:
+    // it writes a config and a listen address, not just a key.
+    expect(script).toMatch(/\$JOIN .*--config "\$CONF"/)
     expect(script).toMatch(/ExecStart=.*--config \$CONF --queue \$QUEUE/)
+  })
+
+  it('installs a relay the whole way, instead of stopping at the download', () => {
+    /*
+     * It used to print "tern-proxy installed. It takes no config and no
+     * pairing." and exit — which was never true. The relay pairs and writes a
+     * config holding the key and the address it serves on, so an installer that
+     * stopped there left a binary nobody could use, and said the opposite.
+     *
+     * That sentence was the only proxy affordance in the whole product, which
+     * is why no install path was findable.
+     */
+    expect(script).not.toContain('It takes no config and no pairing')
+
+    // Both roles resolve their own identity, and everything below is shared.
+    expect(script).toMatch(/JOIN=init/)
+    expect(script).toMatch(/JOIN=pair/)
+    expect(script).toMatch(/CONF="\$CONF_DIR\/proxy\.toml"/)
+    expect(script).toMatch(/LABEL=net\.tern\.proxy/)
+  })
+
+  it('never names one binary where the other could be running', () => {
+    // The service unit, the launchd label and the OpenRC script are written
+    // from `$BIN`. A hardcoded `tern-agent` there would register a relay under
+    // a unit that starts an agent that is not installed.
+    expect(script).toMatch(/ExecStart=\$DEST\/\$BIN run/)
+    expect(script).toMatch(/UNIT="?\/etc\/systemd\/system\/\$BIN\.service/)
+    expect(script).toContain('<string>$DEST/$BIN</string>')
+  })
+
+  it('offers raw sockets only to the thing that probes', () => {
+    // A relay never probes — it serves the agents that do — so advice about
+    // CAP_NET_RAW would be about a capability it does not use.
+    expect(script).toMatch(/\[ "\$BIN" = "tern-agent" \].*\n?.*/)
+    expect(script).toContain('setcap cap_net_raw+ep')
+  })
+
+  it('tells a relay how its own zone is joined', () => {
+    // The one thing this installer cannot do: TERN issues no zone PIN, the
+    // relay issues its own. Said on the machine where it has to be run.
+    expect(script).toContain('pin --config')
   })
 
   it('can be told not to touch the boot configuration', () => {
@@ -104,6 +148,17 @@ describe('the PowerShell installer', () => {
     expect(script).toContain('-AtStartup')
     expect(script).toContain('-AtLogOn')
     expect(script).toContain('IsInRole')
+  })
+
+  it('installs a relay the whole way, instead of stopping at the download', () => {
+    // Same sentence, same lie, on the other platform.
+    expect(script).not.toContain('It takes no config and no pairing')
+    expect(script).toContain('$join  = "init"')
+    expect(script).toContain('$task  = "TERN relay"')
+    // The scheduled task is registered under whichever of the two was
+    // installed: a relay registered as "TERN agent" would be a task nobody
+    // finds and a name that lies about what it starts.
+    expect(script).toContain('Register-ScheduledTask -TaskName $task')
   })
 
   it('does not let Windows stop the task for running too long', () => {
