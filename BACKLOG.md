@@ -91,7 +91,16 @@ lui-même, et la réponse de `pairing-codes` qui porte désormais les deux verbe
 
 </details>
 
-### 4. La cadence de transmission
+### 4. ~~La cadence de transmission~~ — fait
+
+Vérifié : `cargo test` 49 (+3), `cargo fmt --check`, `cargo clippy -D warnings` ;
+`pnpm typecheck`, `lint`, `format`, `test` 759 inchangés. Et à la main : un mot
+inconnu est refusé en nommant les deux options, `status` relit le réglage
+(« forwarding as points arrive »), et un `proxy.toml` écrit avant ces champs se
+charge encore — un test l'épingle, parce qu'un relais déjà déployé ne doit pas
+être échoué par une mise à jour.
+
+<details><summary>Description d'origine</summary>
 
 `clients/agent/src/proxy.rs`. `ProxyConfig` gagne `forward_interval_s` (défaut 10) et `forward` (`batch` par défaut, ou `stream`), tous deux
 `#[serde(default)]` pour qu'un `proxy.toml` existant se charge encore.
@@ -99,6 +108,8 @@ lui-même, et la réponse de `pairing-codes` qui porte désormais les deux verbe
 En `stream`, `ingest` réveille la boucle d'envoi **après** avoir mis en file, par
 un `Notify` : la file reste le filet, et il n'y a toujours qu'un seul chemin vers
 l'amont. `init` gagne les drapeaux correspondants et `status` les affiche.
+
+</details>
 
 ### 5. Le rond, jugé sur pièce
 

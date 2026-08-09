@@ -27,6 +27,16 @@ struct Cli {
     log_json: bool,
 }
 
+/// `batch` or `stream`, named rather than derived — the enum is serde's, and a
+/// wrong word here should be a refusal with the two options in it.
+fn parse_forward(raw: &str) -> Result<proxy::Forward, String> {
+    match raw {
+        "batch" => Ok(proxy::Forward::Batch),
+        "stream" => Ok(proxy::Forward::Stream),
+        other => Err(format!("expected `batch` or `stream`, got `{other}`")),
+    }
+}
+
 #[derive(Subcommand)]
 enum Command {
     /// Pair this proxy with TERN, using a PIN from the admin. Writes the config.
@@ -40,6 +50,13 @@ enum Command {
         /// host:port to listen on for the agents in this zone.
         #[arg(long)]
         listen: Option<String>,
+        /// Seconds points wait before being carried upstream. Default 10.
+        #[arg(long)]
+        forward_interval: Option<u64>,
+        /// `batch` (default) waits for that interval; `stream` sends as points
+        /// arrive. Either way the on-disk queue is what survives an outage.
+        #[arg(long, value_parser = parse_forward)]
+        forward: Option<proxy::Forward>,
     },
 
     /// Serve the zone: accept its agents, buffer their points, forward upstream.
@@ -97,9 +114,11 @@ async fn main() -> Result<()> {
             pin,
             config,
             listen,
+            forward_interval,
+            forward,
         } => {
             let path = config.unwrap_or_else(default_config);
-            proxy::init(&server, &pin, &path, listen).await
+            proxy::init(&server, &pin, &path, listen, forward_interval, forward).await
         }
 
         Command::Run {
@@ -144,6 +163,13 @@ async fn main() -> Result<()> {
             println!("upstream    {}", config.server);
             println!("listening   {}", config.listen);
             println!("refresh     every {}s", config.refresh_s);
+            println!(
+                "forwarding  {}",
+                match config.forward {
+                    proxy::Forward::Stream => "as points arrive".to_string(),
+                    proxy::Forward::Batch => format!("every {}s", config.forward_interval_s),
+                }
+            );
             println!(
                 "agents      {} key(s) issued in this zone",
                 config.local_keys.len()
