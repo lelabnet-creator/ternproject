@@ -3,7 +3,10 @@ import { z } from 'zod'
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod'
 import { schema } from '@tern/db'
 import { config } from '../config.js'
+import { audit } from '../services/audit.js'
 import { requirePlatformAdmin as guardPlatformAdmin } from '../services/platform-admin.js'
+import { releaseState } from '../services/release.js'
+import { requestUpdate, updateProgress } from '../services/self-update.js'
 
 /**
  * Running the instance, as opposed to running a status page on it.
@@ -18,6 +21,24 @@ import { requirePlatformAdmin as guardPlatformAdmin } from '../services/platform
  * First version, and honest about it: everything here is measured, nothing is
  * estimated, and where a number is a rough figure it says so.
  */
+
+/** Declared once: the GET below answers with it and the POST's caller polls it. */
+const updateProgressSchema = z.object({
+  state: z.enum(['unavailable', 'idle', 'running', 'succeeded', 'failed']),
+  target: z.string().nullable(),
+  steps: z.array(
+    z.object({
+      id: z.enum(['pull', 'verify', 'restart']),
+      label: z.string(),
+      state: z.enum(['pending', 'running', 'done', 'failed']),
+      percent: z.number(),
+      detail: z.string(),
+    }),
+  ),
+  startedAt: z.string().nullable(),
+  updatedAt: z.string().nullable(),
+  detail: z.string(),
+})
 
 const routes: FastifyPluginAsyncZod = async (app) => {
   /** Shared with the Monitoring route, which gates its instance figures the same way. */
@@ -302,6 +323,116 @@ const routes: FastifyPluginAsyncZod = async (app) => {
         },
         uptimeS: Math.round(process.uptime()),
       }
+    },
+  )
+
+  /**
+   * Which build this is, and whether a newer image has been published.
+   *
+   * Its own route rather than another entry in `/system/health`: health is
+   * polled every thirty seconds and must answer from the database alone, while
+   * this reads a registry over the network. Folding the two together would put
+   * a third party's reachability on the critical path of the one page that has
+   * to work when everything else does not.
+   *
+   * Platform-gated like the rest of this file, and for the same reason it is
+   * useful: pulling a new image is the instance operator's job, not a tenant's.
+   */
+  app.get(
+    '/system/release',
+    {
+      schema: {
+        response: {
+          200: z.object({
+            /** `update` when a newer tag exists, `unknown` when nothing can be concluded. */
+            state: z.enum(['current', 'update', 'unknown']),
+            current: z.string().nullable(),
+            latest: z.string().nullable(),
+            revision: z.string().nullable(),
+            image: z.string(),
+            checkedAt: z.string(),
+            detail: z.string(),
+          }),
+        },
+      },
+    },
+    async (req) => {
+      await requirePlatformAdmin(req)
+      return releaseState()
+    },
+  )
+
+  /**
+   * How an upgrade is going, if one was asked for.
+   *
+   * Separate from `/system/release` and much cheaper: that one reads a registry
+   * and is cached for hours, this one reads two small files and is polled every
+   * couple of seconds while a bar is moving. It also has to keep answering
+   * after a restart, which is exactly why the answer is on disk and not in this
+   * process.
+   */
+  app.get(
+    '/system/release/update',
+    { schema: { response: { 200: updateProgressSchema } } },
+    async (req) => {
+      await requirePlatformAdmin(req)
+      return updateProgress()
+    },
+  )
+
+  /**
+   * Applies the newest published release.
+   *
+   * The target is decided here rather than accepted from the caller: the only
+   * upgrade this offers is the one the registry says is newest, and a version
+   * in a request body is a field somebody can put an arbitrary tag in. Nothing
+   * about the button needs that, and the updater would refuse it anyway.
+   */
+  app.post(
+    '/system/release/update',
+    {
+      schema: {
+        response: {
+          202: z.object({ id: z.string(), target: z.string() }),
+        },
+      },
+    },
+    async (req, reply) => {
+      await requirePlatformAdmin(req)
+
+      const release = await releaseState()
+      if (release.state !== 'update' || !release.latest) {
+        throw app.httpErrors.conflict(
+          release.state === 'unknown'
+            ? `Nothing to apply: ${release.detail}`
+            : 'This instance already runs the newest published release.',
+        )
+      }
+
+      const outcome = await requestUpdate(release.latest, release.image)
+      if (!outcome.ok) {
+        throw outcome.reason === 'busy'
+          ? app.httpErrors.conflict(outcome.detail)
+          : app.httpErrors.preconditionFailed(outcome.detail)
+      }
+
+      // Recorded before anything happens, because the thing that happens next
+      // is this process being replaced. An upgrade with no trail of who asked
+      // for it is the one entry an operator goes looking for afterwards.
+      await audit(app, {
+        action: 'system.update_requested',
+        // No tenant: this is the instance being upgraded, not a page being
+        // edited. The trail is the platform's own.
+        tenantId: req.tenant?.id,
+        actorId: req.actor.userId,
+        target: outcome.id,
+        meta: { from: release.current, to: release.latest, image: release.image },
+        ip: req.ip,
+      })
+
+      // 202: accepted, and deliberately not "done". What happens from here is
+      // another container's business, and the caller watches the GET above.
+      return reply.code(202).send({ id: outcome.id, target: release.latest })
     },
   )
 
