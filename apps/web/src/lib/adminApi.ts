@@ -1,6 +1,7 @@
 import type { Block } from '@tern/shared/blocks'
 import type { IncidentImpactValue } from '@tern/shared/status'
 import { ApiError } from './api'
+import { sandboxOn } from './sandbox-flag'
 
 /**
  * Authenticated client for the admin surface.
@@ -10,7 +11,37 @@ import { ApiError } from './api'
  * screen is talking to.
  */
 
+/**
+ * The one seam the development sandbox needs.
+ *
+ * Every admin call goes through `request`, so a demo made writable in the
+ * browser can be a single condition here rather than a branch on forty methods.
+ * Both halves are inside `import.meta.env.DEV`, which is a constant at build
+ * time: the condition folds away and `sandbox.ts` — never statically imported
+ * anywhere — is left out of the production bundle entirely. The flag it reads
+ * lives in a module of its own so that asking the question costs nothing.
+ */
+async function fromSandbox(
+  method: string,
+  path: string,
+  body: unknown,
+): Promise<{ handled: false } | { handled: true; value: unknown }> {
+  if (!sandboxOn()) return { handled: false }
+
+  const sandbox = await import('./sandbox')
+  const value = await sandbox.answer(method, path, body, (where) => transmit<unknown>('GET', where))
+  return value === sandbox.PASS ? { handled: false } : { handled: true, value }
+}
+
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+  if (import.meta.env.DEV) {
+    const answered = await fromSandbox(method, path, body)
+    if (answered.handled) return answered.value as T
+  }
+  return transmit<T>(method, path, body)
+}
+
+async function transmit<T>(method: string, path: string, body?: unknown): Promise<T> {
   const response = await fetch(path, {
     method,
     credentials: 'same-origin',
@@ -22,13 +53,17 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
     // The API answers with a message worth showing — a rejected threshold or a
     // taken key reads far better than "request failed".
     let message = `Request failed (${response.status})`
+    // Kept whole and handed on: a refusal that carries more than a sentence —
+    // the import's list of issues — has nowhere else to survive.
+    let body: unknown
     try {
       const parsed = (await response.json()) as { message?: string }
+      body = parsed
       if (parsed.message) message = parsed.message
     } catch {
       // Non-JSON error body; the status line is all there is.
     }
-    throw new ApiError(message, response.status)
+    throw new ApiError(message, response.status, body)
   }
 
   if (response.status === 204) return undefined as T
@@ -96,6 +131,40 @@ export interface ControlGroupPatch {
   position?: number
   statusRollup?: 'worst' | 'majority' | 'manual'
   collapsedByDefault?: boolean
+}
+
+/**
+ * What an import did, or what it would have done.
+ *
+ * `dryRun` is echoed back rather than remembered by the caller: the screen
+ * shows two different things for the two answers, and reading it off the
+ * response means it can never show the wrong one for a request in flight.
+ */
+export interface ImportOutcome {
+  dryRun: boolean
+  created: number
+  updated: number
+  groupsCreated: number
+  controls: { key: string; action: 'created' | 'updated' }[]
+}
+
+/**
+ * One problem with an imported file, as the API sends it.
+ *
+ * Mirrors the 400 body in `apps/api/src/routes/controls-import.ts`. `null` where
+ * the shared parser uses `undefined`, because JSON has no absent — the two are
+ * reconciled in `features/control-import/issues.ts`.
+ */
+export interface ImportIssueWire {
+  line: number | null
+  column: number | null
+  path: string
+  key: string | null
+  message: string
+  received: string | null
+  expected: string | null
+  /** The same issue on one line, already formatted. */
+  detail: string
 }
 
 export interface TenantSettings {
@@ -437,6 +506,20 @@ export const adminApi = {
   deleteControl: (slug: string, id: string) =>
     request<{ ok: boolean }>('DELETE', `/api/v1/${slug}/controls/${id}`),
 
+  /**
+   * Applies a YAML file, or works out what it would do.
+   *
+   * `dryRun` takes the same code path on the server, which is what makes the
+   * preview worth showing: a number computed by different code is a number that
+   * can disagree with the import it precedes.
+   *
+   * A rejected file answers 400 with a list rather than a message; the list
+   * arrives on `ApiError.body` and is read back by
+   * `features/control-import/issues.ts`.
+   */
+  importControls: (slug: string, yaml: string, dryRun: boolean) =>
+    request<ImportOutcome>('POST', `/api/v1/${slug}/controls/import`, { yaml, dryRun }),
+
   controlGroups: (slug: string) => request<ControlGroup[]>('GET', `/api/v1/${slug}/control-groups`),
 
   createControlGroup: (slug: string, body: ControlGroupPatch & { name: string }) =>
@@ -447,12 +530,22 @@ export const adminApi = {
     request<ControlGroup>('PATCH', `/api/v1/${slug}/control-groups/${id}`, body),
 
   /**
-   * Removes the folder and nothing it held: children move up to its parent, its
-   * controls are unfiled. Deleting a folder is a filing decision, so it must
-   * never be a decision about what is monitored.
+   * Removes the folder.
+   *
+   * `unfile` — the default — keeps everything it held: children move up to its
+   * parent, its controls are unfiled and still monitored. Deleting a folder is
+   * a filing decision, so it must never *silently* be a decision about what is
+   * monitored.
+   *
+   * `delete` is the other intention said out loud, for a service being
+   * dismantled rather than a page being tidied. One transaction on the server,
+   * because a folder half emptied is nobody's intention.
    */
-  deleteControlGroup: (slug: string, id: string) =>
-    request<void>('DELETE', `/api/v1/${slug}/control-groups/${id}`),
+  deleteControlGroup: (slug: string, id: string, controls: 'unfile' | 'delete' = 'unfile') =>
+    request<{ deleted: number; unfiled: number }>(
+      'DELETE',
+      `/api/v1/${slug}/control-groups/${id}?controls=${controls}`,
+    ),
 
   /**
    * Files a whole selection at once.

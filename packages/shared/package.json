@@ -17,7 +17,8 @@
     "./crypto": "./src/crypto.ts",
     "./password": "./src/password.ts",
     "./blocks": "./src/blocks.ts",
-    "./control-import": "./src/control-import.ts"
+    "./control-import": "./src/control-import.ts",
+    "./yaml-schema": "./src/yaml-schema.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

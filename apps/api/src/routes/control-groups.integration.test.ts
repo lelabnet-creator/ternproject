@@ -156,7 +156,10 @@ describe('deleting a folder', () => {
     expect(moved.json().moved).toBe(1)
 
     const gone = await api('DELETE', `/control-groups/${group.id}`)
-    expect(gone.statusCode).toBe(204)
+    expect(gone.statusCode).toBe(200)
+    // No query string at all, so the default answered — and the default has to
+    // be the one that destroys nothing.
+    expect(gone.json()).toEqual({ deleted: 0, unfiled: 1 })
 
     // The control survives, unfiled. Deleting a folder is a filing decision,
     // not a decision about what is monitored — an operator tidying their page
@@ -175,7 +178,7 @@ describe('deleting a folder', () => {
     const middle = await makeGroup('Middle', top.id)
     const leaf = await makeGroup('Leaf', middle.id)
 
-    expect((await api('DELETE', `/control-groups/${middle.id}`)).statusCode).toBe(204)
+    expect((await api('DELETE', `/control-groups/${middle.id}`)).statusCode).toBe(200)
 
     const list = (await api('GET', '/control-groups')).json() as {
       id: string
@@ -187,6 +190,76 @@ describe('deleting a folder', () => {
     // would be gone — and its controls with it, silently.
     expect(stillThere, 'the child group must outlive its parent').toBeDefined()
     expect(stillThere!.parentId).toBe(top.id)
+  })
+})
+
+/**
+ * The other intention, which had no expression until now.
+ *
+ * Tidying a page and dismantling a service are both real, and only the first
+ * one was reachable — the second was done by deleting N controls one at a time
+ * and then the folder, without a transaction and with a chance to stop half
+ * way. What matters in these cases is that the two never get confused: the
+ * destructive one has to be asked for by name, and it must take exactly what
+ * the screen said it would.
+ */
+describe('deleting a folder and its controls', () => {
+  /*
+   * Its own controls, never the fixture's.
+   *
+   * The fixture is built once for the file and every other test reads it; a
+   * case that deletes `fx.controls.publicId` passes and then fails the next
+   * test down, which is a worse bug than the one it was written to catch.
+   */
+  const makeControl = async (key: string): Promise<string> => {
+    const created = await api('POST', '/controls', { key, name: key })
+    expect(created.statusCode).toBe(201)
+    return (created.json() as { id: string }).id
+  }
+
+  it('takes the controls filed directly in it', async () => {
+    const group = await makeGroup('Dismantled')
+    const doomed = await makeControl('doomed-with-its-folder')
+
+    await api('POST', '/controls/move', { controlIds: [doomed], groupId: group.id })
+
+    const gone = await api('DELETE', `/control-groups/${group.id}?controls=delete`)
+    expect(gone.statusCode).toBe(200)
+    expect(gone.json()).toEqual({ deleted: 1, unfiled: 0 })
+
+    const controls = (await api('GET', '/controls')).json() as { id: string }[]
+    expect(controls.find((c) => c.id === doomed)).toBeUndefined()
+  })
+
+  it('leaves a child folder and everything in it alone', async () => {
+    const top = await makeGroup('Parent')
+    const child = await makeGroup('Child', top.id)
+    const nested = await makeControl('safe-in-a-child-folder')
+
+    await api('POST', '/controls/move', { controlIds: [nested], groupId: child.id })
+
+    // The caller asked about `top`, and the count they were shown was `top`'s
+    // own. A subtree swept up with it would be a deletion nobody was offered.
+    const gone = await api('DELETE', `/control-groups/${top.id}?controls=delete`)
+    expect(gone.statusCode).toBe(200)
+    expect(gone.json()).toEqual({ deleted: 0, unfiled: 0 })
+
+    const controls = (await api('GET', '/controls')).json() as {
+      id: string
+      groupId: string | null
+    }[]
+    const survivor = controls.find((c) => c.id === nested)
+    expect(survivor, 'a control inside a child folder is not this folder’s own').toBeDefined()
+    expect(survivor!.groupId).toBe(child.id)
+  })
+
+  it('refuses a value that is neither', async () => {
+    const group = await makeGroup('Typo')
+    // Not silently treated as the default: `controls=remove` is somebody who
+    // meant to destroy something, and answering it by keeping everything is as
+    // wrong as answering it by destroying everything.
+    const response = await api('DELETE', `/control-groups/${group.id}?controls=remove`)
+    expect(response.statusCode).toBe(400)
   })
 })
 

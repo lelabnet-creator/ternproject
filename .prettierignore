@@ -12,6 +12,7 @@ clients/examples/
 # guarantees the CI staleness check fails on every run: Prettier rewrites the
 # file, the generator writes it back, and the diff never settles.
 schemas/*.json
+schemas/*.yaml
 
 # Drizzle owns these. `pnpm db:generate` rewrites the snapshots and the journal
 # wholesale, unformatted, so checking their style makes CI fail on the next

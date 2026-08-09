@@ -1,0 +1,507 @@
+# TTX Enterprise, as TERN controls.
+#
+# Generated from ../ttx-enterprise: docker-compose.yml for the containers and
+# the published ports, proxy/nginx-mtls.conf.template for the virtual hosts,
+# backend/app/main.py for the shape of /api/health.
+#
+# ── Before importing ────────────────────────────────────────────────────────
+#
+# 1. The domain. Everything below targets the compose default,
+#    `crisis-lab.eu.localhost`. For another deployment, replace it throughout:
+#
+#        sed -i 's/crisis-lab\.eu\.localhost/gra01.crisis-lab.eu/g' ttx-enterprise.controls.yaml
+#
+# 2. `tlsVerify: false` on every HTTPS check. The gateway serves certificates
+#    from ./.certs, which are self-signed in development — a probe that
+#    verified them would report the whole estate down for a reason that has
+#    nothing to do with the estate. Turn it back on for a deployment with real
+#    certificates; that is the point of `ttx.gateway.cert` below.
+#
+# 3. `localhost` in the four host-port checks means the machine the agent runs
+#    on. TERN's local agent measures from inside its own container, where
+#    localhost is that container — so assign those controls to an agent on the
+#    Docker host, or change the address to one the agent can reach. The admin
+#    warns about this when you open them.
+#
+# 4. The `docker` controls need an agent with access to the Docker socket.
+#    They import either way — a file describes what to monitor, not who
+#    monitors it — and stay unknown until they are assigned to one.
+
+version: 1
+
+controls:
+  # ── The front door ────────────────────────────────────────────────────────
+
+  - key: ttx.gateway.tcp
+    name: Gateway, TLS port
+    description: nginx accepting connections on 443. The first thing to check when everything looks down.
+    group: TTX · Gateway
+    kind: tcp
+    config:
+      host: crisis-lab.eu.localhost
+      port: 443
+      timeoutMs: 3000
+    expectedIntervalS: 30
+    degradedThresholdMs: 300
+    downThresholdMs: 2000
+    widget: status-swimlane
+    widgetOptions:
+      windowDays: 1
+    slaTarget: 9990
+
+  - key: ttx.gateway.cert
+    name: Gateway certificate
+    description: Days before the certificate on the base domain expires. Meaningless against the self-signed development ones.
+    group: TTX · Gateway
+    kind: cert
+    config:
+      host: crisis-lab.eu.localhost
+      port: 443
+      timeoutMs: 5000
+      assertions:
+        - type: cert_expires_in
+          days: 21
+          severity: degraded
+        - type: cert_expires_in
+          days: 7
+          severity: down
+    expectedIntervalS: 3600
+    valueUnit: days
+    valueLabel: Until expiry
+    widget: stat-tile
+    widgetOptions:
+      show: value
+
+  - key: ttx.gateway.dns
+    name: Base domain resolves
+    description: An A record for the base domain. A DNS failure and a dead gateway look identical from a browser.
+    group: TTX · Gateway
+    kind: dns
+    config:
+      name: crisis-lab.eu.localhost
+      recordType: A
+      timeoutMs: 3000
+    expectedIntervalS: 300
+    widget: uptime-ribbon
+
+  # ── Tenant: root (paris) ──────────────────────────────────────────────────
+
+  - key: ttx.paris.api
+    name: Paris API
+    description: /api/health on the root tenant, checked for the body and not only the status code.
+    group: TTX · Tenant paris
+    kind: http
+    config:
+      url: https://crisis-lab.eu.localhost/api/health
+      method: GET
+      timeoutMs: 5000
+      tlsVerify: false
+      assertions:
+        - type: status_code
+          eq: 200
+        # The status code alone would pass on a gateway 502 page dressed as a
+        # 200, and on a backend that answers while its dependencies are gone.
+        - type: json_path
+          path: $.status
+          comparator: eq
+          value: healthy
+          as: string
+        - type: latency
+          ms: 800
+          severity: degraded
+        - type: latency
+          ms: 3000
+          severity: down
+    expectedIntervalS: 60
+    degradedThresholdMs: 800
+    downThresholdMs: 3000
+    valueUnit: ms
+    valueLabel: Response time
+    widget: latency-band
+    widgetOptions:
+      windowDays: 1
+    slaTarget: 9950
+
+  - key: ttx.paris.web
+    name: Paris frontend
+    group: TTX · Tenant paris
+    kind: http
+    config:
+      url: https://crisis-lab.eu.localhost/
+      timeoutMs: 8000
+      tlsVerify: false
+      assertions:
+        - type: status_code
+          range: [200, 299]
+    expectedIntervalS: 120
+    degradedThresholdMs: 1500
+    downThresholdMs: 5000
+    widget: latency-band
+    widgetOptions:
+      windowDays: 7
+
+  - key: ttx.paris.cmis
+    name: Paris CMIS
+    description: The CMIS frontend, served under /cmis by its own container.
+    group: TTX · Tenant paris
+    kind: http
+    config:
+      url: https://crisis-lab.eu.localhost/cmis
+      timeoutMs: 8000
+      tlsVerify: false
+      assertions:
+        - type: status_code
+          range: [200, 399]
+    expectedIntervalS: 300
+    widget: uptime-ribbon
+
+  - key: ttx.paris.attack-navigator
+    name: ATT&CK Navigator
+    group: TTX · Tenant paris
+    kind: http
+    config:
+      url: https://crisis-lab.eu.localhost/attack-navigator/
+      timeoutMs: 8000
+      tlsVerify: false
+      assertions:
+        - type: status_code
+          range: [200, 399]
+    expectedIntervalS: 300
+    widget: uptime-ribbon
+
+  # ── Tenant: admin ─────────────────────────────────────────────────────────
+
+  - key: ttx.admin.api
+    name: Admin API
+    group: TTX · Tenant admin
+    kind: http
+    config:
+      url: https://admin.crisis-lab.eu.localhost/api/health
+      timeoutMs: 5000
+      tlsVerify: false
+      assertions:
+        - type: status_code
+          eq: 200
+        - type: json_path
+          path: $.status
+          comparator: eq
+          value: healthy
+          as: string
+        # The role the instance believes it is. An admin host answering with a
+        # sales backend behind it is a routing fault nothing else would catch.
+        - type: json_path
+          path: $.platform_role
+          comparator: eq
+          value: admin
+          as: string
+        - type: latency
+          ms: 800
+          severity: degraded
+        - type: latency
+          ms: 3000
+          severity: down
+    expectedIntervalS: 60
+    degradedThresholdMs: 800
+    downThresholdMs: 3000
+    valueUnit: ms
+    valueLabel: Response time
+    widget: latency-band
+    widgetOptions:
+      windowDays: 1
+    slaTarget: 9950
+
+  - key: ttx.admin.ws
+    name: Admin websocket
+    description: The /ws upgrade the gateway proxies. A working API says nothing about whether the socket survives the proxy.
+    group: TTX · Tenant admin
+    kind: websocket
+    config:
+      url: wss://admin.crisis-lab.eu.localhost/ws
+      timeoutMs: 8000
+      tlsVerify: false
+    expectedIntervalS: 120
+    degradedThresholdMs: 1500
+    downThresholdMs: 5000
+    widget: status-swimlane
+    widgetOptions:
+      windowDays: 1
+
+  - key: ttx.admin.web
+    name: Admin frontend
+    group: TTX · Tenant admin
+    kind: http
+    config:
+      url: https://admin.crisis-lab.eu.localhost/
+      timeoutMs: 8000
+      tlsVerify: false
+      assertions:
+        - type: status_code
+          range: [200, 299]
+    expectedIntervalS: 120
+    widget: uptime-ribbon
+
+  - key: ttx.admin.docs
+    name: Admin API docs
+    group: TTX · Tenant admin
+    kind: http
+    config:
+      url: https://admin.crisis-lab.eu.localhost/docs
+      timeoutMs: 8000
+      tlsVerify: false
+      assertions:
+        - type: status_code
+          range: [200, 399]
+    expectedIntervalS: 600
+    isPublic: false
+    widget: uptime-ribbon
+
+  # ── Tenant: sales ─────────────────────────────────────────────────────────
+
+  - key: ttx.sales.api
+    name: Sales API
+    group: TTX · Tenant sales
+    kind: http
+    config:
+      url: https://sales.crisis-lab.eu.localhost/api/health
+      timeoutMs: 5000
+      tlsVerify: false
+      assertions:
+        - type: status_code
+          eq: 200
+        - type: json_path
+          path: $.status
+          comparator: eq
+          value: healthy
+          as: string
+        - type: json_path
+          path: $.platform_role
+          comparator: eq
+          value: sales
+          as: string
+        - type: latency
+          ms: 800
+          severity: degraded
+        - type: latency
+          ms: 3000
+          severity: down
+    expectedIntervalS: 60
+    degradedThresholdMs: 800
+    downThresholdMs: 3000
+    valueUnit: ms
+    valueLabel: Response time
+    widget: latency-band
+    widgetOptions:
+      windowDays: 1
+    slaTarget: 9950
+
+  - key: ttx.sales.ws
+    name: Sales websocket
+    group: TTX · Tenant sales
+    kind: websocket
+    config:
+      url: wss://sales.crisis-lab.eu.localhost/ws
+      timeoutMs: 8000
+      tlsVerify: false
+    expectedIntervalS: 120
+    widget: status-swimlane
+    widgetOptions:
+      windowDays: 1
+
+  - key: ttx.sales.web
+    name: Sales frontend
+    group: TTX · Tenant sales
+    kind: http
+    config:
+      url: https://sales.crisis-lab.eu.localhost/
+      timeoutMs: 8000
+      tlsVerify: false
+      assertions:
+        - type: status_code
+          range: [200, 299]
+    expectedIntervalS: 120
+    widget: uptime-ribbon
+
+  # ── Shared virtual hosts ──────────────────────────────────────────────────
+
+  - key: ttx.docs
+    name: Documentation site
+    group: TTX · Shared
+    kind: http
+    config:
+      url: https://docs.crisis-lab.eu.localhost/
+      timeoutMs: 8000
+      tlsVerify: false
+      assertions:
+        - type: status_code
+          range: [200, 299]
+    expectedIntervalS: 600
+    widget: uptime-ribbon
+
+  - key: ttx.www
+    name: Public website
+    group: TTX · Shared
+    kind: http
+    config:
+      url: https://www.crisis-lab.eu.localhost/
+      timeoutMs: 8000
+      tlsVerify: false
+      assertions:
+        - type: status_code
+          range: [200, 299]
+    expectedIntervalS: 300
+    widget: availability-calendar
+
+  - key: ttx.s3
+    name: Object storage
+    description: RustFS behind s3.<domain>. Media and exports live here; a failure is silent until somebody uploads.
+    group: TTX · Shared
+    kind: http
+    config:
+      url: https://s3.crisis-lab.eu.localhost/health
+      timeoutMs: 5000
+      tlsVerify: false
+      assertions:
+        - type: status_code
+          range: [200, 299]
+    expectedIntervalS: 120
+    degradedThresholdMs: 800
+    downThresholdMs: 4000
+    widget: latency-band
+    widgetOptions:
+      windowDays: 7
+
+  - key: ttx.logs
+    name: Log store
+    description: VictoriaLogs behind logs.<domain>. The container is distroless and has no healthcheck of its own — this is the only check it gets.
+    group: TTX · Shared
+    kind: http
+    config:
+      url: https://logs.crisis-lab.eu.localhost/
+      timeoutMs: 5000
+      tlsVerify: false
+      assertions:
+        - type: status_code
+          range: [200, 399]
+    expectedIntervalS: 300
+    isPublic: false
+    widget: status-swimlane
+    widgetOptions:
+      windowDays: 7
+
+  # ── The data plane, on its published ports ────────────────────────────────
+  #
+  # `localhost` here is the machine the agent runs on. See note 3 in the header.
+
+  - key: ttx.postgres
+    name: PostgreSQL
+    description: pgvector on 5434. Nothing above answers for long once this stops.
+    group: TTX · Data
+    kind: tcp
+    config:
+      host: localhost
+      port: 5434
+      timeoutMs: 3000
+    expectedIntervalS: 60
+    degradedThresholdMs: 200
+    downThresholdMs: 1000
+    isPublic: false
+    widget: status-swimlane
+    widgetOptions:
+      windowDays: 1
+
+  - key: ttx.rustfs.api
+    name: RustFS API
+    group: TTX · Data
+    kind: http
+    config:
+      url: http://localhost:9000/health
+      timeoutMs: 3000
+      assertions:
+        - type: status_code
+          range: [200, 299]
+    expectedIntervalS: 120
+    isPublic: false
+    widget: uptime-ribbon
+
+  - key: ttx.keycloak
+    name: Keycloak realm
+    description: The ttx realm on the development identity provider. Only runs under the `dev` compose profile.
+    group: TTX · Data
+    kind: http
+    config:
+      url: http://localhost:8080/realms/ttx
+      timeoutMs: 5000
+      assertions:
+        - type: status_code
+          eq: 200
+    expectedIntervalS: 300
+    isPublic: false
+    enabled: false
+    widget: uptime-ribbon
+
+  # ── Containers with no port of their own ──────────────────────────────────
+  #
+  # Reachable only through the Docker socket. See note 4 in the header.
+
+  - key: ttx.container.redis
+    name: Redis container
+    group: TTX · Containers
+    kind: docker
+    config:
+      container: ttx-enterprise-redis
+      requireHealthcheck: true
+      timeoutMs: 5000
+    expectedIntervalS: 60
+    isPublic: false
+    widget: status-swimlane
+    widgetOptions:
+      windowDays: 7
+
+  - key: ttx.container.embeddings
+    name: Embeddings container
+    description: text-embeddings-inference serving BAAI/bge-m3. Slow to start; a long expected interval avoids calling a cold boot an outage.
+    group: TTX · Containers
+    kind: docker
+    config:
+      container: ttx-enterprise-embeddings
+      requireHealthcheck: true
+      timeoutMs: 5000
+    expectedIntervalS: 300
+    isPublic: false
+    widget: uptime-ribbon
+
+  - key: ttx.container.vector
+    name: Vector container
+    description: Ships container logs to VictoriaLogs. When it stops, nothing breaks and nothing is recorded — which is worse.
+    group: TTX · Containers
+    kind: docker
+    config:
+      container: ttx-enterprise-vector
+      timeoutMs: 5000
+    expectedIntervalS: 120
+    isPublic: false
+    widget: uptime-ribbon
+
+  - key: ttx.container.victorialogs
+    name: VictoriaLogs container
+    group: TTX · Containers
+    kind: docker
+    config:
+      container: ttx-enterprise-victorialogs
+      timeoutMs: 5000
+    expectedIntervalS: 120
+    isPublic: false
+    widget: uptime-ribbon
+
+  - key: ttx.container.gateway
+    name: Gateway container
+    group: TTX · Containers
+    kind: docker
+    config:
+      container: ttx-enterprise-gateway
+      timeoutMs: 5000
+    expectedIntervalS: 60
+    isPublic: false
+    widget: status-swimlane
+    widgetOptions:
+      windowDays: 7

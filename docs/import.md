@@ -10,6 +10,34 @@ as a unit: either every control in it lands, or none does.
 Canonical schema: `packages/shared/src/control-import.ts`. The endpoint that
 applies it: `apps/api/src/routes/controls-import.ts`.
 
+## From the admin
+
+**Controls → Import YAML.** Paste the file, or load one from disk. The screen
+runs the same parser this page documents, in the browser, as you type: a
+misspelt field is a problem with a line number before any request is made.
+`Preview` then reports what the file would do — how many controls it creates,
+how many it updates, how many folders it has to make — and writes nothing.
+`Import` applies it.
+
+Everything below is what that screen and the endpoint both enforce; a client
+that would rather post the file itself is described next.
+
+## The schema, for a machine
+
+**Copy the schema** on that screen hands out the format as a document rather
+than as prose: JSON Schema, written as YAML, in the dialect the
+[ASDF standard](https://www.asdf-format.org/projects/asdf-standard/en/latest/schemas/yaml_schema.html)
+specifies — `%YAML 1.1`, a `$schema` naming the metaschema, draft 4 underneath.
+Point an editor or a CI job at it. The same document is committed at
+`schemas/controls-import.schema.yaml`.
+
+It is generated from the same definition the endpoint validates with
+(`packages/shared/src/yaml-schema.ts`), so it cannot describe a format the
+server would refuse. It is not the whole contract, and says so in its own
+`description`: the rules that span two fields — `group` against `groupId`, the
+degraded threshold against the down one, `config` against `kind` — have no JSON
+Schema expression and are enforced by the server alone.
+
 ## The endpoint
 
 ```

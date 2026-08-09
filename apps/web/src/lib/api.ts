@@ -93,6 +93,17 @@ export class ApiError extends Error {
   constructor(
     message: string,
     readonly status: number,
+    /**
+     * The parsed error body, when there was one.
+     *
+     * Most refusals are a sentence, and `message` is the whole of them. A few
+     * are a list — the YAML import answers with one issue per problem in the
+     * file — and flattening that to its first line would be throwing away the
+     * part the reader has to act on. Carried as `unknown` rather than typed
+     * here, because this class is shared by both clients and the shapes belong
+     * to the endpoints that return them.
+     */
+    readonly body?: unknown,
   ) {
     super(message)
     this.name = 'ApiError'
