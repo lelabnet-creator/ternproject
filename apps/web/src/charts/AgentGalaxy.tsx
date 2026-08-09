@@ -71,6 +71,147 @@ function titleOf(agent: GalaxyAgent & { tone: Freshness }): string {
   return parts.filter(Boolean).join(' — ')
 }
 
+/**
+ * Where every dot goes, as a pure function of the fleet.
+ *
+ * Extracted from the component for the reason `matching()` was: the cases worth
+ * checking are the ones no screenshot contains — two relays at once, a relay
+ * serving nobody — and they are geometry, not pixels.
+ */
+export function layout(
+  agents: GalaxyAgent[],
+  size: number,
+  now: number,
+): {
+  sectors: { name: string; start: number; end: number }[]
+  placed: (GalaxyAgent & { x: number; y: number; r: number; tone: Freshness })[]
+  links: { from: { x: number; y: number }; to: { x: number; y: number }; tone: Freshness }[]
+} {
+  const radius = size / 2
+
+  // Sites in a stable order, unplaced agents last: the sky must not rearrange
+  // because someone typed a site name.
+  /*
+   * Agents behind a proxy are laid out around it, not by site.
+   *
+   * Their site is the proxy's — the proxy reports it — so the sector layout
+   * would scatter a zone across a wedge and draw every relay line back across
+   * the disc. Clustering them is what makes the chain readable, which is the
+   * only reason the picture shows them at all.
+   */
+  const relayed = new Map<string, GalaxyAgent[]>()
+  for (const agent of agents) {
+    if (!agent.parentAgentId) continue
+    const bucket = relayed.get(agent.parentAgentId)
+    if (bucket) bucket.push(agent)
+    else relayed.set(agent.parentAgentId, [agent])
+  }
+
+  const bySite = new Map<string, GalaxyAgent[]>()
+  for (const agent of agents) {
+    if (agent.parentAgentId) continue
+    const key = agent.site?.trim() || ''
+    const bucket = bySite.get(key)
+    if (bucket) bucket.push(agent)
+    else bySite.set(key, [agent])
+  }
+
+  const names = [...bySite.keys()].sort((a, b) => {
+    if (a === '') return 1
+    if (b === '') return -1
+    return a.localeCompare(b)
+  })
+
+  const direct = agents.filter((agent) => !agent.parentAgentId)
+  const total = direct.length || 1
+  const maxJobs = Math.max(1, ...agents.map((a) => a.jobCount))
+
+  let cursor = -Math.PI / 2
+  const sectors: { name: string; start: number; end: number }[] = []
+  const placed: (GalaxyAgent & { x: number; y: number; r: number; tone: Freshness })[] = []
+
+  for (const name of names) {
+    const members = bySite
+      .get(name)!
+      .slice()
+      .sort((a, b) => a.name.localeCompare(b.name))
+    const span = (members.length / total) * Math.PI * 2
+    sectors.push({ name, start: cursor, end: cursor + span })
+
+    members.forEach((agent, index) => {
+      // Spread within the sector, and never on its exact edge — an agent
+      // sitting on the boundary reads as belonging to the wrong site.
+      const share = span / (members.length + 1)
+      const angle = cursor + share * (index + 1)
+      const tone = freshnessOf(agent, now)
+      const distance = radius * RING[tone]
+
+      placed.push({
+        ...agent,
+        tone,
+        x: Math.cos(angle) * distance,
+        y: Math.sin(angle) * distance,
+        /*
+         * Size is what is lost if this goes.
+         *
+         * For an agent that is its probe count. For a relay it is not: a
+         * proxy runs none of its own, so the same formula made it the second
+         * smallest thing on screen while it carried a whole zone. Its size is
+         * that zone instead, on the same scale, with a floor so an empty
+         * relay still reads as a hub rather than as a stray dot.
+         */
+        r:
+          agent.role === 'proxy'
+            ? 6 + Math.min(relayed.get(agent.id)?.length ?? 0, 6)
+            : 5 + (agent.jobCount / maxJobs) * 7,
+      })
+    })
+
+    cursor += span
+  }
+
+  /*
+   * A small ring of its own around each proxy.
+   *
+   * Placed after the sectors because it needs the proxy's final position, and
+   * pushed outward from the centre rather than around it: a zone sits *beyond*
+   * its relay, which is the direction its traffic travels.
+   */
+  const links: {
+    from: { x: number; y: number }
+    to: { x: number; y: number }
+    tone: Freshness
+  }[] = []
+
+  for (const proxy of placed.filter((agent) => agent.role === 'proxy')) {
+    links.push({ from: { x: proxy.x, y: proxy.y }, to: { x: 0, y: 0 }, tone: proxy.tone })
+
+    const zone = relayed.get(proxy.id) ?? []
+    const outward = Math.atan2(proxy.y, proxy.x)
+    // A fan behind the proxy, narrow enough that it reads as one cluster.
+    const spread = Math.PI / 2.2
+    // Far enough that the link between the two is a line rather than a seam.
+    // At 320px — the width this panel actually gets — 0.16 left about sixteen
+    // pixels of dash between two dots, which reads as one smudged mark.
+    const gap = Math.min(radius * 0.22, 44)
+
+    zone.forEach((agent, index) => {
+      const offset = zone.length === 1 ? 0 : -spread / 2 + (spread / (zone.length - 1)) * index
+      const angle = outward + offset
+      const tone = freshnessOf(agent, now)
+      const point = {
+        x: proxy.x + Math.cos(angle) * gap,
+        y: proxy.y + Math.sin(angle) * gap,
+      }
+
+      placed.push({ ...agent, tone, x: point.x, y: point.y, r: 4 })
+      links.push({ from: point, to: { x: proxy.x, y: proxy.y }, tone })
+    })
+  }
+
+  return { sectors, placed, links }
+}
+
 export function AgentGalaxy({
   agents,
   now = Date.now(),
@@ -86,114 +227,7 @@ export function AgentGalaxy({
 }) {
   const radius = size / 2
 
-  const { sectors, placed, links } = useMemo(() => {
-    // Sites in a stable order, unplaced agents last: the sky must not rearrange
-    // because someone typed a site name.
-    /*
-     * Agents behind a proxy are laid out around it, not by site.
-     *
-     * Their site is the proxy's — the proxy reports it — so the sector layout
-     * would scatter a zone across a wedge and draw every relay line back across
-     * the disc. Clustering them is what makes the chain readable, which is the
-     * only reason the picture shows them at all.
-     */
-    const relayed = new Map<string, GalaxyAgent[]>()
-    for (const agent of agents) {
-      if (!agent.parentAgentId) continue
-      const bucket = relayed.get(agent.parentAgentId)
-      if (bucket) bucket.push(agent)
-      else relayed.set(agent.parentAgentId, [agent])
-    }
-
-    const bySite = new Map<string, GalaxyAgent[]>()
-    for (const agent of agents) {
-      if (agent.parentAgentId) continue
-      const key = agent.site?.trim() || ''
-      const bucket = bySite.get(key)
-      if (bucket) bucket.push(agent)
-      else bySite.set(key, [agent])
-    }
-
-    const names = [...bySite.keys()].sort((a, b) => {
-      if (a === '') return 1
-      if (b === '') return -1
-      return a.localeCompare(b)
-    })
-
-    const direct = agents.filter((agent) => !agent.parentAgentId)
-    const total = direct.length || 1
-    const maxJobs = Math.max(1, ...agents.map((a) => a.jobCount))
-
-    let cursor = -Math.PI / 2
-    const sectors: { name: string; start: number; end: number }[] = []
-    const placed: (GalaxyAgent & { x: number; y: number; r: number; tone: Freshness })[] = []
-
-    for (const name of names) {
-      const members = bySite
-        .get(name)!
-        .slice()
-        .sort((a, b) => a.name.localeCompare(b.name))
-      const span = (members.length / total) * Math.PI * 2
-      sectors.push({ name, start: cursor, end: cursor + span })
-
-      members.forEach((agent, index) => {
-        // Spread within the sector, and never on its exact edge — an agent
-        // sitting on the boundary reads as belonging to the wrong site.
-        const share = span / (members.length + 1)
-        const angle = cursor + share * (index + 1)
-        const tone = freshnessOf(agent, now)
-        const distance = radius * RING[tone]
-
-        placed.push({
-          ...agent,
-          tone,
-          x: Math.cos(angle) * distance,
-          y: Math.sin(angle) * distance,
-          r: 5 + (agent.jobCount / maxJobs) * 7,
-        })
-      })
-
-      cursor += span
-    }
-
-    /*
-     * A small ring of its own around each proxy.
-     *
-     * Placed after the sectors because it needs the proxy's final position, and
-     * pushed outward from the centre rather than around it: a zone sits *beyond*
-     * its relay, which is the direction its traffic travels.
-     */
-    const links: {
-      from: { x: number; y: number }
-      to: { x: number; y: number }
-      tone: Freshness
-    }[] = []
-
-    for (const proxy of placed.filter((agent) => agent.role === 'proxy')) {
-      links.push({ from: { x: proxy.x, y: proxy.y }, to: { x: 0, y: 0 }, tone: proxy.tone })
-
-      const zone = relayed.get(proxy.id) ?? []
-      const outward = Math.atan2(proxy.y, proxy.x)
-      // A fan behind the proxy, narrow enough that it reads as one cluster.
-      const spread = Math.PI / 2.2
-      const gap = Math.min(radius * 0.16, 34)
-
-      zone.forEach((agent, index) => {
-        const offset = zone.length === 1 ? 0 : -spread / 2 + (spread / (zone.length - 1)) * index
-        const angle = outward + offset
-        const tone = freshnessOf(agent, now)
-        const point = {
-          x: proxy.x + Math.cos(angle) * gap,
-          y: proxy.y + Math.sin(angle) * gap,
-        }
-
-        placed.push({ ...agent, tone, x: point.x, y: point.y, r: 4 })
-        links.push({ from: point, to: { x: proxy.x, y: proxy.y }, tone })
-      })
-    }
-
-    return { sectors, placed, links }
-  }, [agents, now, radius])
+  const { sectors, placed, links } = useMemo(() => layout(agents, size, now), [agents, now, size])
 
   const sectorArc = arc<{ startAngle: number; endAngle: number }>()
     .innerRadius(radius - 3)

@@ -1,142 +1,204 @@
-# Backlog — agents-proxy dans la vue Fleet
+# Backlog — poser un relais depuis l'interface
 
-La moitié serveur est faite et fusionnable ; la chaîne n'est pas fonctionnelle
-tant que le point 1 n'est pas livré. Cette liste est consommée par une boucle
-d'agent : elle est ordonnée, chaque point est fini avant le suivant, et un point
-n'est coché qu'une fois vérifié.
+Le sujet précédent (vue Fleet des proxies) est terminé et fusionné ; son détail
+est dans l'historique git. Celui-ci part du constat suivant : l'admin sait
+**dessiner** un relais mais n'offre aucun moyen d'en **poser** un.
 
-## Fait
+Plan complet et raisonné :
+`~/.claude/plans/j-avais-pr-vu-d-ajouter-un-quiet-hickey.md`.
 
-- [x] Migration `0018` — `agents.role` (`agent` | `proxy`) et `agents.parent_agent_id`.
-- [x] Détection du rôle à l'appairage, depuis `agent_version: "proxy/<version>"`
-      que le proxy envoie déjà. Aucun nouveau champ de protocole.
-- [x] `POST /agent/zone` — un proxy y déclare sa zone. Remplace au lieu de
-      fusionner, délie au lieu de supprimer, refuse un appelant non-proxy.
-- [x] `role`, `parentAgentId` et `pairedIp` exposés par `GET /agents`.
-- [x] Vue : losange pour le proxy, flux `agent → proxy → TERN` en pointillés,
-      agents relayés groupés autour de leur relais, IP dans la liste, badge
-      « proxy » en toutes lettres.
+## Ce qui est déjà vrai — à ne pas refaire
+
+- **Une seule crate, deux `[[bin]]`.** Le fichier propre au proxy fait 161
+  lignes de CLI ; le reste est partagé. Décision prise : on garde deux binaires.
+- **La file existe.** `spawn_flush` vide une file bornée sur disque par lots de
+  200 toutes les 10 s et garde les points quand l'amont tombe. Il manque
+  l'option, pas le mécanisme.
+- **Le binaire proxy est déjà dans l'image publiée** (vérifié en tirant la
+  `0.1.12`) et `routes/download.ts` le sert déjà.
+- ~~**Les huit genres marchent déjà derrière un relais**~~ — vrai de la
+  **source**, faux du **produit**, et le point 6 l'a montré sur une vraie
+  machine. Le relayage n'est pas en cause : ce sont les binaires pré-construits
+  que sert `install.sh` qui sont gelés au 08-08 et ignorent `websocket` et
+  `docker`. Détail dans le point 6.
+
+## Une limite à écrire, pas à contourner
+
+TERN ne peut pas émettre un PIN de zone : le proxy émet les siens, sur sa
+machine, et c'est ce qui fait qu'un hôte compromis dans la zone ne détient jamais
+de justificatif amont. Le « même mode de jonction » vaut pour **joindre le proxy
+à TERN**. Joindre un agent au proxy reste un `tern-proxy pin` sur le relais, et
+l'interface doit le dire.
 
 ## À faire, dans cet ordre
 
-### 1. ~~Le proxy remonte sa zone~~ — fait
+### 1. ~~Le panneau d'appairage choisit un rôle~~ — fait
 
-Vérifié : `cargo test` 45 (+3), `cargo fmt --check`, `cargo clippy -D warnings` ;
-`pnpm typecheck`, `lint`, `format`, `test` 738 (+5). La migration `0018` a dû
-être appliquée à la base de dev — la fixture d'intégration ne migre pas, et les
-tests d'appairage tombaient en 500 sans elle.
+Vérifié : `pnpm typecheck`, `lint`, `format`, `test` — 754 (+6). Les commandes
+sont extraites en `PairCommands` pour être rendues sans mutation ni serveur, et
+la garde est éprouvée : retirer le `--proxy` fait rougir deux cas.
 
-Une chose n'est pas testée et ne le sera pas ainsi : « un amont injoignable ne
-casse pas le relais ». `declare_zone` vit dans la boucle de rafraîchissement,
-pas sur le chemin de service ; il avertit et rend la main. C'est structurel, pas
-assertable sans un faux client, et l'écrire coûterait plus que ce que ça prouve.
+Un premier jet de test n'assertait que sur une chaîne écrite dans le test
+lui-même — décoratif, retiré. C'est ce qui a motivé l'extraction.
 
 <details><summary>Description d'origine</summary>
 
-`clients/agent/src/proxy.rs` ne garde par agent local qu'un
-`LocalKey { name, key_hash }`. Sans dernier contact ni adresse, la route ajoutée
-côté serveur n'a rien à recevoir et le dessin rien à dessiner.
+`apps/web/src/routes/app/FleetScreen.tsx`, `PairPanel`. Deux choix — agent ou
+relais — avant le PIN. Même endpoint : le serveur déduit le rôle du
+`agentVersion` annoncé, ce qui reste vrai pour un proxy déjà déployé.
 
-- Étendre `LocalKey` : dernier contact, et l'adresse vue à l'intérieur de la
-  zone. Persisté comme le reste — un redémarrage du proxy ne doit pas vider la
-  vue.
-- Toucher ce dernier contact quand un agent local demande ses jobs ou pousse un
-  point : ce sont les deux seuls moments où le proxy le voit vivant.
-- Pousser l'inventaire vers `POST /agent/zone`, sur le même rythme que le reste
-  du trafic amont, et sans faire échouer quoi que ce soit si l'amont est coupé —
-  la file existante sert de modèle.
-- Tests : l'inventaire se remplit, il survit à un redémarrage, un amont
-  injoignable ne casse pas le relais.
+La une-ligne gagne `--proxy` (et `-Proxy` en PowerShell), le repli « by hand »
+montre la commande `init`, et une phrase explique le `tern-proxy pin` à venir —
+avec sa raison, parce qu'une limite expliquée se retient et une limite subie se
+signale comme un bug.
 
 </details>
 
-### 2. ~~Les deux tests de sonde manquants~~ — fait
+### 2. ~~L'installateur finit le travail~~ — fait
 
-Vérifié : `cargo test` 46 (+1) plus un ignoré, `cargo fmt --check`,
-`cargo clippy -D warnings` ; `pnpm typecheck`, `lint`, `format`, `test` 738
-inchangés. Le test `docker` réel a été **exécuté contre le démon de la machine**
-(`tern-prod-app-1`) : `State.Running`, `State.Status`, et le refus nommé d'un
-conteneur inconnu. Le test `cert` nominal a été mis à l'épreuve en retirant la CA
-du magasin de confiance — il échoue, donc il vérifie bien quelque chose.
+Vérifié : `pnpm typecheck`, `lint`, `format`, `test` — 759 (+5), dont le cas qui
+parse le script en `sh -n`. La garde est éprouvée : recoder `tern-agent` en dur
+dans l'`ExecStart` fait rougir un cas.
 
-`days_until_expiry` a dû être scindé : l'ancre de confiance devient un paramètre.
-Sans ça le chemin nominal était intestable, puisqu'un certificat local n'est par
-définition signé par rien que webpki connaisse — et l'affaiblir en test aurait
-prouvé l'inverse du but. La production passe les vraies racines et reste seule
-appelante.
+Un piège rencontré, que ce fichier documente lui-même : les backticks d'un
+commentaire ferment le template literal TypeScript qui contient le script. Deux
+commentaires réécrits sans.
 
 <details><summary>Description d'origine</summary>
 
-- `cert`, chemin nominal. Demande un générateur de certificats en
-  dev-dependency (`rcgen`) et un serveur rustls local. Aujourd'hui seul le
-  chemin d'échec est couvert — le bon hôte, le mauvais port.
-- `docker` contre un vrai démon plutôt que contre la fausse socket Unix du test
-  actuel, qui vérifie le dialogue HTTP et le parsing mais pas que Docker répond
-  bien ce qui est supposé. À garder derrière une condition : la suite doit
-  rester verte sur une machine sans Docker.
+`apps/api/src/routes/download.ts`. Les deux scripts s'arrêtent aujourd'hui sur
+« _tern-proxy installed. It takes no config and no pairing._ », ce qui est faux :
+le proxy s'appaire et écrit une config.
+
+Remplacer les deux sorties anticipées par la suite déjà écrite pour l'agent, avec
+trois différences : `init` au lieu de `pair`, la config du proxy, et une unité de
+service qui lance `tern-proxy run`. Réutiliser la machinerie systemd/launchd du
+même script plutôt que d'en écrire une seconde.
 
 </details>
 
-### 3. ~~Ce que la zone divulgue désormais~~ — fait
+### 3. ~~La commande d'appairage du proxy~~ — fait, et remonté avant le point 1
 
-Vérifié : `pnpm docs:build`, l'ancre croisée `#what-an-isolated-zone-discloses`
-résout, `pnpm typecheck`, `lint`, `format`, `test` 738 ; agent inchangé, 46
-tests. Trois documents touchés plutôt que deux — `data-exchange.md` décrivait le
-proxy endpoint par endpoint et serait devenu faux en restant muet sur celui-ci.
+Permuté avec le point 1, qui en dépend : le panneau a besoin de cette commande
+pour l'afficher, et la fabriquer côté client en attendant aurait été un
+provisoire à défaire.
+
+Vérifié : `pnpm typecheck`, `lint`, `format`, `test` — 2 cas ajoutés (le rendu
+lui-même, et la réponse de `pairing-codes` qui porte désormais les deux verbes).
 
 <details><summary>Description d'origine</summary>
 
-`docs/security.md` décrit une zone isolée opaque. Elle ne l'est plus de la même
-façon : le proxy remonte les noms, les adresses internes et les horaires de sa
-zone. C'est une décision explicite, elle doit être écrite là où quelqu'un
-l'évalue — avec le fait que ne pas activer la remontée laisse la vue exactement
-comme avant.
-
-`docs/architecture.md` doit dire ce que le losange signifie dans la vue Fleet.
+`renderProxyInitCommand` dans `packages/shared/src/templates.ts`, à côté de
+`renderAgentPairCommand`. Exposée comme `proxyPairCommand` dans la réponse de
+`POST /:slug/pairing-codes` — un champ de plus, pas un remplacement.
 
 </details>
 
-### 4. ~~L'essai de bout en bout~~ — fait
+### 4. ~~La cadence de transmission~~ — fait
 
-Mené sur une instance dédiée (`tern-lab`, port 28995, image construite depuis la
-branche), pas sur les VM : la recette `.vm-lab/` teste en plus l'installation sur
-système nu, qui n'a pas changé, alors que ce point visait la conversation entre
-les trois morceaux.
-
-Modes exercés, chacun de bout en bout :
-
-| Mode                        | Vérifié par                                                                         |
-| --------------------------- | ----------------------------------------------------------------------------------- |
-| agent local de l'instance   | présent dans la flotte au démarrage                                                 |
-| agent → TERN                | appairage, jobs, sonde, ingestion, battement                                        |
-| proxy → TERN                | appairage (rôle détecté), assignation en cache, déclaration de zone                 |
-| agent → proxy → TERN        | PIN émis par le proxy, job servi du cache, `Operational`, point remonté par la file |
-| push par clé, direct        | `POST /api/v1/ingest`, `accepted: 1`                                                |
-| push par clé, via le relais | idem contre le proxy, valeur visible sur la page publique                           |
-
-Trois défauts trouvés et corrigés, chacun mis à l'épreuve en le remettant :
-heartbeat absent du proxy, déclaration de zone happant les agents directs par
-collision de hostname, et `PATCH /controls/:id` réécrivant cinq champs qu'il ne
-mentionnait pas.
-
-Non vérifié : le dessin lui-même. L'admin demande une session, et je ne saisis
-pas de mot de passe. Les données que la vue consomme sont justes — rôle, parent,
-IP — mais personne n'a encore regardé le losange à l'écran.
+Vérifié : `cargo test` 49 (+3), `cargo fmt --check`, `cargo clippy -D warnings` ;
+`pnpm typecheck`, `lint`, `format`, `test` 759 inchangés. Et à la main : un mot
+inconnu est refusé en nommant les deux options, `status` relit le réglage
+(« forwarding as points arrive »), et un `proxy.toml` écrit avant ces champs se
+charge encore — un test l'épingle, parce qu'un relais déjà déployé ne doit pas
+être échoué par une mise à jour.
 
 <details><summary>Description d'origine</summary>
 
-Sur une machine Ubuntu, via `.vm-lab/` : un proxy appairé au serveur, un agent
-appairé au proxy, et la vue qui montre la chaîne. C'est le seul niveau où l'on
-saura que les trois morceaux se parlent.
+`clients/agent/src/proxy.rs`. `ProxyConfig` gagne `forward_interval_s` (défaut 10) et `forward` (`batch` par défaut, ou `stream`), tous deux
+`#[serde(default)]` pour qu'un `proxy.toml` existant se charge encore.
+
+En `stream`, `ingest` réveille la boucle d'envoi **après** avoir mis en file, par
+un `Notify` : la file reste le filet, et il n'y a toujours qu'un seul chemin vers
+l'amont. `init` gagne les drapeaux correspondants et `status` les affiche.
+
+</details>
+
+### 5. ~~Le rond, jugé sur pièce~~ — fait
+
+Regardé pour de vrai, sur l'instance de labo avec un relais et son agent, dans
+les deux thèmes. Deux corrections en sont sorties, et deux cas sont passés aux
+tests plutôt qu'à l'œil.
+
+Vérifié : `pnpm typecheck`, `lint`, `format`, `test` — 763 (+4).
+
+<details><summary>Description d'origine</summary>
+
+Les traits existent — zone → proxy → centre, losange, légende — et **personne ne
+les a encore vus**. Une fois un relais et son agent en place, regarder et
+corriger ce qui ne se lit pas : l'écart proxy/zone à 320 px, les pointillés en
+clair comme en sombre, le cas à deux relais et celui du relais sans agent.
+
+</details>
+
+### 6. ~~La recette sur VM Ubuntu~~ — jouée ; six points sur sept, le septième arrêté par un défaut extérieur
+
+Trace : `deploy-tests/ubuntu/proxy-0.1.12/`.
+
+Prouvé sur Ubuntu 24.04.4 vierge, contre une instance servie par cette branche :
+la une-ligne `--proxy` pose le binaire, appaire, écrit `proxy.toml` en 0600 et
+enregistre l'unité systemd — code 0, aucune étape manuelle. Le lingering est
+vérifié (`Linger=yes`), le relais **revient d'un redémarrage** (SSH en ~20 s,
+service actif, 8787 réouvert), il émet son propre PIN de zone, un agent s'y
+appaire, et il paraît dans la flotte en `role=proxy` avec son IP. Lu à l'écran
+et pas seulement au journal : la console porte l'état réel, `1 key(s) issued in
+this zone`, pas un écran de connexion.
+
+**Le septième point échoue, et pas à cause du relais.** L'agent de zone mesure
+`tcp`, `ping`, `dns` ; il refuse `websocket` et `docker`, et **panique** sur
+`cert` — la panique remonte à `main` et avorte la passe, si bien que les
+contrôles suivants ne sont jamais tentés et que rien ne le signale côté serveur.
+
+La cause est en amont de cette branche, et elle est enchaînée :
+
+- `cf529df` (08-09 00:48) ajoute `websocket` et `docker`, et casse la cible
+  Windows avec `tokio::net::UnixStream` ;
+- le job `collect` porte `needs: binaries` sur toute la matrice — à dessein :
+  « _a half-populated bin/ is worse than none_ » ;
+- une cible qui ne construit pas gèle donc `clients/agent/bin/`, figé à
+  `a664b2d`, **08-08 22:13** ;
+- le `Dockerfile` fait `COPY clients/agent/bin/`, et `install.sh` sert ces
+  fichiers-là.
+
+`v0.1.8` à `v0.1.12` ont donc **toutes** livré l'agent d'avant ces sondes. Les
+deux correctifs (`bc176e0` pour Windows, `b9b48b2` pour rustls) sont déjà dans
+l'arbre ; ils ne prendront effet qu'une fois `collect` reparti sur `main`. C'est
+un `push`, que la boucle s'interdit — d'où l'arrêt ici plutôt qu'une improvisation.
+
+<details><summary>Description d'origine</summary>
+
+Les préalables sont réunis sur cette machine : `ubuntu.img`, pont `br0`,
+`/dev/kvm` accessible, `bridge.conf` autorisant `br0`.
+
+```sh
+python3 .vm-lab/run.py ubuntu
+python3 .vm-lab/console.py ubuntu
+```
+
+Ce que cette phase doit prouver, et que le labo en conteneurs ne peut pas :
+
+- la une-ligne `--proxy` posée sur une **machine vierge** installe le binaire,
+  appaire, écrit la config et enregistre le service — sans étape manuelle
+- le relais **survit à un redémarrage** de la VM et reprend son service
+- un agent appairé au relais mesure les huit genres et ses points remontent
+- le tout en lisant l'écran, pas seulement les journaux : `console.py` est là
+  pour ça, et `deploy-tests/README.md` rappelle que quatre captures « réussies »
+  d'un écran de connexion ont déjà trompé cette recette
+
+Déposer la trace dans `deploy-tests/`, comme les recettes précédentes.
+
+</details>
 
 ## Règles de la boucle
 
 - Un point à la fois, fini et vérifié avant le suivant.
-- Vérifier veut dire : `pnpm typecheck`, `pnpm lint`, `pnpm format`, `pnpm test`,
-  et pour l'agent `cargo test`, `cargo fmt --check`, `cargo clippy -- -D warnings`.
-- Un commit par point, sur la branche en cours. **Ne pas pousser, ne pas taguer,
-  ne pas publier** — ces gestes restent des décisions humaines.
-- Si un point se révèle plus large qu'écrit, ou repose sur une prémisse fausse,
-  s'arrêter et le dire plutôt que d'improviser.
-
-</details>
+- Vérifier veut dire : `pnpm typecheck`, `lint`, `format`, `test` ; et pour
+  l'agent `cargo test`, `cargo fmt --check`, `cargo clippy -- -D warnings`.
+  **Lancer `pnpm format` avant de commiter** — c'est ce qui a fait échouer la
+  v0.1.11 et empêché la publication de son image.
+- Un commit par point, sur la branche courante. **Ne pas pousser, ne pas taguer,
+  ne pas publier.**
+- Ne jamais `git add -A` : nommer les chemins. Un `bg.png` qui n'était pas de moi
+  s'est retrouvé dans un commit de cette façon.
+- Si un point repose sur une prémisse fausse ou déborde largement de sa
+  description, s'arrêter et le dire plutôt qu'improviser.

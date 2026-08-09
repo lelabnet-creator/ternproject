@@ -600,12 +600,21 @@ export const adminApi = {
   runProbe: (slug: string, probe: unknown) =>
     request<ProbeRunResult>('POST', `/api/v1/${slug}/probe/run`, { probe }),
 
+  /**
+   * One code, two possible verbs.
+   *
+   * The code does not carry a role: the server infers it from the version the
+   * binary announces when it pairs. So both commands come back, and the screen
+   * shows whichever the operator is adding — changing their mind costs a click,
+   * not another PIN.
+   */
   createPairingCode: (slug: string) =>
-    request<{ pin: string; expiresAt: string; pairCommand: string }>(
-      'POST',
-      `/api/v1/${slug}/pairing-codes`,
-      {},
-    ),
+    request<{
+      pin: string
+      expiresAt: string
+      pairCommand: string
+      proxyPairCommand: string
+    }>('POST', `/api/v1/${slug}/pairing-codes`, {}),
 
   updateLayout: (
     slug: string,

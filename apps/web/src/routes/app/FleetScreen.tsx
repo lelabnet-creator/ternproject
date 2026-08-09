@@ -173,15 +173,102 @@ export function FleetScreen({ slug, canWrite }: { slug: string; canWrite: boolea
  * short-lived credential, and one arriving with every page view would sit in a
  * cache and in the back button, unused and valid.
  */
-function PairPanel({ slug, onDone }: { slug: string; onDone: () => void }) {
+/**
+ * The two one-liners, and the single flag between them.
+ *
+ * Its own component so the pair can be rendered without a mutation, a click or a
+ * server — the same reason `matching()` sits apart from the screen that uses it.
+ * What it guards is small and easy to get wrong in one direction only: adding
+ * `--proxy` to the wrong line installs a relay where somebody wanted an agent,
+ * and they find out at the far end of an install.
+ */
+export function PairCommands({
+  origin,
+  pin,
+  relay,
+}: {
+  origin: string
+  pin: string
+  relay: boolean
+}) {
+  return (
+    <>
+      <CodeBlock label="Linux or macOS">
+        {`curl -fsSL ${origin}/install.sh | sh -s --${relay ? ' --proxy' : ''} --pin ${pin}`}
+      </CodeBlock>
+
+      <div style={{ height: 'var(--space-2)' }} />
+
+      <CodeBlock label="Windows, in PowerShell">
+        {/* A param script, so it is invoked as a script block — `| iex` would
+            run it with no arguments and never see the PIN. */}
+        {`& ([scriptblock]::Create((irm ${origin}/install.ps1)))${relay ? ' -Proxy' : ''} -Pin ${pin}`}
+      </CodeBlock>
+    </>
+  )
+}
+
+export function PairPanel({ slug, onDone }: { slug: string; onDone: () => void }) {
   const pair = useMutation({ mutationFn: () => adminApi.createPairingCode(slug) })
   // This instance's own address: the installer is served by the same origin the
   // browser is already talking to.
   const origin = window.location.origin
 
+  /*
+   * Which of the two is being added.
+   *
+   * Chosen here rather than baked into the code, because the code does not
+   * carry it: the server decides from the version the binary announces when it
+   * pairs. So the choice can be changed after a PIN exists and the same PIN
+   * still works — which is why the selector stays visible below, instead of
+   * disappearing once one is minted.
+   */
+  const [role, setRole] = useState<'agent' | 'proxy'>('agent')
+  const relay = role === 'proxy'
+
   return (
     <Card>
-      <h2 style={{ margin: '0 0 var(--space-2)', fontSize: 'var(--text-base)' }}>Add an agent</h2>
+      <h2 style={{ margin: '0 0 var(--space-2)', fontSize: 'var(--text-base)' }}>
+        Add an agent or a relay
+      </h2>
+
+      <div
+        role="radiogroup"
+        aria-label="What to add"
+        style={{ display: 'flex', gap: 'var(--space-2)' }}
+      >
+        {(
+          [
+            ['agent', 'An agent'],
+            ['proxy', 'A relay'],
+          ] as const
+        ).map(([value, label]) => (
+          <Button
+            key={value}
+            variant={role === value ? 'primary' : 'secondary'}
+            ariaPressed={role === value}
+            onClick={() => setRole(value)}
+          >
+            {label}
+          </Button>
+        ))}
+      </div>
+
+      {/* What the choice means, in one line. Two words on a button do not
+          distinguish a thing that measures from a thing that relays, and
+          choosing wrong is discovered at the far end of an install. */}
+      <p
+        className="measure"
+        style={{
+          margin: 'var(--space-2) 0 var(--space-3)',
+          fontSize: 'var(--text-xs)',
+          color: 'var(--color-fg-subtle)',
+        }}
+      >
+        {relay
+          ? 'A relay serves the agents of a network with no route out, and forwards what they measure.'
+          : 'An agent measures from the machine it runs on, and reports here directly.'}
+      </p>
 
       {pair.data ? (
         <>
@@ -193,22 +280,45 @@ function PairPanel({ slug, onDone }: { slug: string; onDone: () => void }) {
               color: 'var(--color-fg-subtle)',
             }}
           >
-            Run this on the machine to monitor. It fetches the agent from this instance, installs
-            it, and pairs — the agent receives its key <em>and</em> the probes it is meant to run,
-            so there is no config to copy across.
+            {relay ? (
+              <>
+                Run this on the machine with a route out — the one the isolated network can reach.
+                It fetches the relay from this instance, installs it, pairs, and starts serving.
+              </>
+            ) : (
+              <>
+                Run this on the machine to monitor. It fetches the agent from this instance,
+                installs it, and pairs — the agent receives its key <em>and</em> the probes it is
+                meant to run, so there is no config to copy across.
+              </>
+            )}
           </p>
 
-          <CodeBlock label="Linux or macOS">
-            {`curl -fsSL ${origin}/install.sh | sh -s -- --pin ${pair.data.pin}`}
-          </CodeBlock>
+          <PairCommands origin={origin} pin={pair.data.pin} relay={relay} />
 
-          <div style={{ height: 'var(--space-2)' }} />
-
-          <CodeBlock label="Windows, in PowerShell">
-            {/* A param script, so it is invoked as a script block — `| iex`
-                would run it with no arguments and never see the PIN. */}
-            {`& ([scriptblock]::Create((irm ${origin}/install.ps1))) -Pin ${pair.data.pin}`}
-          </CodeBlock>
+          {relay && (
+            <p
+              className="measure"
+              style={{
+                margin: 'var(--space-3) 0 0',
+                fontSize: 'var(--text-sm)',
+                color: 'var(--color-fg-subtle)',
+              }}
+            >
+              {/*
+                Said here rather than discovered later. Adding an agent behind
+                the relay is not something this screen can do, and the reason is
+                the feature rather than a gap: the relay issues its own PINs and
+                its own keys, so nothing inside the isolated network ever holds a
+                credential for this server. A limit with its reason attached is
+                remembered; the same limit met in silence is reported as a bug.
+              */}
+              Once it is running, add agents behind it from <em>the relay itself</em>:{' '}
+              <code>tern-proxy pin</code> mints a code for its own network. This server cannot — and
+              that is the point, since it means nothing inside that network ever holds a key to
+              here.
+            </p>
+          )}
 
           <details style={{ marginTop: 'var(--space-3)' }}>
             <summary
@@ -232,7 +342,9 @@ function PairPanel({ slug, onDone }: { slug: string; onDone: () => void }) {
               Open <code>{origin}/install.sh</code> and read it first — it is short and does nothing
               clever. Or download the binary yourself and pair by hand:
             </p>
-            <CodeBlock label="by hand">{pair.data.pairCommand}</CodeBlock>
+            <CodeBlock label="by hand">
+              {relay ? pair.data.proxyPairCommand : pair.data.pairCommand}
+            </CodeBlock>
           </details>
           <p
             className="tabular"

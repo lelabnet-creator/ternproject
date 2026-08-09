@@ -276,6 +276,39 @@ fn reschedule(
         .collect()
 }
 
+/// The earliest thing worth waking for: the next probe, the next heartbeat,
+/// and — only when refreshing is on — the next assignment refresh.
+///
+/// That last condition is the whole point of this function existing.
+/// `next_refresh` is set once at startup and advanced only inside the branch
+/// that actually refreshes, so under `--no-refresh` it stays five minutes past
+/// the start for the life of the process. Leaving it in the minimum therefore
+/// made every `sleep_until` return immediately once those five minutes had
+/// passed, and the loop then ran as fast as the CPU allowed — for ever, since
+/// nothing in it can move that deadline.
+///
+/// Silent while the server answers, because a failed send is the only thing
+/// that logs per iteration. When the server is unreachable — the moment
+/// monitoring matters most — every agent in the fleet burns a core and writes a
+/// warning per turn: measured here at 1 134 698 lines and 233 MB in 104
+/// seconds, and found as a 7 GB log that had filled the disk of the machine it
+/// was monitoring from.
+fn next_wake(
+    refresh: bool,
+    next_refresh: Instant,
+    next_heartbeat: Instant,
+    schedule: &HashMap<String, Instant>,
+) -> Instant {
+    let mut at = next_heartbeat;
+    if refresh {
+        at = at.min(next_refresh);
+    }
+    if let Some(earliest) = schedule.values().min().copied() {
+        at = at.min(earliest);
+    }
+    at
+}
+
 /// Runs until the process is asked to stop.
 ///
 /// `refresh` is false under `--no-refresh`, where the operator has said to run
@@ -320,14 +353,7 @@ pub async fn run(
     let mut next_heartbeat = Instant::now();
 
     loop {
-        // The earliest of the three: the next probe, the next refresh, the next
-        // heartbeat. With an empty assignment there is no probe, and the other
-        // two are the only things that can end the wait — which is why they
-        // belong in this select rather than in timers of their own.
-        let mut wake_at = next_refresh.min(next_heartbeat);
-        if let Some(at) = schedule.values().min().copied() {
-            wake_at = wake_at.min(at);
-        }
+        let wake_at = next_wake(refresh, next_refresh, next_heartbeat, &schedule);
 
         tokio::select! {
             _ = tokio::time::sleep_until(wake_at) => {}
@@ -651,5 +677,44 @@ mod tests {
         let point = run_once(&entry).await;
         assert_eq!(point.status, Status::Operational);
         assert!(point.latency_ms.is_some());
+    }
+
+    /// A deadline nothing can move must never be able to end the wait.
+    ///
+    /// Measured on the machine that found it: with the refresh deadline left in
+    /// the minimum, `--no-refresh` turned into 1 134 698 log lines and 233 MB in
+    /// 104 seconds, at a full core. The five minutes before that look perfectly
+    /// healthy, which is why it survived this long.
+    #[tokio::test]
+    async fn the_refresh_deadline_cannot_wake_an_agent_that_never_refreshes() {
+        let now = Instant::now();
+        let stuck = now - Duration::from_secs(60); // as it is five minutes in
+        let heartbeat = now + Duration::from_secs(120);
+
+        let at = next_wake(false, stuck, heartbeat, &HashMap::new());
+        assert_eq!(at, heartbeat, "a stuck deadline must not end the wait");
+        assert!(at > now, "waking in the past is the spin itself");
+
+        // And it still governs when refreshing is on, which is the whole reason
+        // it is in the minimum at all.
+        assert_eq!(next_wake(true, stuck, heartbeat, &HashMap::new()), stuck);
+    }
+
+    /// The soonest probe still wins, in both modes.
+    #[tokio::test]
+    async fn the_next_probe_is_what_usually_ends_the_wait() {
+        let now = Instant::now();
+        let heartbeat = now + Duration::from_secs(300);
+        let soon = now + Duration::from_secs(30);
+        let schedule = HashMap::from([
+            ("a".to_string(), soon),
+            ("b".to_string(), now + Duration::from_secs(90)),
+        ]);
+
+        assert_eq!(next_wake(false, now, heartbeat, &schedule), soon);
+        assert_eq!(
+            next_wake(true, now + Duration::from_secs(300), heartbeat, &schedule),
+            soon
+        );
     }
 }

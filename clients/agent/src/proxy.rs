@@ -54,6 +54,18 @@ pub struct ProxyConfig {
     /// How often to re-read the assignment from upstream, in seconds.
     #[serde(default = "default_refresh")]
     pub refresh_s: u64,
+    /**
+     * How long points wait before being carried upstream, in seconds.
+     *
+     * Ten by default, which is what it always was in hard-coded form. A zone on
+     * a metered or intermittent link wants minutes; the queue is what makes that
+     * safe, since an unreachable server delays history rather than losing it.
+     */
+    #[serde(default = "default_forward_interval")]
+    pub forward_interval_s: u64,
+    /// Whether to wait for that interval at all. See `Forward`.
+    #[serde(default)]
+    pub forward: Forward,
     /// Locally issued agent keys, hashed. Never the keys themselves.
     #[serde(default)]
     pub local_keys: Vec<LocalKey>,
@@ -70,6 +82,28 @@ pub struct LocalKey {
     /// The address it was last seen at, inside the zone.
     #[serde(default)]
     pub ip: Option<String>,
+}
+
+/**
+ * When a point leaves for upstream.
+ *
+ * `Batch` is the original behaviour and the default: points accumulate and go
+ * out together on the interval. `Stream` sends as soon as one arrives.
+ *
+ * `Stream` is not a second path to the server — it wakes the same loop early.
+ * Two ways out would be two behaviours to hold in mind the day the upstream is
+ * down, and the queue is precisely what must not be bypassed then.
+ */
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Forward {
+    #[default]
+    Batch,
+    Stream,
+}
+
+fn default_forward_interval() -> u64 {
+    10
 }
 
 fn default_listen() -> String {
@@ -149,6 +183,8 @@ struct Inner {
 struct AppState {
     inner: Arc<Mutex<Inner>>,
     client: Arc<Client>,
+    /// Rung by `ingest` in stream mode, waited on by the flush loop.
+    flush: Arc<tokio::sync::Notify>,
 }
 
 pub async fn run(
@@ -192,6 +228,7 @@ pub async fn run(
             queue: crate::runner::Queue::open(&queue_path),
         })),
         client: Arc::new(client),
+        flush: Arc::new(tokio::sync::Notify::new()),
     };
 
     let app = Router::new()
@@ -206,7 +243,7 @@ pub async fn run(
     // queue. Separate because a full queue must not stop the assignment
     // refreshing, and vice versa.
     spawn_refresh(state.clone(), config.refresh_s);
-    spawn_flush(state.clone());
+    spawn_flush(state.clone(), config.forward_interval_s);
 
     info!(%listen, upstream = %config.server, "proxy listening");
     let listener = tokio::net::TcpListener::bind(listen)
@@ -300,11 +337,22 @@ async fn declare_zone(state: &AppState, key: &str) {
     }
 }
 
-fn spawn_flush(state: AppState) {
+fn spawn_flush(state: AppState, every_s: u64) {
     tokio::spawn(async move {
-        let mut ticker = tokio::time::interval(std::time::Duration::from_secs(10));
+        // At least a second: an interval of zero would spin, and a relay that
+        // burns a core is worse than one that is a second behind.
+        let period = std::time::Duration::from_secs(every_s.max(1));
         loop {
-            ticker.tick().await;
+            /*
+             * Whichever comes first: the interval, or a point arriving in
+             * stream mode. One loop either way — the alternative was a second
+             * sender, and two ways to the server means two behaviours to reason
+             * about on the day it is unreachable.
+             */
+            tokio::select! {
+                _ = tokio::time::sleep(period) => {}
+                _ = state.flush.notified() => {}
+            }
 
             let (key, batch) = {
                 let inner = state.inner.lock().await;
@@ -497,6 +545,12 @@ async fn ingest(
     let accepted = points.len();
     inner.queue.push_points(&points);
 
+    // Queued first, then woken. The order is the guarantee: if the send that
+    // follows fails, the points are already where an outage cannot lose them.
+    if inner.config.forward == Forward::Stream {
+        state.flush.notify_one();
+    }
+
     // Accepted, not forwarded: the agent's job is done once the proxy owns the
     // point. Blocking its response on an upstream that may be down would make
     // every agent in the zone slow exactly when the network is worst.
@@ -609,6 +663,8 @@ pub async fn init(
     pin: &str,
     config_path: &Path,
     listen: Option<String>,
+    forward_interval: Option<u64>,
+    forward: Option<Forward>,
 ) -> Result<()> {
     let client = Client::new(server)?;
     let response = client
@@ -629,6 +685,8 @@ pub async fn init(
         api_key: response.api_key,
         listen: listen.unwrap_or_else(default_listen),
         refresh_s: default_refresh(),
+        forward_interval_s: forward_interval.unwrap_or_else(default_forward_interval),
+        forward: forward.unwrap_or_default(),
         local_keys: Vec::new(),
     };
     config.save(config_path)?;
@@ -640,6 +698,13 @@ pub async fn init(
     println!(
         "  {} probe(s) will be served to agents in this zone",
         response.jobs.len()
+    );
+    println!(
+        "  Forwarding {}",
+        match config.forward {
+            Forward::Stream => "as points arrive".to_string(),
+            Forward::Batch => format!("every {}s", config.forward_interval_s),
+        }
     );
     println!("  Wrote {} (readable only by you)", config_path.display());
     println!();
@@ -706,6 +771,8 @@ mod tests {
             api_key: "ternp_upstream".into(),
             listen: default_listen(),
             refresh_s: default_refresh(),
+            forward_interval_s: default_forward_interval(),
+            forward: Forward::default(),
             local_keys: vec![LocalKey {
                 name: "edge-1".into(),
                 key_hash: hash("ternp_local"),
@@ -713,6 +780,61 @@ mod tests {
                 ip: None,
             }],
         }
+    }
+
+    #[test]
+    fn forwarding_defaults_to_what_it_always_was() {
+        // Ten seconds in batches, which is what the hard-coded loop did. A
+        // default that changed behaviour on upgrade would be a surprise nobody
+        // asked for on a relay that was working.
+        let config = config_with_one_agent();
+        assert_eq!(config.forward_interval_s, 10);
+        assert_eq!(config.forward, Forward::Batch);
+    }
+
+    #[test]
+    fn a_config_written_before_these_settings_still_loads() {
+        // A proxy already deployed must not be stranded by an upgrade. The two
+        // fields are `#[serde(default)]` for exactly this, and the assertion is
+        // that the file — not the struct — survives.
+        let dir = std::env::temp_dir().join(format!("tern-forward-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("proxy.toml");
+
+        let old = concat!(
+            "server = \"https://tern.example\"\n",
+            "api_key = \"k\"\n",
+            "listen = \"127.0.0.1:8787\"\n",
+            "refresh_s = 300\n"
+        );
+        std::fs::write(&path, old).unwrap();
+
+        let loaded = ProxyConfig::load(&path).unwrap();
+        assert_eq!(loaded.forward_interval_s, 10);
+        assert_eq!(loaded.forward, Forward::Batch);
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn the_chosen_cadence_survives_a_restart() {
+        let dir = std::env::temp_dir().join(format!("tern-forward-rt-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("proxy.toml");
+
+        let mut config = config_with_one_agent();
+        config.forward_interval_s = 300;
+        config.forward = Forward::Stream;
+        config.save(&path).unwrap();
+
+        let reloaded = ProxyConfig::load(&path).unwrap();
+        assert_eq!(reloaded.forward_interval_s, 300);
+        // Serialised lowercase, because that is what somebody types on the
+        // command line and then reads back in the file.
+        assert!(std::fs::read_to_string(&path).unwrap().contains("stream"));
+        assert_eq!(reloaded.forward, Forward::Stream);
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
@@ -781,6 +903,8 @@ mod tests {
                 api_key: "k".into(),
                 listen: default_listen(),
                 refresh_s: 300,
+                forward_interval_s: default_forward_interval(),
+                forward: Forward::default(),
                 local_keys: Vec::new(),
             },
             config_path: PathBuf::from("/tmp/none.toml"),

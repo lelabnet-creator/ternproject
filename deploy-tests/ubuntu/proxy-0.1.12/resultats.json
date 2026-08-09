@@ -1,0 +1,66 @@
+{
+  "sujet": "Poser un relais depuis l'interface — recette sur machine vierge",
+  "distribution": "Ubuntu 24.04.4 LTS (image cloud, VM KVM sur pont br0)",
+  "vm": "192.168.1.112",
+  "instance": "http://192.168.1.144:28995 (labo en conteneurs, image construite depuis la branche feat/proxy-from-the-ui)",
+  "binaires": {
+    "servis": "clients/agent/bin/, commit a664b2d du 08-08 22:13",
+    "note": "L'instance sert les binaires pré-construits du dépôt. Ce sont eux que la VM a installés — pas une compilation locale."
+  },
+  "etapes": [
+    {
+      "name": "La une-ligne --proxy installe un relais sur une machine vierge",
+      "ok": true,
+      "commande": "curl -fsSL http://192.168.1.144:28995/install.sh | sh -s -- --proxy --pin EYZJ-N0NS",
+      "detail": "Binaire posé dans ~/.local/bin/tern-proxy, appairé sous « tern-proxy » sur le locataire lab, proxy.toml écrit en 0600, unité systemd utilisateur enregistrée. Code de sortie 0, aucune étape manuelle."
+    },
+    {
+      "name": "Le service est actif, activé, et le lingering est vérifié et non supposé",
+      "ok": true,
+      "detail": "is-active=active, is-enabled=enabled, Linger=yes, en écoute sur 127.0.0.1:8787 (pid 1746)."
+    },
+    {
+      "name": "Le relais survit à un redémarrage",
+      "ok": true,
+      "detail": "reboot ; SSH revenu en ~20 s ; is-active=active, port 8787 réouvert, uptime 0 minutes. Capture console : relais-etat-console.png.",
+      "capture": "screenshots/relais-etat-console.png"
+    },
+    {
+      "name": "Le relais émet son propre PIN de zone",
+      "ok": true,
+      "commande": "tern-proxy pin --config ~/.config/tern/proxy.toml",
+      "detail": "PIN VLUM-QNCL, valable 15 min, une fois. Le relais imprime la commande d'appairage complète pour l'agent de zone."
+    },
+    {
+      "name": "Un agent s'appaire contre le relais, pas contre TERN",
+      "ok": true,
+      "detail": "« Paired as \"ubuntu\" on tenant lab ». La console du relais montre ensuite « 1 key(s) issued in this zone / ubuntu »."
+    },
+    {
+      "name": "Le relais paraît dans la flotte avec son rôle et son IP",
+      "ok": true,
+      "detail": "role=proxy, pairedIp=192.168.1.112, distinct du relais du labo en conteneurs (192.168.80.1)."
+    },
+    {
+      "name": "L'agent de zone mesure les huit genres et ses points remontent",
+      "ok": false,
+      "detail": "ÉCHEC, et pas à cause du relais. Sur les six contrôles épinglés : k-tcp, k-ping, k-dns mesurés et remontés ; k-ws et k-dock refusés à la lecture (« unknown variant `websocket`, expected one of `ping`, `tcp`, `http`, `dns`, `cert` ») ; k-cert a fait paniquer le processus. Voir « defaut-trouve » ci-dessous.",
+      "capture": null
+    }
+  ],
+  "defaut-trouve": {
+    "titre": "Les binaires pré-construits sont gelés au 08-08 22:13, et cinq versions les ont publiés",
+    "gravite": "haute",
+    "chaine": [
+      "cf529df (08-09 00:48) ajoute les sondes websocket et docker — et observe_docker utilise tokio::net::UnixStream, ce qui casse la cible Windows.",
+      "Le job `collect` de ci.yml porte `needs: binaries`, sur toute la matrice, délibérément : « a half-populated bin/ is worse than none ».",
+      "Une cible qui ne construit pas suffit donc à empêcher tout rafraîchissement. clients/agent/bin/ n'a plus bougé depuis a664b2d, 08-08 22:13.",
+      "Le Dockerfile fait COPY clients/agent/bin/ — l'image publiée sert ces binaires-là, et install.sh aussi.",
+      "v0.1.8, 0.1.9, 0.1.10, 0.1.11 et 0.1.12 ont donc toutes livré l'agent d'avant les sondes websocket et docker."
+    ],
+    "consequence": "Un agent installé aujourd'hui depuis une instance à jour refuse les contrôles websocket et docker, et meurt sur un contrôle cert : la panique rustls (« Could not automatically determine the process-level CryptoProvider ») remonte jusqu'à main et avorte la passe entière. Sur la VM, k-tcp, k-ping et k-dns sont passés, puis le processus s'est arrêté — les trois contrôles suivants n'ont jamais été tentés, et rien ne l'a signalé côté serveur.",
+    "portee": "Indépendant de la branche feat/proxy-from-the-ui. Le correctif Windows (bc176e0) et le correctif rustls (b9b48b2) sont déjà dans l'arbre ; ils ne prendront effet qu'une fois `collect` reparti sur main.",
+    "verification": "Le second bug était connu et corrigé le matin même ; ce que la VM apporte est sa gravité réelle — la panique tue le processus, elle n'échoue pas un contrôle."
+  },
+  "conclusion": "Le sujet de la branche — poser un relais depuis l'interface — est prouvé de bout en bout sur machine vierge. Le septième point échoue pour une cause extérieure, que cette recette a mise au jour et qui, sans elle, serait partie en production une sixième fois."
+}
