@@ -77,7 +77,14 @@ appelante.
 
 </details>
 
-### 3. Ce que la zone divulgue désormais
+### 3. ~~Ce que la zone divulgue désormais~~ — fait
+
+Vérifié : `pnpm docs:build`, l'ancre croisée `#what-an-isolated-zone-discloses`
+résout, `pnpm typecheck`, `lint`, `format`, `test` 738 ; agent inchangé, 46
+tests. Trois documents touchés plutôt que deux — `data-exchange.md` décrivait le
+proxy endpoint par endpoint et serait devenu faux en restant muet sur celui-ci.
+
+<details><summary>Description d'origine</summary>
 
 `docs/security.md` décrit une zone isolée opaque. Elle ne l'est plus de la même
 façon : le proxy remonte les noms, les adresses internes et les horaires de sa
@@ -86,6 +93,8 @@ l'évalue — avec le fait que ne pas activer la remontée laisse la vue exactem
 comme avant.
 
 `docs/architecture.md` doit dire ce que le losange signifie dans la vue Fleet.
+
+</details>
 
 ### 4. L'essai de bout en bout
 

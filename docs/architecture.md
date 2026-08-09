@@ -114,8 +114,29 @@ protocol cannot drift:
   schedule, and pushes results. It buffers on disk when the server is
   unreachable.
 - **`tern-proxy`** relays for a network with no egress. It serves the _same_
-  API endpoints, so an agent cannot tell the difference. See
-  [data exchange](./data-exchange.md#the-proxy).
+  API endpoints, so an agent cannot tell the difference. It also declares the
+  agents it serves, which is what lets the fleet view draw them — see
+  [data exchange](./data-exchange.md#the-proxy) and
+  [what the zone discloses](./security.md#what-an-isolated-zone-discloses).
+
+### The fleet view
+
+One picture, and the encodings are chosen for what survives a glance from across
+a room. Distance from the centre is time since last contact; colour is that same
+freshness, because distance alone fails anyone who cannot see the centre and the
+edge at once; size is how many probes an agent runs.
+
+A proxy is a **diamond** rather than a circle. Deliberately a shape and not a
+colour: colour already carries freshness, and a second meaning on the same
+channel makes both unreadable — first for the people colour already fails. The
+role is repeated in words in the list beside the picture, because a diagram is
+not something a screen reader works through.
+
+The agents a proxy relays for are clustered around it and joined to it by a
+dashed line, with a second line from the proxy to the centre: the path a
+measurement actually takes. They sit _beyond_ their relay rather than around it,
+which is the direction the traffic travels. No line is drawn from a direct agent
+to the centre — a starburst would say nothing the distance does not already say.
 
 ## The platform surface
 
