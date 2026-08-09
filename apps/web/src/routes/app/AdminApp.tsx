@@ -20,11 +20,13 @@ import { FirstRunSetup } from '../../features/onboarding/FirstRunSetup'
 import { GuidedTour } from '../../features/onboarding/GuidedTour'
 import { DemoBanner } from '../../components/DemoBanner'
 import { UpdateNotice } from '../../components/UpdateNotice'
+import { sandboxOn } from '../../lib/sandbox-flag'
 import { accentById, applyAccent } from '../../lib/accents'
 import { applyFont, fontById } from '../../lib/fonts'
 import { PasskeyCancelled, passkeysSupported, signInWithPasskey } from '../../lib/passkeys'
 import { ScriptTabs } from '../../features/control-editor/ScriptTabs'
 import { PreviewStep } from '../../features/control-editor/PreviewStep'
+import { ImportScreen } from '../../features/control-import/ImportScreen'
 import * as Icons from 'lucide-react'
 import { CHIPS } from '../../lib/accents'
 import { DEFAULT_WIDGET, resolveOptions, widgetById } from '../../charts/registry'
@@ -239,7 +241,12 @@ export function AdminApp({ slug }: { slug: string }) {
   // Never for a demo visitor, and never on a read-only page — the API refuses
   // either way, and offering a button that answers 403 is worse than not
   // offering it.
-  const canWrite = membership.role === 'admin' && !demo && summary.data?.tenant.readOnly !== true
+  //
+  // Unless the development sandbox is answering the writes itself, in which
+  // case nothing is refused because nothing is sent. `sandboxOn` is false in
+  // production by construction; see lib/sandbox-flag.ts.
+  const canWrite =
+    sandboxOn() || (membership.role === 'admin' && !demo && summary.data?.tenant.readOnly !== true)
 
   /*
    * A tenant nobody has configured gets the wizard instead of the shell.
@@ -760,11 +767,33 @@ function ControlsScreen({
   const [query, setQuery] = useState('')
   const [picked, setPicked] = useState<Set<string>>(new Set())
   const [addingFolder, setAddingFolder] = useState(false)
+  const [importing, setImporting] = useState(false)
+  /* What the last import did, said once on the way back. The screen it happened
+     on is gone by then, and a count of forty controls appearing in silence is
+     indistinguishable from nothing having happened. */
+  const [importNotice, setImportNotice] = useState<string | null>(null)
   const [bulkError, setBulkError] = useState<string | null>(null)
 
   const invalidate = async () => {
     await queryClient.invalidateQueries({ queryKey: ['controls', slug] })
     await queryClient.invalidateQueries({ queryKey: ['control-groups', slug] })
+  }
+
+  /*
+   * Leaving the list drops the import's report.
+   *
+   * It is a confirmation of something that has just happened, and a
+   * confirmation still sitting there after a trip through the editor is a claim
+   * about the wrong moment.
+   */
+  const openEditor = (control: Control | 'new') => {
+    setImportNotice(null)
+    setEditing(control)
+  }
+
+  const openImport = () => {
+    setImportNotice(null)
+    setImporting(true)
   }
 
   const move = useMutation({
@@ -820,6 +849,28 @@ function ControlsScreen({
   if (controls.isPending) return <Centered>Loading controls…</Centered>
   if (controls.isError) return <Banner tone="down">Could not load controls.</Banner>
 
+  if (importing) {
+    return (
+      <ImportScreen
+        slug={slug}
+        onCancel={() => setImporting(false)}
+        onImported={async (outcome) => {
+          setImporting(false)
+          setImportNotice(
+            `Imported ${outcome.created} new and ${outcome.updated} updated control${
+              outcome.created + outcome.updated === 1 ? '' : 's'
+            }` +
+              (outcome.groupsCreated === 0
+                ? '.'
+                : `, in ${outcome.groupsCreated} new folder${outcome.groupsCreated === 1 ? '' : 's'}.`),
+          )
+          // Both keys: the import creates folders as well as controls.
+          await invalidate()
+        }}
+      />
+    )
+  }
+
   if (editing) {
     return (
       <ControlEditor
@@ -858,7 +909,7 @@ function ControlsScreen({
     flat,
     picked,
     onPick: togglePicked,
-    onEdit: setEditing,
+    onEdit: openEditor,
     onOpenLogs,
     onChanged: invalidate,
   }
@@ -880,7 +931,7 @@ function ControlsScreen({
           canWrite={canWrite}
           picked={picked.has(control.id)}
           onPick={() => togglePicked(control.id)}
-          onEdit={() => setEditing(control)}
+          onEdit={() => openEditor(control)}
           onOpenLogs={onOpenLogs}
         />
       ))}
@@ -922,12 +973,18 @@ function ControlsScreen({
             <Button onClick={() => setAddingFolder((open) => !open)}>
               {addingFolder ? 'Cancel' : 'New folder'}
             </Button>
-            <Button variant="primary" onClick={() => setEditing('new')}>
+            {/* Beside the singular act rather than hidden in Options: the moment
+                somebody wants forty controls is the moment they are looking at
+                the button that makes one. */}
+            <Button onClick={openImport}>Import YAML</Button>
+            <Button variant="primary" onClick={() => openEditor('new')}>
               New control
             </Button>
           </div>
         )}
       </div>
+
+      {importNotice && <Banner tone="operational">{importNotice}</Banner>}
 
       {canWrite && addingFolder && (
         <FolderForm
@@ -982,9 +1039,22 @@ function ControlsScreen({
           hint="A control is one thing you monitor. Create one and TERN will hand you a script that pushes to it."
           action={
             canWrite ? (
-              <Button variant="primary" onClick={() => setEditing('new')}>
-                Create the first control
-              </Button>
+              /* The import is offered hardest here. An empty page is where a
+                 list somebody already has is worth the most, and it is the one
+                 screen where nothing else competes for the eye. */
+              <div
+                style={{
+                  display: 'flex',
+                  gap: 'var(--space-2)',
+                  justifyContent: 'center',
+                  flexWrap: 'wrap',
+                }}
+              >
+                <Button variant="primary" onClick={() => openEditor('new')}>
+                  Create the first control
+                </Button>
+                <Button onClick={openImport}>Import from YAML</Button>
+              </div>
             ) : undefined
           }
         />

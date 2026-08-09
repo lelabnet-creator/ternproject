@@ -1,5 +1,20 @@
+import { lazy, Suspense } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { adminApi } from '../lib/adminApi'
+import { sandboxOn } from '../lib/sandbox-flag'
+
+/*
+ * A development affordance, and only that.
+ *
+ * `import.meta.env.DEV` is a build-time constant, so in production this is
+ * `null`, the `import()` is never emitted, and neither the switch nor the
+ * sandbox engine behind it reaches the bundle. A public demo that any visitor
+ * could edit — even only in their own browser — would produce screenshots of a
+ * product state nobody shipped.
+ */
+const SandboxSwitch = import.meta.env.DEV
+  ? lazy(() => import('../features/sandbox/SandboxSwitch'))
+  : null
 
 /**
  * Says the numbers are invented, and offers the way out.
@@ -31,10 +46,21 @@ export function DemoBanner({ variant = 'page' }: { variant?: 'page' | 'admin' })
     <div className="demo-banner" role="note">
       <div>
         <strong>This is a demonstration.</strong>{' '}
-        {variant === 'admin'
-          ? 'You are looking at it without signing in, which is why every control is disabled. Everything here is synthetic and every write is refused.'
-          : 'Every component, incident and measurement on this page was generated. None of it reports a real service.'}
+        {variant !== 'admin'
+          ? 'Every component, incident and measurement on this page was generated. None of it reports a real service.'
+          : sandboxOn()
+            ? // The unqualified sentence would now be wrong twice over: the
+              // controls are not disabled, and the writes are not refused —
+              // they are answered here. Saying where they go is the point.
+              'You are looking at it without signing in. Local writes are on, so nothing you change here leaves this browser or reaches the server. The measurements are still synthetic.'
+            : 'You are looking at it without signing in, which is why every control is disabled. Everything here is synthetic and every write is refused.'}
       </div>
+
+      {SandboxSwitch && (
+        <Suspense fallback={null}>
+          <SandboxSwitch />
+        </Suspense>
+      )}
 
       {canClaim ? (
         <a className="demo-banner-action" href="/app">

@@ -3,6 +3,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { z } from 'zod'
 import { probeResultSchema, probeSchema } from './probe.js'
+import { controlsFileYamlSchema } from './yaml-schema.js'
 
 /**
  * Exports the probe contract as JSON Schema for the Rust agent.
@@ -31,3 +32,13 @@ for (const doc of documents) {
   writeFileSync(join(outDir, doc.file), body)
   console.warn(`✓ ${doc.file}`)
 }
+
+/*
+ * The import format, for people rather than for the agent — and so as YAML,
+ * in the dialect the admin's "Copy the schema" button hands out. Written here
+ * too so that the repository carries the published document and CI notices when
+ * a schema change leaves it behind, exactly as for the two above.
+ */
+const yamlSchema = 'controls-import.schema.yaml'
+writeFileSync(join(outDir, yamlSchema), controlsFileYamlSchema())
+console.warn(`✓ ${yamlSchema}`)

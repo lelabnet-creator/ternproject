@@ -1,0 +1,142 @@
+%YAML 1.1
+---
+$schema: http://stsci.edu/schemas/yaml-schema/draft-01
+id: https://tern.dev/schemas/controls-import.yaml
+title: TERN controls import file
+description: >-
+  A list of controls to create or update, keyed by `key`. Applied as a unit: either
+  every control in the file lands or none does. A control the file does not name is left
+  alone, and so is a field it leaves out.
+
+
+  Rules that span two fields cannot be expressed here and are enforced by the server:
+  `group` and `groupId` are alternatives, `degradedThresholdMs` must be below
+  `downThresholdMs`, and `config` is validated against the probe the `kind` names.
+type: object
+properties:
+  version:
+    type: number
+    enum:
+      - 1
+  controls:
+    minItems: 1
+    maxItems: 500
+    type: array
+    items:
+      type: object
+      properties:
+        key:
+          type: string
+          minLength: 1
+          maxLength: 200
+          pattern: ^[a-z0-9][a-z0-9._-]*$
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        description:
+          type: string
+          maxLength: 1000
+        group:
+          anyOf:
+            - type: string
+              minLength: 1
+              maxLength: 200
+            - type: 'null'
+        groupId:
+          anyOf:
+            - type: string
+              format: uuid
+              pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+            - type: 'null'
+        kind:
+          type: string
+          enum:
+            - push
+            - http
+            - tcp
+            - ping
+            - dns
+            - cert
+            - websocket
+            - docker
+        config:
+          type: object
+          additionalProperties: {}
+        expectedIntervalS:
+          anyOf:
+            - type: integer
+              minimum: 10
+              maximum: 86400
+            - type: 'null'
+        degradedThresholdMs:
+          anyOf:
+            - type: integer
+              minimum: 0
+              exclusiveMinimum: true
+              maximum: 9007199254740991
+            - type: 'null'
+        downThresholdMs:
+          anyOf:
+            - type: integer
+              minimum: 0
+              exclusiveMinimum: true
+              maximum: 9007199254740991
+            - type: 'null'
+        valueUnit:
+          anyOf:
+            - type: string
+              maxLength: 30
+            - type: 'null'
+        valueLabel:
+          anyOf:
+            - type: string
+              maxLength: 60
+            - type: 'null'
+        slaTarget:
+          anyOf:
+            - type: integer
+              minimum: 0
+              maximum: 10000
+            - type: 'null'
+        widget:
+          type: string
+          maxLength: 60
+        widgetOptions:
+          type: object
+          additionalProperties: {}
+        isPublic:
+          type: boolean
+        enabled:
+          type: boolean
+        position:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+      required:
+        - key
+        - name
+      additionalProperties: false
+      propertyOrder:
+        - key
+        - name
+        - description
+        - group
+        - groupId
+        - kind
+        - config
+        - expectedIntervalS
+        - degradedThresholdMs
+        - downThresholdMs
+        - valueUnit
+        - valueLabel
+        - slaTarget
+        - widget
+        - widgetOptions
+        - isPublic
+        - enabled
+        - position
+required:
+  - controls
+additionalProperties: false
+...

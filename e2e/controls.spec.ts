@@ -61,3 +61,73 @@ test('a real address raises nothing', async ({ page }) => {
   await page.getByLabel(/^URL/).fill('https://status.example.com/health')
   await expect(page.getByText(/will not mean this machine/i)).toHaveCount(0)
 })
+
+/**
+ * A file, refused and then applied.
+ *
+ * The two halves are one test because the interesting property is the sequence:
+ * the same box that just refused a file has to accept it once the line it named
+ * is fixed, and the preview in between has to leave the estate untouched. Split
+ * in two, neither half would notice a screen that never clears its errors.
+ */
+test('a YAML file is checked in the browser, previewed, then applied', async ({ page }) => {
+  await page.goto(`/app/${TENANT.slug}`)
+  await page.getByRole('button', { name: 'Import YAML' }).click()
+
+  const box = page.getByLabel(/^YAML/)
+
+  // Two problems, both of them typos a person actually makes: a field named the
+  // way the API's JSON would spell it, and a control that says it speaks HTTP
+  // without saying to what.
+  await box.fill(`controls:
+  - key: imported.one
+    name: Imported one
+    kind: http
+    config:
+      timeout_ms: 5000
+`)
+
+  // No request is made to find this out — the shared parser runs in the tab.
+  await expect(page.getByText('Unknown field "timeout_ms"')).toBeVisible()
+  // More than one problem points at that line — the missing `url` has nowhere
+  // of its own to be, so it lands on the config block it should have been in.
+  await expect(page.getByText(/^line 6/).first()).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Preview' })).toBeDisabled()
+
+  await box.fill(`controls:
+  - key: imported.one
+    name: Imported one
+    group: Imported
+    kind: http
+    config:
+      url: https://example.com/health
+`)
+
+  await expect(page.getByText(/1 control ·/)).toBeVisible()
+
+  await page.getByRole('button', { name: 'Preview' }).click()
+  await expect(page.getByText('Preview — nothing was written')).toBeVisible()
+  await expect(page.getByText('1 created · 0 updated')).toBeVisible()
+
+  // The preview wrote nothing, so the list must still not have it.
+  await page.goto(`/app/${TENANT.slug}`)
+  await expect(page.getByText('Imported one')).toHaveCount(0)
+
+  await page.getByRole('button', { name: 'Import YAML' }).click()
+  await box.fill(`controls:
+  - key: imported.one
+    name: Imported one
+    group: Imported
+    kind: http
+    config:
+      url: https://example.com/health
+`)
+  await page.getByRole('button', { name: /^Import/ }).click()
+
+  // The folder named in the file did not exist a moment ago; it is counted here
+  // because the import created it on the way past.
+  await expect(
+    page.getByText(/Imported 1 new and 0 updated control, in 1 new folder/),
+  ).toBeVisible()
+  await expect(page.getByText('Imported one').first()).toBeVisible()
+})

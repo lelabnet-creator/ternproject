@@ -235,7 +235,14 @@ const controlSchema = controlFields.superRefine((control, ctx) => {
   }
 })
 
-const fileSchema = z
+/**
+ * The whole file.
+ *
+ * Exported because it is also the source the published schema is generated
+ * from — see `yaml-schema.ts`. Two descriptions of one format is how they stop
+ * agreeing; there is only this one.
+ */
+export const fileSchema = z
   .object({
     /**
      * Optional today, and checked when present. Nothing branches on it yet; it
