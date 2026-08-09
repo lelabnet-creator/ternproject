@@ -2,7 +2,13 @@ import { and, eq, inArray, isNotNull, isNull, notInArray, sql } from 'drizzle-or
 import { z } from 'zod'
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod'
 import { schema } from '@tern/db'
-import { generatePin, hashToken, normalisePin } from '@tern/shared'
+import {
+  generatePin,
+  hashToken,
+  normalisePin,
+  renderAgentPairCommand,
+  renderProxyInitCommand,
+} from '@tern/shared'
 import { config } from '../config.js'
 import { authenticateApiKey, issueApiKey, touchAgent } from '../services/apikeys.js'
 import { assignmentsFor, jobsForAgent } from '../services/jobs.js'
@@ -441,6 +447,15 @@ const routes: FastifyPluginAsyncZod = async (app) => {
             expiresAt: z.string(),
             maxUses: z.number(),
             pairCommand: z.string(),
+            /**
+             * The same PIN, for a relay rather than an agent.
+             *
+             * Both are returned because the code does not choose: the server
+             * infers the role from the version the binary announces at pairing.
+             * An admin who changes their mind after minting does not need a new
+             * PIN, only the other line.
+             */
+            proxyPairCommand: z.string(),
           }),
         },
       },
@@ -473,7 +488,8 @@ const routes: FastifyPluginAsyncZod = async (app) => {
         expiresAt: expiresAt.toISOString(),
         maxUses: req.body.maxUses,
         // Ready to paste on the target machine — the point of the whole flow.
-        pairCommand: `tern-agent pair --server ${publicOrigin()} --pin ${pin}`,
+        pairCommand: renderAgentPairCommand(publicOrigin(), pin),
+        proxyPairCommand: renderProxyInitCommand(publicOrigin(), pin),
       }
     },
   )

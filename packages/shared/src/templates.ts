@@ -1154,6 +1154,23 @@ export function renderAgentRunCommand(): string {
 }
 
 /**
+ * The same gesture for a relay, which is a different verb.
+ *
+ * `init` rather than `pair`: the proxy does more than exchange the PIN for a
+ * key — it writes a config holding that key and the address it will listen on,
+ * because everything about a relay is decided at that moment and nothing after
+ * it is per-control.
+ *
+ * The PIN itself is the same one, from the same endpoint. The server decides
+ * which of the two it is looking at from the version the binary announces, so
+ * an admin can mint one code and use it either way.
+ */
+export function renderProxyInitCommand(baseUrl: string, pin?: string): string {
+  const base = baseUrl.replace(/\/$/, '')
+  return `tern-proxy init --server ${base} --pin ${pin ?? '<PIN>'}`
+}
+
+/**
  * Scalars and arrays of scalars.
  *
  * Arrays matter: `status_code` carries `range = [200, 299]`, and dropping it

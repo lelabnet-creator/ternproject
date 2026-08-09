@@ -698,6 +698,34 @@ describe('removing agents', () => {
  * could quietly go wrong: an ordinary agent inventing machines, and a zone that
  * shrinks without the view noticing.
  */
+describe('the pairing code', () => {
+  it('offers both verbs, because it does not choose the role', () => {
+    // The role is decided at pairing, from the version the binary announces —
+    // not by the code. So an admin who mints one and changes their mind needs
+    // the other line, not another code.
+    return login(fx.app, fx.users.admin.email).then(async (cookie) => {
+      const { pin, statusCode } = await createPin(cookie)
+      expect(statusCode).toBe(200)
+
+      const response = await fx.app.inject({
+        method: 'POST',
+        url: `/api/v1/${fx.slug}/pairing-codes`,
+        headers: { cookie },
+        payload: {},
+      })
+      const body = response.json() as { pairCommand: string; proxyPairCommand: string }
+
+      expect(body.pairCommand).toContain('tern-agent pair')
+      expect(body.proxyPairCommand).toContain('tern-proxy init')
+      // Same shape, same server, same placeholder position — the two lines must
+      // read as the same gesture, because they are.
+      expect(body.proxyPairCommand).toContain('--server')
+      expect(body.proxyPairCommand).toContain('--pin')
+      expect(pin).toBeTruthy()
+    })
+  })
+})
+
 describe('a proxy declaring its zone', () => {
   /** Pairs one, and answers with the key it may speak with. */
   async function pairAs(version: string): Promise<{ key: string; id: string }> {

@@ -4,6 +4,7 @@ import {
   renderAgentConfig,
   renderAgentPairCommand,
   renderAllTemplates,
+  renderProxyInitCommand,
   renderTemplate,
 } from './templates.js'
 
@@ -232,6 +233,26 @@ describe('the agent config', () => {
     // Uncommenting is a decision; a live probe nobody asked for is not.
     expect(config).not.toMatch(/^\[\[probes\]\]/m)
     expect(config).toContain('# [[probes]]')
+  })
+
+  it('gives a relay its own verb, from the same PIN', () => {
+    /*
+     * `init`, not `pair`. The proxy does more than exchange a code for a key: it
+     * writes a config holding that key and the address it will listen on.
+     *
+     * The PIN is the same one, deliberately — the server decides which of the
+     * two it is looking at from the version the binary announces — so an admin
+     * who changes their mind after minting needs the other line, not another
+     * code.
+     */
+    const pin = '4K7Q-92XB'
+    expect(renderProxyInitCommand('https://status.example.com/', pin)).toBe(
+      `tern-proxy init --server https://status.example.com --pin ${pin}`,
+    )
+    // The trailing slash goes, as it does for the agent: a doubled slash in a
+    // command somebody pastes reads as a mistake even where it is harmless.
+    expect(renderProxyInitCommand('https://status.example.com/', pin)).not.toContain('.com//')
+    expect(renderProxyInitCommand('https://status.example.com')).toContain('--pin <PIN>')
   })
 
   it('keeps the PIN out of the pair command until one is minted', () => {

@@ -51,11 +51,22 @@ trois différences : `init` au lieu de `pair`, la config du proxy, et une unité
 service qui lance `tern-proxy run`. Réutiliser la machinerie systemd/launchd du
 même script plutôt que d'en écrire une seconde.
 
-### 3. La commande d'appairage du proxy
+### 3. ~~La commande d'appairage du proxy~~ — fait, et remonté avant le point 1
+
+Permuté avec le point 1, qui en dépend : le panneau a besoin de cette commande
+pour l'afficher, et la fabriquer côté client en attendant aurait été un
+provisoire à défaire.
+
+Vérifié : `pnpm typecheck`, `lint`, `format`, `test` — 2 cas ajoutés (le rendu
+lui-même, et la réponse de `pairing-codes` qui porte désormais les deux verbes).
+
+<details><summary>Description d'origine</summary>
 
 `renderProxyInitCommand` dans `packages/shared/src/templates.ts`, à côté de
 `renderAgentPairCommand`. Exposée comme `proxyPairCommand` dans la réponse de
 `POST /:slug/pairing-codes` — un champ de plus, pas un remplacement.
+
+</details>
 
 ### 4. La cadence de transmission
 
