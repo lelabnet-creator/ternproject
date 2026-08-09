@@ -141,6 +141,24 @@ export function Field({
   )
 }
 
+/**
+ * A field that cannot be typed into has to look like one.
+ *
+ * `readOnly` is invisible by default — the browser styles `disabled` and leaves
+ * this alone — so a field drawn identically to its editable neighbours invites a
+ * click and a keystroke that silently do nothing. The tenant's address sat
+ * beside its name and its logo URL in exactly that state.
+ *
+ * Not `disabled` instead: the value is meaningful and is meant to be read,
+ * selected and copied, which a disabled input surrenders in most browsers.
+ */
+const READ_ONLY: CSSProperties = {
+  background: 'var(--color-surface)',
+  color: 'var(--color-fg-muted)',
+  borderStyle: 'dashed',
+  cursor: 'default',
+}
+
 export function Input(props: React.InputHTMLAttributes<HTMLInputElement>) {
   return (
     <input
@@ -156,6 +174,7 @@ export function Input(props: React.InputHTMLAttributes<HTMLInputElement>) {
         fontFamily: 'inherit',
         minHeight: 44,
         width: '100%',
+        ...(props.readOnly ? READ_ONLY : {}),
         ...props.style,
       }}
     />
@@ -187,7 +206,9 @@ export function Select(props: React.SelectHTMLAttributes<HTMLSelectElement>) {
 }
 
 export function Textarea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
-  return <textarea {...props} style={{ ...BOX, ...props.style }} />
+  return (
+    <textarea {...props} style={{ ...BOX, ...(props.readOnly ? READ_ONLY : {}), ...props.style }} />
+  )
 }
 
 /**
