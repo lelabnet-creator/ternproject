@@ -1892,10 +1892,6 @@
             "type": "string"
           }
         },
-        "tlsVerify": {
-          "default": true,
-          "type": "boolean"
-        },
         "timeoutMs": {
           "default": 10000,
           "type": "integer",

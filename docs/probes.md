@@ -128,7 +128,7 @@ pairing time, when it is cheap to fix.
 `schemas/conformance/*.json` holds inputs and expected outputs. Both
 implementations replay it:
 
-- TypeScript: `packages/shared/src/probe.test.ts`
+- TypeScript: `packages/shared/src/probe-runner.test.ts`
 - Rust: `clients/agent/tests/conformance.rs`
 
 Neither codebase is the reference. If they disagree, the fixture decides; if the
@@ -142,6 +142,31 @@ cases their author thought of.
 The suite also asserts that failure _messages_ name the assertion and the actual
 value. A conformant engine that says "check failed" is useless during an
 incident, so that is part of the contract too.
+
+## Adding a target type
+
+The fixtures above deliberately do not cover transports — they pin what an
+observation _means_, not how it was obtained. So a new target type is governed by
+a different rule, and it exists because the first two to be added without one
+went out untested:
+
+1. Extend the probe schema in `probe.ts`.
+2. Implement the observation in **both** `apps/api/src/services/probe-transport.ts`
+   and `clients/agent/src/probe_transport.rs`, or state in the table above which
+   implementation refuses it and why. `docker` is the precedent: the server
+   refuses it outright, and that refusal is a documented property rather than an
+   omission.
+3. **Write a transport test on each side that implements it**, against something
+   local — a listener, a socket, a fixture — never a public host. One for the
+   reachable case, one for the failure the type is most likely to meet.
+4. Where the two implementations differ on purpose — `ping`, `docker` — the
+   difference goes in the table before the code is merged.
+
+The rule that catches the real bug is the third. Every field on a target type
+must be honoured by every implementation that runs it, or not exist: `websocket`
+carried a `tlsVerify` the server honoured and the agent ignored, so one control
+answered `operational` from one and `down` from the other. Nothing was broken
+enough to fail, and nothing was written down that it violated.
 
 ## Trying one
 

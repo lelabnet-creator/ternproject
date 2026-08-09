@@ -200,13 +200,38 @@ export const certProbeSchema = z.object({
  */
 export const websocketProbeSchema = z.object({
   type: z.literal('websocket'),
-  /** `ws://` or `wss://`. The scheme decides whether TLS is used. */
-  url: z.string().url(),
+  /**
+   * `ws://` or `wss://`. The scheme decides whether TLS is used.
+   *
+   * Checked, not merely described. The agent refuses any other scheme at probe
+   * time; the server treated everything that was not `wss:` as plaintext, so an
+   * `https://` typed here connected to port 443 without TLS, read whatever came
+   * back and reported it. The control was green and had never opened a
+   * websocket. Refusing it here means the file, or the form, says so first.
+   */
+  url: z
+    .string()
+    .url()
+    .refine((url) => /^wss?:\/\//i.test(url), 'Must start with ws:// or wss://'),
   /** Sent as `Sec-WebSocket-Protocol`, when the server requires one. */
   subprotocol: z.string().optional(),
   headers: z.record(z.string(), z.string()).default({}),
-  /** As `http`: off is occasionally necessary, and always an explicit choice. */
-  tlsVerify: z.boolean().default(true),
+  /*
+   * No `tlsVerify`, deliberately, and it used to be here.
+   *
+   * The field existed on this schema and was honoured by the server alone. The
+   * agent refuses to carry a certificate verifier that accepts everything —
+   * see the block comment in `observe_websocket` — so the same control returned
+   * `operational` when the server ran it and `down` when an agent did. A
+   * control that means two things depending on who executes it is worse than
+   * one that cannot express the case at all.
+   *
+   * Removed rather than implemented in Rust: a `wss://` endpoint whose
+   * certificate does not verify is a broken endpoint, which is the line
+   * `docs/probes.md` already took. Removing it also turns a setting that was
+   * silently ignored into an import that says `Unknown field "tlsVerify"`,
+   * which is the whole reason the file schema is strict.
+   */
   ...baseProbe,
 })
 

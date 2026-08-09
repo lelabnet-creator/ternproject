@@ -76,6 +76,15 @@ async function observeWebsocket(
   probe: Extract<Probe, { type: 'websocket' }>,
 ): Promise<ProbeObservation> {
   const url = new URL(probe.url)
+
+  // The schema refuses any other scheme, so this is the row written before it
+  // did — and the alternative is worse than a refusal: `https:` is not `wss:`,
+  // so it would be dialled as plaintext on port 443, answer something, and be
+  // reported as a working websocket. The agent has always refused it here.
+  if (url.protocol !== 'ws:' && url.protocol !== 'wss:') {
+    return { error: `${probe.url} is not a ws:// or wss:// URL` }
+  }
+
   const secure = url.protocol === 'wss:'
   const port = url.port ? Number(url.port) : secure ? 443 : 80
   const started = performance.now()
@@ -104,7 +113,11 @@ async function observeWebsocket(
           host: url.hostname,
           port,
           servername: url.hostname,
-          rejectUnauthorized: probe.tlsVerify,
+          // Always verified, and no longer configurable — the schema no longer
+          // carries the field. It was honoured here and ignored by the agent,
+          // so one control gave two verdicts depending on who ran it. See the
+          // note on `websocketProbeSchema`.
+          rejectUnauthorized: true,
         })
       : connect({ host: url.hostname, port })
 
