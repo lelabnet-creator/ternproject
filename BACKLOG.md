@@ -111,12 +111,22 @@ l'amont. `init` gagne les drapeaux correspondants et `status` les affiche.
 
 </details>
 
-### 5. Le rond, jugé sur pièce
+### 5. ~~Le rond, jugé sur pièce~~ — fait
+
+Regardé pour de vrai, sur l'instance de labo avec un relais et son agent, dans
+les deux thèmes. Deux corrections en sont sorties, et deux cas sont passés aux
+tests plutôt qu'à l'œil.
+
+Vérifié : `pnpm typecheck`, `lint`, `format`, `test` — 763 (+4).
+
+<details><summary>Description d'origine</summary>
 
 Les traits existent — zone → proxy → centre, losange, légende — et **personne ne
 les a encore vus**. Une fois un relais et son agent en place, regarder et
 corriger ce qui ne se lit pas : l'écart proxy/zone à 320 px, les pointillés en
 clair comme en sombre, le cas à deux relais et celui du relais sans agent.
+
+</details>
 
 ### 6. La recette sur VM Ubuntu
 
