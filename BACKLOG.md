@@ -96,7 +96,34 @@ comme avant.
 
 </details>
 
-### 4. L'essai de bout en bout
+### 4. ~~L'essai de bout en bout~~ — fait
+
+Mené sur une instance dédiée (`tern-lab`, port 28995, image construite depuis la
+branche), pas sur les VM : la recette `.vm-lab/` teste en plus l'installation sur
+système nu, qui n'a pas changé, alors que ce point visait la conversation entre
+les trois morceaux.
+
+Modes exercés, chacun de bout en bout :
+
+| Mode | Vérifié par |
+| --- | --- |
+| agent local de l'instance | présent dans la flotte au démarrage |
+| agent → TERN | appairage, jobs, sonde, ingestion, battement |
+| proxy → TERN | appairage (rôle détecté), assignation en cache, déclaration de zone |
+| agent → proxy → TERN | PIN émis par le proxy, job servi du cache, `Operational`, point remonté par la file |
+| push par clé, direct | `POST /api/v1/ingest`, `accepted: 1` |
+| push par clé, via le relais | idem contre le proxy, valeur visible sur la page publique |
+
+Trois défauts trouvés et corrigés, chacun mis à l'épreuve en le remettant :
+heartbeat absent du proxy, déclaration de zone happant les agents directs par
+collision de hostname, et `PATCH /controls/:id` réécrivant cinq champs qu'il ne
+mentionnait pas.
+
+Non vérifié : le dessin lui-même. L'admin demande une session, et je ne saisis
+pas de mot de passe. Les données que la vue consomme sont justes — rôle, parent,
+IP — mais personne n'a encore regardé le losange à l'écran.
+
+<details><summary>Description d'origine</summary>
 
 Sur une machine Ubuntu, via `.vm-lab/` : un proxy appairé au serveur, un agent
 appairé au proxy, et la vue qui montre la chaîne. C'est le seul niveau où l'on
@@ -111,3 +138,5 @@ saura que les trois morceaux se parlent.
   ne pas publier** — ces gestes restent des décisions humaines.
 - Si un point se révèle plus large qu'écrit, ou repose sur une prémisse fausse,
   s'arrêter et le dire plutôt que d'improviser.
+
+</details>
