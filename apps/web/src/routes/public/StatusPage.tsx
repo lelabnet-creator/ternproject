@@ -66,6 +66,11 @@ export function StatusPage({ slug }: { slug: string }) {
     applyFont(fontById(typeof fontId === 'string' ? fontId : undefined))
   }, [fontId])
 
+  // Same field the admin rail reads, and it was already served here — the page
+  // simply never asked for it, so a tenant that had set a logo saw it in the
+  // editor and the TERN wordmark on the page its readers open.
+  const logoUrl = typeof branding?.logoUrl === 'string' ? branding.logoUrl : null
+
   // Remembered here rather than at the root, and only once a summary has come
   // back: the root cannot tell whether a name exists, and a list built from
   // what was typed there would be a list of guesses.
@@ -134,7 +139,7 @@ export function StatusPage({ slug }: { slug: string }) {
       }}
     >
       <div className="page-card">
-        <Header name={data.tenant.name} slug={slug} />
+        <Header name={data.tenant.name} slug={slug} logoUrl={logoUrl} />
 
         {/* Before anything it reports, not under it: someone who reads a figure
             and only then learns it was invented has already been misled. */}
@@ -153,6 +158,9 @@ export function StatusPage({ slug }: { slug: string }) {
             overall={data.overall.status}
             affectedCount={data.overall.affectedCount}
             groups={topLevelGroups(data)}
+            // Only when the header is the tenant's. See the note beside the
+            // mark in SystemPulse.
+            attribution={logoUrl !== null}
           />
           <p
             className="tabular"
@@ -399,7 +407,7 @@ function ComponentCard({
 
 // ── Layout pieces ───────────────────────────────────────────────────────────
 
-function Header({ name, slug }: { name: string; slug: string }) {
+function Header({ name, slug, logoUrl }: { name: string; slug: string; logoUrl: string | null }) {
   return (
     <header
       style={{
@@ -412,10 +420,19 @@ function Header({ name, slug }: { name: string; slug: string }) {
         borderBottom: '1px solid var(--color-border)',
       }}
     >
-      {/* The mark, then the tenant's name, with a rule between them. The order
-          is the sentence it makes: this page runs on TERN, and it belongs to
-          Acme. The mark links home to the page picker, which is what a logo in
-          a header is expected to do.
+      {/* The tenant's own mark when it has one, and the product's when it does
+          not — the same rule the admin rail follows, for the same reason: this
+          page belongs to whoever's name is on it.
+
+          With a logo there is no rule and no wordmark. The slash existed to
+          separate two brands, and the link home carried an `aria-label` of
+          "TERN" that would be read out over somebody else's logo. TERN is still
+          named, in the footer, which is where a status page carrying a
+          customer's mark should say what it runs on.
+
+          The image is `alt=""` on purpose: the name is in the heading beside it,
+          and a screen reader announcing "CrisisLab CrisisLab" is worse than one
+          that treats the picture as the decoration it is here.
 
           28 and not 24: 24 is the floor of the logo system, where TernMark
           drops the eye and thickens the stroke to compensate — the mark stops
@@ -427,16 +444,28 @@ function Header({ name, slug }: { name: string; slug: string }) {
           (--text-xl) tenant name and put the platform above the customer. At 28
           it lands just under, and the name still reads first. */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', minWidth: 0 }}>
-        <a
-          href="/"
-          aria-label="TERN"
-          style={{ display: 'inline-flex', color: 'inherit', textDecoration: 'none' }}
-        >
-          <TernWordmark size={28} />
-        </a>
-        <span aria-hidden="true" style={{ color: 'var(--color-border)' }}>
-          /
-        </span>
+        {logoUrl ? (
+          // Constrained rather than trusted: a logo of any shape has to sit on
+          // one line of this header without setting its height.
+          <img
+            src={logoUrl}
+            alt=""
+            style={{ maxHeight: 32, maxWidth: '12rem', objectFit: 'contain' }}
+          />
+        ) : (
+          <>
+            <a
+              href="/"
+              aria-label="TERN"
+              style={{ display: 'inline-flex', color: 'inherit', textDecoration: 'none' }}
+            >
+              <TernWordmark size={28} />
+            </a>
+            <span aria-hidden="true" style={{ color: 'var(--color-border)' }}>
+              /
+            </span>
+          </>
+        )}
         <h1
           style={{
             margin: 0,
@@ -492,13 +521,12 @@ function Subscribe({ slug, disclaimer }: { slug: string; disclaimer: string | nu
     event.preventDefault()
     setState('sending')
     try {
-      const response = await fetch(`/api/v1/public/${slug}/subscribers`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ channel, address }),
-      })
-      setState(response.ok ? 'done' : 'failed')
+      await api.subscribe(slug, channel, address)
+      setState('done')
     } catch {
+      // Refusal and network failure land together on purpose: the form says the
+      // same thing either way, because saying more would say whether the
+      // address was already known.
       setState('failed')
     }
   }

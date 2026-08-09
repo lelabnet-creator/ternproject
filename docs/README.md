@@ -14,6 +14,17 @@ says which.
 | [Operations](./operations.md)          | Installing, sizing, backing up, upgrading, and what breaks first                         |
 | [Security model](./security.md)        | Who can do what, what is encrypted, and what an attacker gets from each thing they steal |
 
+## The API reference is not a page here
+
+Every instance serves its own, because it is generated from the schemas that
+validate the requests — so it describes the build you are running rather than
+the one this repository last documented.
+
+| Where                  | What                                                               |
+| ---------------------- | ------------------------------------------------------------------ |
+| `/api/v1/docs`         | The reference, rendered and browsable. Linked from the admin rail. |
+| `/api/v1/openapi.json` | The OpenAPI 3 document, for a client generator or a contract test. |
+
 ## The shortest possible description
 
 TERN publishes the health of IT services on a status page, one page per tenant.

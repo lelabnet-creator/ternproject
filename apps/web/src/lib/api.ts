@@ -126,14 +126,46 @@ async function get<T>(path: string): Promise<T> {
   return (await response.json()) as T
 }
 
+/**
+ * The one write a visitor can make.
+ *
+ * Here rather than inline in the subscribe form, which is where it was: that was
+ * the single place in the whole client where a path, a method and a body shape
+ * were written out by hand, and so the single place a change to the endpoint
+ * would not break the build. The point of writing this client out — see the note
+ * at the top — was to make that impossible.
+ */
+async function post<T>(path: string, body: unknown): Promise<T> {
+  const response = await fetch(path, {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'content-type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify(body),
+  })
+
+  if (!response.ok) throw new ApiError(`Request failed: ${response.status}`, response.status)
+
+  return (await response.json()) as T
+}
+
 /** The page this instance serves, or null when that is not unambiguous. */
 export interface InstanceInfo {
   tenant: { slug: string; name: string } | null
 }
+
+export type SubscriberChannel = 'email' | 'webhook' | 'slack' | 'teams'
 
 export const api = {
   instance: () => get<InstanceInfo>('/api/v1/public/instance.json'),
   summary: (slug: string) => get<StatusSummary>(`/api/v1/public/${slug}/summary.json`),
   uptime: (slug: string, period: string) =>
     get<UptimeResponse>(`/api/v1/public/${slug}/uptime.json?period=${period}`),
+
+  /**
+   * Answers 202 with `pending`, never with whether the address was already
+   * known: telling a stranger that would turn the form into a way to ask which
+   * addresses are subscribed to this page.
+   */
+  subscribe: (slug: string, channel: SubscriberChannel, address: string) =>
+    post<{ pending: boolean }>(`/api/v1/public/${slug}/subscribers`, { channel, address }),
 }

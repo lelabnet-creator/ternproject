@@ -3,6 +3,7 @@ import { arc } from 'd3-shape'
 import { useTranslation } from 'react-i18next'
 import type { CheckStatusValue } from '@tern/shared/status'
 import { STATUS_PRESENTATION, statusColor } from '../lib/status'
+import { TernWordmark } from '../components/brand/TernMark'
 
 export interface PulseGroup {
   id: string
@@ -16,6 +17,15 @@ interface SystemPulseProps {
   affectedCount: number
   groups: PulseGroup[]
   size?: number
+  /**
+   * Sign the figure with the TERN mark.
+   *
+   * Set by the page when the header has been given over to the tenant's own
+   * logo, so the product is still named somewhere above the fold. False
+   * otherwise: the wordmark is already at the top, and saying it twice on one
+   * screen makes the platform louder than the service the page is about.
+   */
+  attribution?: boolean
 }
 
 const GAP_RADIANS = 0.035
@@ -32,7 +42,13 @@ const GAP_RADIANS = 0.035
  * Arc length is deliberately count-weighted: a group of twelve services being
  * degraded should occupy more of the reader's eye than a group of one.
  */
-export function SystemPulse({ overall, affectedCount, groups, size = 240 }: SystemPulseProps) {
+export function SystemPulse({
+  overall,
+  affectedCount,
+  groups,
+  size = 240,
+  attribution = false,
+}: SystemPulseProps) {
   const { t } = useTranslation()
 
   const segments = useMemo(() => {
@@ -124,6 +140,35 @@ export function SystemPulse({ overall, affectedCount, groups, size = 240 }: Syst
           >
             {t(presentation.labelKey)}
           </span>
+          {/*
+            Where the product signs its work once the header belongs to somebody
+            else.
+
+            A page carrying a customer's logo should carry it alone at the top —
+            but the mark still has to appear somewhere, and the middle of the
+            ring is the one place on this page with room that nothing else
+            wants. Under the verdict, never in place of it: the reader came for
+            the status, and a brand where the status should be is the worst
+            trade this page could make.
+
+            Faded, and small enough to read as a maker's mark rather than as a
+            third thing to interpret.
+          */}
+          {attribution && (
+            <a
+              href="/"
+              aria-label="TERN"
+              style={{
+                display: 'inline-flex',
+                marginTop: 'var(--space-1)',
+                opacity: 0.45,
+                color: 'inherit',
+                textDecoration: 'none',
+              }}
+            >
+              <TernWordmark size={18} />
+            </a>
+          )}
         </div>
       </div>
 
