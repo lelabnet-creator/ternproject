@@ -654,6 +654,29 @@ function AdminNav({
       </a>
 
       {/*
+        The API, beside the guide that describes everything but it.
+
+        The document existed nowhere a reader could find it: generated from the
+        route schemas, served by the instance, and reachable only by knowing the
+        path. Somebody wanting to script what this screen does had the guides,
+        which describe the product, and nothing that describes the calls.
+
+        Under Documentation rather than beside Options: it is reference material
+        for a reader, not a setting to change.
+      */}
+      <a
+        className="admin-nav-item"
+        href="/api/v1/docs"
+        target="_blank"
+        rel="noopener noreferrer"
+        aria-label="API reference (opens in a new tab)"
+      >
+        <NavIcon name="Braces" />
+        API reference
+        <Icons.ExternalLink size={13} aria-hidden="true" style={{ flexShrink: 0 }} />
+      </a>
+
+      {/*
         The page itself, as the public sees it.
 
         Beside the guide because it is the same kind of link — it leaves the
