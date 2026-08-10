@@ -26,7 +26,8 @@
     "noDataHint": "This component has not reported since it was created.",
     "loadError": "Could not load status",
     "retry": "Retry",
-    "manage": "Manage this page"
+    "manage": "Manage this page",
+    "moreOptions": "More options"
   },
   "chart": {
     "uptimeRibbon": "Daily uptime over the last {{days}} days \u00b7 weighted by time, not by check count",

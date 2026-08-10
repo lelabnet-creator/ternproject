@@ -1,4 +1,4 @@
-import { lazy, Suspense } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { adminApi } from '../lib/adminApi'
 import { sandboxOn } from '../lib/sandbox-flag'
@@ -42,9 +42,50 @@ export function DemoBanner({ variant = 'page' }: { variant?: 'page' | 'admin' })
 
   const canClaim = setup.data?.needsSetup === true
 
+  /*
+   * Two lines, and the rest behind a word.
+   *
+   * The notice is four lines and two buttons on a phone — a full screen of
+   * something the reader has already understood by the end of the first
+   * sentence, sitting between them and the status. Clamped to two lines, which
+   * is where "This is a demonstration" plus its first clause lands, and the
+   * remainder is one tap away.
+   *
+   * `More` appears only when the text is actually cut. A disclosure control
+   * that opens nothing is worse than no control: it costs a tap to learn it was
+   * pointless, and it teaches the reader to ignore the next one.
+   */
+  const [expanded, setExpanded] = useState(false)
+  const [clipped, setClipped] = useState(false)
+  const text = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const measure = () => {
+      const node = text.current
+      // Measured while clamped: expanded, `scrollHeight` equals `clientHeight`
+      // and the control would vanish the moment it was used.
+      if (node && !expanded) setClipped(node.scrollHeight > node.clientHeight + 1)
+    }
+    measure()
+    window.addEventListener('resize', measure)
+    return () => window.removeEventListener('resize', measure)
+  }, [expanded])
+
   return (
     <div className="demo-banner" role="note">
-      <div>
+      <div
+        ref={text}
+        style={
+          expanded
+            ? undefined
+            : {
+                display: '-webkit-box',
+                WebkitLineClamp: 2,
+                WebkitBoxOrient: 'vertical',
+                overflow: 'hidden',
+              }
+        }
+      >
         <strong>This is a demonstration.</strong>{' '}
         {variant !== 'admin'
           ? 'Every component, incident and measurement on this page was generated. None of it reports a real service.'
@@ -56,26 +97,62 @@ export function DemoBanner({ variant = 'page' }: { variant?: 'page' | 'admin' })
             : 'You are looking at it without signing in, which is why every control is disabled. Everything here is synthetic and every write is refused.'}
       </div>
 
-      {SandboxSwitch && (
+      {(clipped || expanded) && (
+        <button
+          type="button"
+          aria-expanded={expanded}
+          onClick={() => setExpanded((v) => !v)}
+          /*
+           * A link, not a button — visually.
+           *
+           * `demo-banner-action` draws a bordered pill, which is right for
+           * "Run your own" and absurd for three letters: the affordance ends up
+           * costing more room than the two lines it saves. Still a <button>
+           * underneath, because it toggles state on this page rather than going
+           * anywhere, and a control that says "link" to a screen reader and
+           * then does not navigate is a small lie.
+           */
+          style={{
+            alignSelf: 'flex-start',
+            padding: 0,
+            border: 0,
+            background: 'none',
+            font: 'inherit',
+            fontSize: 'var(--text-sm)',
+            color: 'var(--color-fg-muted)',
+            textDecoration: 'underline',
+            textUnderlineOffset: 2,
+            cursor: 'pointer',
+          }}
+        >
+          {expanded ? 'Less' : 'More'}
+        </button>
+      )}
+
+      {/* The two actions belong to the full version: collapsed, this notice is
+          one sentence saying the numbers are invented, which is all a reader
+          who has not asked for more needs from it. */}
+      {expanded && SandboxSwitch && (
         <Suspense fallback={null}>
           <SandboxSwitch />
         </Suspense>
       )}
 
-      {canClaim ? (
-        <a className="demo-banner-action" href="/app">
-          Make this instance yours
-        </a>
-      ) : (
-        <a
-          className="demo-banner-action"
-          href="https://github.com/lelabnet-creator/ternproject#readme"
-          target="_blank"
-          rel="noreferrer noopener"
-        >
-          Run your own
-        </a>
-      )}
+      {expanded &&
+        (canClaim ? (
+          <a className="demo-banner-action" href="/app">
+            Make this instance yours
+          </a>
+        ) : (
+          <a
+            className="demo-banner-action"
+            href="https://github.com/lelabnet-creator/ternproject#readme"
+            target="_blank"
+            rel="noreferrer noopener"
+          >
+            Run your own
+          </a>
+        ))}
     </div>
   )
 }

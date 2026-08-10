@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { TernWordmark } from '../../components/brand/TernMark'
@@ -10,6 +10,7 @@ import { resolveOptions, widgetById } from '../../charts/registry'
 import { SystemPulse } from '../../charts/SystemPulse'
 import { api, type StatusComponent, type StatusSummary } from '../../lib/api'
 import { STATUS_PRESENTATION } from '../../lib/status'
+import { useCompact } from '../../lib/useCompact'
 import { rememberPage } from '../../lib/recentPages'
 import { SponsorButton } from '../../components/SponsorButton'
 import { SiteFooter } from '../../components/SiteFooter'
@@ -103,6 +104,7 @@ export function StatusPage({ slug }: { slug: string }) {
   // The admin's layout editor frames this page to preview an arrangement that
   // has not been saved. Presentation only — the query cannot reveal a component
   // the reader could not already see, reorder anything server-side, or persist.
+  const compact = useCompact()
   const preview = previewOverrides(window.location.search)
   const layout = preview.layout ?? data.tenant.layout
 
@@ -268,12 +270,30 @@ export function StatusPage({ slug }: { slug: string }) {
       }}
     >
       <div className="page-card">
-        <Header name={data.tenant.name} slug={slug} logoUrl={logoUrl} controls />
+        {/*
+          Two arrangements, not one restyled.
+
+          The compact header does not shrink the wide one — it moves three
+          controls into a menu, which CSS cannot do without `order`, and `order`
+          separates what the eye sees from what the keyboard traverses. See
+          `useCompact` for the whole of that reasoning.
+        */}
+        {compact ? (
+          <CompactHeader name={data.tenant.name} slug={slug} logoUrl={logoUrl} />
+        ) : (
+          <Header name={data.tenant.name} slug={slug} logoUrl={logoUrl} controls />
+        )}
 
         {notices}
 
-        <Subscribe slug={slug} disclaimer={data.tenant.subscriberDisclaimer ?? null} />
+        {/*
+          The answer first.
 
+          `Pulse` is the sentence somebody opened this page to read, and it used
+          to be the fourth thing on it — behind the mark, a sponsor button, a
+          theme picker and a subscribe form. On a phone that is four screens of
+          chrome before a single word about the service.
+        */}
         <Pulse data={data} logoUrl={logoUrl} locale={locale} timeZone={timeZone} showUpdatedAt />
 
         {/*
@@ -292,6 +312,17 @@ export function StatusPage({ slug }: { slug: string }) {
           timeZone={timeZone}
           density={layout}
         />
+
+        {/*
+          After the components, at every width.
+          
+          Subscribing is what a reader decides *having* read the status, not
+          before reaching it — so a form above the answer is a toll gate on the
+          one thing the page exists to say. Moved for desktop too rather than
+          only for phones: the order was wrong there as well, it merely cost
+          less.
+        */}
+        <Subscribe slug={slug} disclaimer={data.tenant.subscriberDisclaimer ?? null} />
       </div>
 
       {/* Outside the card: this says who made the page, not what it reports. */}
@@ -593,65 +624,7 @@ function Header({
         borderBottom: '1px solid var(--color-border)',
       }}
     >
-      {/* The tenant's own mark when it has one, and the product's when it does
-          not — the same rule the admin rail follows, for the same reason: this
-          page belongs to whoever's name is on it.
-
-          With a logo there is no rule and no wordmark. The slash existed to
-          separate two brands, and the link home carried an `aria-label` of
-          "TERN" that would be read out over somebody else's logo. TERN is still
-          named, in the footer, which is where a status page carrying a
-          customer's mark should say what it runs on.
-
-          The image is `alt=""` on purpose: the name is in the heading beside it,
-          and a screen reader announcing "CrisisLab CrisisLab" is worse than one
-          that treats the picture as the decoration it is here.
-
-          28 and not 24: 24 is the floor of the logo system, where TernMark
-          drops the eye and thickens the stroke to compensate — the mark stops
-          reading as a bird and turns into a comma beside the name. 28 is the
-          first step where the eye comes back.
-
-          And not the 34 the admin and landing headers use: the wordmark's text
-          is 0.85 × its size, so 34 would set `tern` at 29px against a 24px
-          (--text-xl) tenant name and put the platform above the customer. At 28
-          it lands just under, and the name still reads first. */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', minWidth: 0 }}>
-        {logoUrl ? (
-          // Constrained rather than trusted: a logo of any shape has to sit on
-          // one line of this header without setting its height.
-          <img
-            src={logoUrl}
-            alt=""
-            style={{ maxHeight: 32, maxWidth: '12rem', objectFit: 'contain' }}
-          />
-        ) : (
-          <>
-            <a
-              href="/"
-              aria-label="TERN"
-              style={{ display: 'inline-flex', color: 'inherit', textDecoration: 'none' }}
-            >
-              <TernWordmark size={28} />
-            </a>
-            <span aria-hidden="true" style={{ color: 'var(--color-border)' }}>
-              /
-            </span>
-          </>
-        )}
-        <h1
-          style={{
-            margin: 0,
-            fontSize: 'var(--text-xl)',
-            fontWeight: 600,
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
-          }}
-        >
-          {name}
-        </h1>
-      </div>
+      <HeaderMark name={name} logoUrl={logoUrl} />
 
       {/* Centred between the name and the controls, and it grows to take what
           is left so it stays centred as the name changes length. It wraps to
@@ -864,6 +837,215 @@ function Subscribe({ slug, disclaimer }: { slug: string; disclaimer: string | nu
         </div>
       )}
     </section>
+  )
+}
+
+/**
+ * The mark and the name, shared by both header arrangements.
+ *
+ * Extracted rather than duplicated: it carries five decisions about sizing and
+ * about what a screen reader is told, and two copies of that is two places for
+ * them to drift apart.
+ */
+function HeaderMark({ name, logoUrl }: { name: string; logoUrl: string | null }) {
+  /* The tenant's own mark when it has one, and the product's when it does
+  not — the same rule the admin rail follows, for the same reason: this
+  page belongs to whoever's name is on it.
+
+  With a logo there is no rule and no wordmark. The slash existed to
+  separate two brands, and the link home carried an `aria-label` of
+  "TERN" that would be read out over somebody else's logo. TERN is still
+  named, in the footer, which is where a status page carrying a
+  customer's mark should say what it runs on.
+
+  The image is `alt=""` on purpose: the name is in the heading beside it,
+  and a screen reader announcing "CrisisLab CrisisLab" is worse than one
+  that treats the picture as the decoration it is here.
+
+  28 and not 24: 24 is the floor of the logo system, where TernMark
+  drops the eye and thickens the stroke to compensate — the mark stops
+  reading as a bird and turns into a comma beside the name. 28 is the
+  first step where the eye comes back.
+
+  And not the 34 the admin and landing headers use: the wordmark's text
+  is 0.85 × its size, so 34 would set `tern` at 29px against a 24px
+  (--text-xl) tenant name and put the platform above the customer. At 28
+  it lands just under, and the name still reads first. */
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', minWidth: 0 }}>
+      {logoUrl ? (
+        // Constrained rather than trusted: a logo of any shape has to sit on
+        // one line of this header without setting its height.
+        <img
+          src={logoUrl}
+          alt=""
+          style={{ maxHeight: 32, maxWidth: '12rem', objectFit: 'contain' }}
+        />
+      ) : (
+        <>
+          <a
+            href="/"
+            aria-label="TERN"
+            style={{ display: 'inline-flex', color: 'inherit', textDecoration: 'none' }}
+          >
+            <TernWordmark size={28} />
+          </a>
+          <span aria-hidden="true" style={{ color: 'var(--color-border)' }}>
+            /
+          </span>
+        </>
+      )}
+      <h1
+        style={{
+          margin: 0,
+          fontSize: 'var(--text-xl)',
+          fontWeight: 600,
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
+        }}
+      >
+        {name}
+      </h1>
+    </div>
+  )
+}
+
+/**
+ * The header, arranged for one thumb.
+ *
+ * ## What was wrong
+ *
+ * At 390px a reader crossed five full-width blocks — the mark, Sponsor TERN,
+ * "Manage this page" with its theme picker, the demonstration notice, and
+ * Subscribe — before the first pixel that said anything about the service. None
+ * of those five is wrong; their rank was. The one thing everybody opened this
+ * page for was the fourth screen down.
+ *
+ * ## What native apps do instead
+ *
+ * Three borrowings, and they are the same three on both platforms. A single bar
+ * of about 56px carrying the title and *at most* one or two actions — iOS
+ * navigation bar, Material top app bar. Everything else behind one overflow
+ * control rather than crammed alongside it. And the content beginning
+ * immediately under the bar, the way a weather app shows the temperature before
+ * it shows its settings.
+ *
+ * So: the mark stays, the three controls move into the menu, and `Pulse` — the
+ * sentence that answers the question — becomes the first thing under the bar.
+ */
+function CompactHeader({
+  name,
+  slug,
+  logoUrl,
+}: {
+  name: string
+  slug?: string
+  logoUrl: string | null
+}) {
+  const { t } = useTranslation()
+  const [open, setOpen] = useState(false)
+  const menu = useRef<HTMLDivElement>(null)
+
+  /*
+   * Escape and click-outside, neither of which `<details>` provides.
+   *
+   * A menu that only closes by pressing the same button again is one a reader
+   * dismisses by tapping the page — and is then surprised to find still open.
+   * Escape is the same contract every dialog on this page already honours.
+   */
+  useEffect(() => {
+    if (!open) return
+
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setOpen(false)
+        // Focus returns to the control that opened it, or the reader is left
+        // at the top of the document with no idea where they are.
+        menu.current?.querySelector<HTMLButtonElement>('[data-overflow-trigger]')?.focus()
+      }
+    }
+    const onDown = (event: PointerEvent) => {
+      if (!menu.current?.contains(event.target as Node)) setOpen(false)
+    }
+
+    document.addEventListener('keydown', onKey)
+    document.addEventListener('pointerdown', onDown)
+    return () => {
+      document.removeEventListener('keydown', onKey)
+      document.removeEventListener('pointerdown', onDown)
+    }
+  }, [open])
+
+  return (
+    <header
+      data-tern="header"
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: 'var(--space-3)',
+        minHeight: 56,
+        paddingBottom: 'var(--space-3)',
+        borderBottom: '1px solid var(--color-border)',
+      }}
+    >
+      <HeaderMark name={name} logoUrl={logoUrl} />
+
+      <div ref={menu} style={{ position: 'relative', flex: '0 0 auto' }}>
+        <button
+          type="button"
+          data-overflow-trigger=""
+          aria-expanded={open}
+          aria-haspopup="menu"
+          aria-label={t('page.moreOptions')}
+          onClick={() => setOpen((v) => !v)}
+          style={{
+            // 44px square: the minimum tap target, met by the control itself
+            // rather than by a hit area nobody can see.
+            width: 44,
+            height: 44,
+            display: 'grid',
+            placeItems: 'center',
+            borderRadius: 'var(--radius-sm)',
+            border: '1px solid var(--color-border)',
+            background: open ? 'var(--color-surface)' : 'transparent',
+            color: 'var(--color-fg-muted)',
+            cursor: 'pointer',
+          }}
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" fill="currentColor">
+            <circle cx="5" cy="12" r="1.75" />
+            <circle cx="12" cy="12" r="1.75" />
+            <circle cx="19" cy="12" r="1.75" />
+          </svg>
+        </button>
+
+        {open && (
+          <div
+            role="menu"
+            style={{
+              position: 'absolute',
+              top: 'calc(100% + var(--space-1))',
+              right: 0,
+              zIndex: 20,
+              minWidth: '13rem',
+              display: 'grid',
+              gap: 'var(--space-3)',
+              padding: 'var(--space-3)',
+              background: 'var(--color-surface)',
+              border: '1px solid var(--color-border-strong)',
+              borderRadius: 'var(--radius-md)',
+              boxShadow: 'var(--shadow-card)',
+            }}
+          >
+            <ThemePicker compact />
+            {slug && <AdminLink slug={slug} />}
+            <SponsorButton />
+          </div>
+        )}
+      </div>
+    </header>
   )
 }
 
