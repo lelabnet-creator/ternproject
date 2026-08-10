@@ -4,6 +4,9 @@
 
 **IT service status pages — live or historized, self-hosted, open source.**
 
+[![CI](https://github.com/lelabnet-creator/ternproject/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/lelabnet-creator/ternproject/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/lelabnet-creator/ternproject?sort=semver)](https://github.com/lelabnet-creator/ternproject/releases)
+[![Image](https://img.shields.io/badge/ghcr.io-ternproject-blue?logo=docker&logoColor=white)](https://github.com/lelabnet-creator/ternproject/pkgs/container/ternproject)
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](./LICENSE)
 
 </div>
