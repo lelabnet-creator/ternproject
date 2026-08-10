@@ -56,12 +56,12 @@ précision qu'il n'a pas.
       maintenances. Aucun accès base ici — c'est ce qui le rend testable.
 
       Fait : `packages/shared/src/availability.ts`, 17 tests. Vérifié avec
-                                  l'index seul. Deux décisions écrites en chemin — `degraded` compte comme
-                                  disponible (les agrégats ne comptaient que `operational`, donc un service
-                                  lent baissait l'uptime publié), et le temps que personne n'a observé quitte
-                                  le dénominateur au lieu d'être deviné dans un sens ou dans l'autre.
-                                  Le sous-chemin `@tern/shared/availability` reste à ajouter au point 4 :
-                                  `packages/shared/package.json` porte un travail en cours non commité.
+                                      l'index seul. Deux décisions écrites en chemin — `degraded` compte comme
+                                      disponible (les agrégats ne comptaient que `operational`, donc un service
+                                      lent baissait l'uptime publié), et le temps que personne n'a observé quitte
+                                      le dénominateur au lieu d'être deviné dans un sens ou dans l'autre.
+                                      Le sous-chemin `@tern/shared/availability` reste à ajouter au point 4 :
+                                      `packages/shared/package.json` porte un travail en cours non commité.
 
 - [x] **2. Le cas `push`.** Pas d'échec au sens classique : l'indisponibilité
       commence à `expectedIntervalS` + grâce après le dernier battement reçu, et
@@ -69,23 +69,23 @@ précision qu'il n'a pas.
       écrire pourquoi. Se raccorder à la balayeuse de péremption qui existe déjà.
 
       Fait : `silence: 'down'` et `graceMs`, 6 tests de plus (23 au total).
-                          La grâce vaut un intervalle plein par défaut, donc le seuil effectif est
-                          deux fois l'intervalle — **le nombre exact** de `sweepStaleControls`
-                          (`expected_interval_s * 2`). Deux seuils pour une même question, c'est
-                          ainsi qu'une pastille et un pourcentage finissent par ne pas dire la même
-                          chose de la même minute.
+                              La grâce vaut un intervalle plein par défaut, donc le seuil effectif est
+                              deux fois l'intervalle — **le nombre exact** de `sweepStaleControls`
+                              (`expected_interval_s * 2`). Deux seuils pour une même question, c'est
+                              ainsi qu'une pastille et un pourcentage finissent par ne pas dire la même
+                              chose de la même minute.
 
-                          Une tension levée plutôt que contournée : la balayeuse écrit `unknown`,
-                          jamais `down`, et elle a raison — mais elle répond à « que dit la pastille
-                          maintenant », où déclarer une panne publique sur un battement manqué
-                          transforme chaque redémarrage d'agent en incident. Le calcul répond à « ce
-                          que la période **a été** », où une heure de silence inexpliqué d'un travail
-                          censé rapporter toutes les cinq minutes n'est pas du temps à retirer de
-                          l'arithmétique. La pastille reste prudente, le pourcentage reste honnête.
+                              Une tension levée plutôt que contournée : la balayeuse écrit `unknown`,
+                              jamais `down`, et elle a raison — mais elle répond à « que dit la pastille
+                              maintenant », où déclarer une panne publique sur un battement manqué
+                              transforme chaque redémarrage d'agent en incident. Le calcul répond à « ce
+                              que la période **a été** », où une heure de silence inexpliqué d'un travail
+                              censé rapporter toutes les cinq minutes n'est pas du temps à retirer de
+                              l'arithmétique. La pastille reste prudente, le pourcentage reste honnête.
 
-                          Le marqueur `unknown` de la balayeuse compte comme silence pour un `push` :
-                          le laisser dans le seau « inconnu » ferait annuler par la preuve du silence
-                          le silence lui-même. Le câblage effectif se fait au point 3.
+                              Le marqueur `unknown` de la balayeuse compte comme silence pour un `push` :
+                              le laisser dans le seau « inconnu » ferait annuler par la preuve du silence
+                              le silence lui-même. Le câblage effectif se fait au point 3.
 
 - [x] **3a. Le module prend des intervalles, pas des points** (option A, décidée
       après avoir buté sur le point 3). Les agrégats ne gardent pas d'instants —
@@ -94,14 +94,14 @@ précision qu'il n'a pas.
       ne se branchaient pas l'un sur l'autre.
 
       Fait : un check brut devient un intervalle à état plein, un seau d'agrégat
-                      un intervalle fractionnaire, et un seul compteur sert les deux. 6 tests de
-                      plus (29). Les 23 précédents passent **inchangés** : le chemin « points »
-                      est devenu un constructeur d'intervalles, pas une autre sémantique.
+                          un intervalle fractionnaire, et un seul compteur sert les deux. 6 tests de
+                          plus (29). Les 23 précédents passent **inchangés** : le chemin « points »
+                          est devenu un constructeur d'intervalles, pas une autre sémantique.
 
-                      Deux limites nommées plutôt qu'approximées : le OR entre agents ne vaut
-                      que sur le chemin brut, et un seau mixte ne passe pas le debounce — le
-                      battement y a déjà été absorbé par l'agrégation, et les instants qui
-                      diraient si les échecs étaient consécutifs n'existent plus.
+                          Deux limites nommées plutôt qu'approximées : le OR entre agents ne vaut
+                          que sur le chemin brut, et un seau mixte ne passe pas le debounce — le
+                          battement y a déjà été absorbé par l'agrégation, et les instants qui
+                          diraient si les échecs étaient consécutifs n'existent plus.
 
 - [x] **3. L'endpoint.** Granularités jour / semaine / mois / année, bornes de
       début et de fin, un contrôle ou tous. Il annonce la résolution employée.
@@ -110,24 +110,24 @@ précision qu'il n'a pas.
       déduit de l'intervalle, pas d'une constante magique.
 
       Fait : `uptime.json` lit désormais les seaux bruts et laisse
-                  `computeAvailability` les pondérer par la durée. `resolution` est dans la
-                  réponse. `publishedUptime` arrondit à trois décimales et publie `100`
-                  sous le seuil résoluble, seuil dérivé de la série (temps observé ÷ nombre
-                  de mesures) et non d'une constante. Les maintenances sont exclues, en
-                  prenant `actual_*` avant `scheduled_*` — sinon une fenêtre annoncée deux
-                  heures et finie en vingt minutes retirerait deux heures du dénominateur,
-                  et le chiffre s'améliorerait à force de sur-annoncer.
+                      `computeAvailability` les pondérer par la durée. `resolution` est dans la
+                      réponse. `publishedUptime` arrondit à trois décimales et publie `100`
+                      sous le seuil résoluble, seuil dérivé de la série (temps observé ÷ nombre
+                      de mesures) et non d'une constante. Les maintenances sont exclues, en
+                      prenant `actual_*` avant `scheduled_*` — sinon une fenêtre annoncée deux
+                      heures et finie en vingt minutes retirerait deux heures du dénominateur,
+                      et le chiffre s'améliorerait à force de sur-annoncer.
 
-                  **Non livré, et il faut le dire** : les bornes `from`/`to` arbitraires et
-                  le regroupement calendaire semaine/mois/année. L'endpoint garde son
-                  `period` existant (24h/7d/30d/90d/1y), qui portait déjà le choix de
-                  résolution. Le regroupement reste journalier — c'est ce que consomment le
-                  ruban et le calendrier, donc rien n'est bloqué ; c'est un ajout séparable.
+                      **Non livré, et il faut le dire** : les bornes `from`/`to` arbitraires et
+                      le regroupement calendaire semaine/mois/année. L'endpoint garde son
+                      `period` existant (24h/7d/30d/90d/1y), qui portait déjà le choix de
+                      résolution. Le regroupement reste journalier — c'est ce que consomment le
+                      ruban et le calendrier, donc rien n'est bloqué ; c'est un ajout séparable.
 
-                  `uptime.json` n'avait **aucun test** — l'endpoint qui publie le nombre dont
-                  tout le ruban est fait. Un test d'intégration écrit maintenant de vrais
-                  checks, rafraîchit le vrai agrégat continu et lit le vrai endpoint : sans
-                  lui, une requête malformée passe au vert.
+                      `uptime.json` n'avait **aucun test** — l'endpoint qui publie le nombre dont
+                      tout le ruban est fait. Un test d'intégration écrit maintenant de vrais
+                      checks, rafraîchit le vrai agrégat continu et lit le vrai endpoint : sans
+                      lui, une requête malformée passe au vert.
 
 - [x] **4. Le câblage.** Le ruban prend une valeur par jour, le calendrier une
       grille de 20 semaines. Les deux consomment déjà l'endpoint : vérifier que
@@ -135,36 +135,44 @@ précision qu'il n'a pas.
       dit « time-weighted » là où un lecteur pourrait supposer l'autre.
 
       Fait, et un défaut trouvé en le vérifiant : le chiffre sous le ruban était
-          une **moyenne simple des pourcentages journaliers**, ce qui défaisait au
-          dernier pas ce que les chiffres journaliers venaient d'être corrigés pour
-          faire. Un jour où l'agent n'a rapporté que deux heures pesait autant qu'un
-          jour complet — donc le premier jour partiel après le retour d'un agent, un
-          jour court et souvent mauvais, déplaçait le chiffre de tête autant qu'une
-          semaine calme entière. Pondéré par `samples`, extrait en `weightedUptime`
-          et testé (4 tests), dont celui qui vérifie que rien ne bouge dans le cas
-          ordinaire où tous les jours sont également couverts.
+              une **moyenne simple des pourcentages journaliers**, ce qui défaisait au
+              dernier pas ce que les chiffres journaliers venaient d'être corrigés pour
+              faire. Un jour où l'agent n'a rapporté que deux heures pesait autant qu'un
+              jour complet — donc le premier jour partiel après le retour d'un agent, un
+              jour court et souvent mauvais, déplaçait le chiffre de tête autant qu'une
+              semaine calme entière. Pondéré par `samples`, extrait en `weightedUptime`
+              et testé (4 tests), dont celui qui vérifie que rien ne bouge dans le cas
+              ordinaire où tous les jours sont également couverts.
 
-          `resolution` est typée côté client. Le calendrier n'avait pas le défaut :
-          il colore par statut sans moyenne globale. Le libellé des deux locales dit
-          désormais « pondérée par la durée, pas par le nombre de checks ».
+              `resolution` est typée côté client. Le calendrier n'avait pas le défaut :
+              il colore par statut sans moyenne globale. Le libellé des deux locales dit
+              désormais « pondérée par la durée, pas par le nombre de checks ».
 
 - [x] **5. Les paliers.** Les libellés d'affichage suivent la table des « nines »
       (99 / 99,9 / 99,95 / 99,99 / 99,999). Un palier est une étiquette, pas une
       promesse : ne pas inventer de SLA là où le produit n'en a pas.
 
       Fait : `AVAILABILITY_TIERS` et `availabilityTier`, 4 tests. Le palier
-      s'affiche sous le ruban en chiffres — « ≥ 99,9 % » — et non en mots :
-      « trois neuf » ou « atteint 99,9 % » glissent vers ce qui sonne comme un
-      engagement. `99.95` est dans la table bien que ce ne soit pas un nombre
-      entier de neuf : c'est le chiffre que beaucoup de contrats nomment, et
-      l'omettre arrondirait un 99,96 % à « 99,9 % » en perdant la distinction qui
-      compte le plus. Sous 99, la réponse est `null` et non un palier de zéro —
-      inventer « un neuf » habillerait un mauvais mois en catégorie.
+          s'affiche sous le ruban en chiffres — « ≥ 99,9 % » — et non en mots :
+          « trois neuf » ou « atteint 99,9 % » glissent vers ce qui sonne comme un
+          engagement. `99.95` est dans la table bien que ce ne soit pas un nombre
+          entier de neuf : c'est le chiffre que beaucoup de contrats nomment, et
+          l'omettre arrondirait un 99,96 % à « 99,9 % » en perdant la distinction qui
+          compte le plus. Sous 99, la réponse est `null` et non un palier de zéro —
+          inventer « un neuf » habillerait un mauvais mois en catégorie.
 
-- [ ] **6. La documentation.** `docs/data-model.md` pour la règle de calcul et
+- [x] **6. La documentation.** `docs/data-model.md` pour la règle de calcul et
       ses quatre cas, `docs/user-guide.md` pour ce que le lecteur de la page
       voit changer. Dire explicitement que le chiffre publié change de sens à
       cette version, et dans quel sens.
+
+      Fait : `docs/data-model.md` porte la règle, ses quatre cas avec le pourquoi
+      de chacun, ce que les agrégats ne peuvent pas répondre, et la différence
+      entre ce qui est calculé et ce qui est publié. `docs/user-guide.md` a une
+      section qui dit au lecteur de la page ce qui bouge et dans quel sens —
+      lent ne compte plus comme cassé (la plupart des pages montent un peu), le
+      temps non mesuré n'est plus compté comme bon, un push silencieux compte
+      désormais contre vous.
 
 ## Hors périmètre
 

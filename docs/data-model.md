@@ -61,18 +61,18 @@ is computed from its children: `worst` (default), `majority`, or `manual`.
 
 One thing being monitored.
 
-| Column                                        | Notes                                                                                                                                                          |
-| --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `key`                                         | Stable identifier used in URLs, scripts and alert labels. Constrained to `^[a-z0-9][a-z0-9._-]*$` — a space or quote in any of those places is a bug somewhere |
-| `kind`                                        | `push` (fed by a script) or `http`/`tcp`/`ping`/`dns`/`cert` (a probe)                                                                                         |
-| `config`                                      | The probe definition when `kind` is not `push`. Validated against `probeSchema`                                                                                |
-| `expected_interval_s`                         | Silence longer than this makes the control `unknown`                                                                                                           |
-| `degraded_threshold_ms` / `down_threshold_ms` | Latency classification. The first must be below the second, or the degraded state is unreachable                                                               |
-| `value_unit` / `value_label`                  | What a measurement means, when the control reports one                                                                                                         |
-| `widget` / `widget_options`                   | Which chart draws it. Resolved against the web app's registry; an unknown id falls back rather than throwing                                                   |
-| `is_public`                                   | Internal controls never appear on the public page                                                                                                              |
-| `probe_policy`                                | `single` (one agent runs it) or `all` (every eligible agent does). Without this, every agent whose key covers a control ran the same probe                     |
-| `position`                                    | Order on the public page, set from the layout screen                                                                                                           |
+| Column                                        | Notes                                                                                                                                                             |
+| --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `key`                                         | Stable identifier used in URLs, scripts and alert labels. Constrained to `^[a-z0-9][a-z0-9._-]*$` — a space or quote in any of those places is a bug somewhere    |
+| `kind`                                        | `push` (fed by a script) or a probe: `http`/`tcp`/`ping`/`dns`/`cert`/`websocket` from the network, `docker`/`file`/`directory`/`uptime` from an agent's own host |
+| `config`                                      | The probe definition when `kind` is not `push`. Validated against `probeSchema`                                                                                   |
+| `expected_interval_s`                         | Silence longer than this makes the control `unknown`                                                                                                              |
+| `degraded_threshold_ms` / `down_threshold_ms` | Latency classification. The first must be below the second, or the degraded state is unreachable                                                                  |
+| `value_unit` / `value_label`                  | What a measurement means, when the control reports one                                                                                                            |
+| `widget` / `widget_options`                   | Which chart draws it. Resolved against the web app's registry; an unknown id falls back rather than throwing                                                      |
+| `is_public`                                   | Internal controls never appear on the public page                                                                                                                 |
+| `probe_policy`                                | `single` (one agent runs it) or `all` (every eligible agent does). Without this, every agent whose key covers a control ran the same probe                        |
+| `position`                                    | Order on the public page, set from the layout screen                                                                                                              |
 
 `(tenant_id, key)` is unique. A duplicate is reported as a conflict, not as a
 constraint error.
@@ -102,6 +102,70 @@ why the compose file pins `timescaledb-ha`.
 
 Compression after 1 day; a 740-day retention policy as a backstop under the
 per-tenant retention job.
+
+### How the availability figure is computed
+
+The published percentage is **time-weighted**: an outage costs the time it
+lasted. It used to be `sum(ok_samples) / sum(samples)` — a ratio of points — and
+that had two consequences a reader could not see. A ten-minute outage cost a
+control probed every ten seconds six hundred failed points and one probed every
+five minutes two, so the same outage on the same service published two very
+different figures; and changing a control's interval rewrote the meaning of its
+whole history, retroactively and silently.
+
+The rules live in `packages/shared/src/availability.ts`, deliberately away from
+any SQL: each of them is a decision somebody will one day disagree with, and
+each is testable without a database, a clock or a fixture server.
+
+| Case                    | Rule                                                                              | Why                                                                                                                                                                                                                                                                                                                 |
+| ----------------------- | --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Flapping**            | An outage counts after 2 consecutive failures, dated from the **first** of them   | One failed check is as often a dropped packet as a dead service. Dating the outage from the confirming check would hide one interval of _every_ real outage — a systematic bias, always in the flattering direction                                                                                                 |
+| **`push` controls**     | Silence is unavailability, after the declared interval plus one interval of grace | There is no failed check to observe: the nightly job simply did not run. Reading silence as unknown would publish 100% for a backup that has not run in a month                                                                                                                                                     |
+| **Planned maintenance** | Leaves the denominator                                                            | Counting it as available would let a page reach 100% by scheduling enough of it; counting it as unavailable would punish operators for announcing what they were about to do. `actual_*` is preferred over `scheduled_*`, so a window announced for two hours and finished in twenty minutes removes twenty minutes |
+| **Several agents**      | OR — down if any one of them says so                                              | If one vantage point cannot reach the service, the service is unreachable from somewhere. Averaging would let a healthy vantage point cancel a broken one                                                                                                                                                           |
+
+Two more decisions worth naming, because both changed what the number means:
+
+- **`degraded` counts as available.** The aggregates count only `operational` as
+  `ok_samples`, so a service that was up and slow lowered the published uptime.
+  That conflates two questions the page keeps apart everywhere else — the ribbon
+  says whether it worked, the latency band says how well — and it disagrees with
+  every tool a reader might compare against. `partial` still counts as down.
+- **Time nobody observed leaves the denominator.** Inventing uptime and
+  inventing downtime are both worse than admitting the agent was not reporting.
+
+#### What the aggregates cannot answer
+
+`computeAvailability` takes **intervals**, not points, and that is why: a raw
+check becomes an interval with one state, and an aggregate bucket becomes an
+interval with a mixture — nine checks passed and one failed, so a tenth of the
+hour. One counter serves both, so the four rules live in one place instead of
+being reimplemented per resolution, which is how a percentage comes to mean one
+thing for a day and another for a year.
+
+Two things are gone by the time a bucket exists, and neither is approximated
+quietly:
+
+- **Which agent.** The aggregates group by `control_id` alone, so the OR rule
+  applies only to the raw path.
+- **When, inside the bucket.** The endpoint returns `resolution` so a reader
+  comparing two windows knows which is sharper.
+
+#### What is published, versus what is computed
+
+`publishedUptime` rounds to three decimals — where the nines stop being
+distinguishable — and returns `100` when the measured downtime is shorter than
+one sample's worth of time. A control checked once a minute cannot resolve an
+outage shorter than a minute, and publishing `99.997%` from a single failed
+check states a precision the measurement does not have. The threshold is derived
+from the series, not from a constant: a constant would be right for one probing
+rate and wrong for every other, which is the mistake the check-weighted figure
+made. It rounds towards 100 and never towards 0 — shorter than the sampling is
+an artefact, longer than it is real.
+
+`availabilityTier` names the tier reached (99.999 / 99.99 / 99.95 / 99.9 / 99).
+It is a label on a measurement and never an SLA: `controls.sla_target` is the
+number somebody actually agreed to, and it is set deliberately.
 
 ## Identity and access
 

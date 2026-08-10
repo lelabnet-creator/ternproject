@@ -497,6 +497,44 @@ The ribbon is the default. Widgets needing history are unavailable on a page in
 live mode, and the live stream is unavailable on one keeping history — the
 gallery says which, rather than hiding them.
 
+### The uptime percentage changed meaning in 0.1.21
+
+If you have been reading this page for a while, the number under the ribbon is
+not computed the way it used to be, and it is worth knowing which way it moved.
+
+It used to be **a ratio of checks**: how many measurements said "up", out of how
+many were taken. It is now **a ratio of time**: how long the service was
+available, out of how long it was actually being watched.
+
+The difference is not academic. Under the old rule, a ten-minute outage cost a
+component checked every ten seconds six hundred failed points and one checked
+every five minutes two — same outage, same service, two very different
+percentages. Lengthening a component's interval also silently improved its
+whole history, because the past was re-divided by a smaller number.
+
+What you will most likely notice:
+
+- **Slow no longer counts as broken.** A component that was up but degraded used
+  to lower its uptime. It no longer does — the ribbon answers "did it work", and
+  the response-time band answers "how well". Most pages go slightly _up_.
+- **Time nobody measured is no longer counted as good.** A day when the agent
+  was offline used to quietly count as available. It is now left out of the
+  calculation entirely, and the bar for that day is drawn as "no record".
+- **Planned maintenance is left out**, and only for as long as it actually ran —
+  a window announced for two hours and finished in twenty minutes removes twenty
+  minutes, not two hours.
+- **A single failed check no longer opens a hole.** Two consecutive failures are
+  needed. When they do come, the outage is counted from the _first_ of them, not
+  from the one that confirmed it.
+- **A silent push component now counts against you.** A nightly job that stopped
+  running used to show as "unknown" and drop out of the figure. Silence is the
+  only signal a push component has, so it is now unavailability — a backup that
+  has not run in a month no longer reports 100%.
+
+Historical bars are redrawn under the new rule when the page is loaded; nothing
+is rewritten in the database, so switching back would restore the old figures
+exactly.
+
 ### Live mode, and which widgets suit it
 
 **Retention mode** is set in **Options**, and it is one choice with three
