@@ -18,6 +18,7 @@ import { previewOverrides } from './preview'
 import { TenantStyle } from './TenantStyle'
 import { communicationsPlacement, CustomLayout } from './CustomLayout'
 import { defaultBlocks, hasComponentsBlock, parseBlocks } from '@tern/shared/blocks'
+import { GroupPanes } from './GroupPanes'
 import { DemoBanner } from '../../components/DemoBanner'
 
 /**
@@ -243,6 +244,7 @@ export function StatusPage({ slug }: { slug: string }) {
               locale={locale}
               timeZone={timeZone}
               density={density}
+              compact={compact}
             />
           )}
         />
@@ -260,6 +262,7 @@ export function StatusPage({ slug }: { slug: string }) {
               locale={locale}
               timeZone={timeZone}
               density="list"
+              compact={compact}
             />
           </div>
         )}
@@ -305,24 +308,95 @@ export function StatusPage({ slug }: { slug: string }) {
           theme picker and a subscribe form. On a phone that is four screens of
           chrome before a single word about the service.
         */}
-        <Pulse data={data} logoUrl={logoUrl} locale={locale} timeZone={timeZone} showUpdatedAt />
+        {compact ? (
+          /*
+            The whole page, paginated — not only the component groups.
+            
+            The order is the order of the questions somebody asks: is it up,
+            what is being done about it, and then which parts. Each of those is
+            a pane, so none of them costs a scroll to reach, and the dots say
+            how many there are before the first swipe.
+          */
+          <GroupPanes
+            groups={[
+              {
+                id: 'overall',
+                name: null,
+                statuses: [data.overall.status],
+                content: (
+                  <Pulse
+                    data={data}
+                    logoUrl={logoUrl}
+                    locale={locale}
+                    timeZone={timeZone}
+                    showUpdatedAt
+                  />
+                ),
+              },
+              // Only when there is something to say. An empty pane teaches the
+              // reader that a dot may lead nowhere, and the next one they skip
+              // is the one that mattered.
+              ...(data.incidents.length > 0 || data.maintenances.length > 0
+                ? [
+                    {
+                      id: 'communications',
+                      name: 'Incidents & maintenance',
+                      statuses: [data.overall.status],
+                      content: communications,
+                    },
+                  ]
+                : []),
+              ...groupTree(data, preview.order).map(({ group, components }) => ({
+                id: group?.id ?? 'ungrouped',
+                name: group?.name ?? 'Components',
+                statuses: components.map((component) => component.status),
+                content: (
+                  <div style={layoutStyle(layout)}>
+                    {components.map((component) => (
+                      <ComponentCard
+                        key={component.id}
+                        component={component}
+                        days={daysFor(component)}
+                        locale={locale}
+                        timeZone={timeZone}
+                        layout={layout}
+                      />
+                    ))}
+                  </div>
+                ),
+              })),
+            ]}
+          />
+        ) : (
+          <>
+            <Pulse
+              data={data}
+              logoUrl={logoUrl}
+              locale={locale}
+              timeZone={timeZone}
+              showUpdatedAt
+            />
 
-        {/*
-          Above the components, because an incident is why most people opened
-          the page. The coloured tiles below say *which* things are wrong; this
-          says what is happening and what is being done, which is the part a
-          reader would otherwise go looking for on social media.
-        */}
-        {placement === 'above' && communications}
+            {/*
+              Above the components, because an incident is why most people
+              opened the page. The coloured tiles below say *which* things are
+              wrong; this says what is happening and what is being done, which
+              is the part a reader would otherwise go looking for on social
+              media.
+            */}
+            {placement === 'above' && communications}
 
-        <ComponentGrid
-          data={data}
-          order={preview.order}
-          days={daysFor}
-          locale={locale}
-          timeZone={timeZone}
-          density={layout}
-        />
+            <ComponentGrid
+              data={data}
+              order={preview.order}
+              days={daysFor}
+              locale={locale}
+              timeZone={timeZone}
+              density={layout}
+              compact={false}
+            />
+          </>
+        )}
 
         {/*
           After the components, at every width.
@@ -406,6 +480,7 @@ function ComponentGrid({
   locale,
   timeZone,
   density,
+  compact,
 }: {
   data: StatusSummary
   order?: string[]
@@ -413,10 +488,50 @@ function ComponentGrid({
   locale: string
   timeZone: string
   density: 'list' | 'grid' | 'compact'
+  /** Narrow enough to page through the groups instead of stacking them. */
+  compact: boolean
 }) {
+  const tree = groupTree(data, order)
+
+  /*
+   * Sideways on a phone, stacked everywhere else.
+   *
+   * Five groups down a 390px screen is five screens of scrolling to learn what
+   * is working. Paging through them is the native answer for content that is
+   * peer rather than sequential — and `GroupPanes` carries the reasons it is
+   * tabs-plus-swipe rather than swipe alone.
+   */
+  if (compact && tree.length > 1) {
+    return (
+      <div data-tern="components">
+        <GroupPanes
+          groups={tree.map(({ group, components }) => ({
+            id: group?.id ?? 'ungrouped',
+            name: group?.name ?? null,
+            statuses: components.map((component) => component.status),
+            content: (
+              <div style={layoutStyle(density)}>
+                {components.map((component) => (
+                  <ComponentCard
+                    key={component.id}
+                    component={component}
+                    days={days(component)}
+                    locale={locale}
+                    timeZone={timeZone}
+                    layout={density}
+                  />
+                ))}
+              </div>
+            ),
+          }))}
+        />
+      </div>
+    )
+  }
+
   return (
     <div data-tern="components">
-      {groupTree(data, order).map(({ group, components }) => (
+      {tree.map(({ group, components }) => (
         <section key={group?.id ?? 'ungrouped'} className="page-group">
           {group && (
             <h2
