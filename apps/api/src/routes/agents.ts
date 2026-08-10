@@ -414,8 +414,18 @@ const routes: FastifyPluginAsyncZod = async (app) => {
            * offering as the one to reach the relay on.
            */
           listen: z.string().max(255).optional(),
-          /** Every address it could be dialled on. Bounded, and it is short. */
-          addresses: z.array(z.string().max(64)).max(16).optional(),
+          /**
+           * Every address it could be dialled on.
+           *
+           * `.catch` and not a plain refusal: this is a convenience, and a
+           * convenience must never cost the inventory. A cap of sixteen looked
+           * generous until a relay on a Docker host reported twenty-four — the
+           * whole declaration was then refused with a 400, every five minutes,
+           * and the fleet showed an empty zone with nothing to explain it. A
+           * list that will not fit is dropped; the agents behind the relay are
+           * what this request is for.
+           */
+          addresses: z.array(z.string().max(64)).max(64).optional().catch(undefined),
         }),
         response: { 200: z.object({ known: z.number() }) },
       },

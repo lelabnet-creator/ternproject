@@ -886,6 +886,44 @@ describe('a proxy declaring its zone', () => {
     expect(rows.find((row) => row.id === proxy.id)?.zoneAddress).toBe('192.168.1.170:8787')
   })
 
+  it('keeps the zone when the address list is unusable', async () => {
+    /*
+     * The failure this comes from: a relay on a Docker host reported
+     * twenty-four addresses, one per container network. The list was capped at
+     * sixteen, the whole declaration was refused with a 400 every five minutes,
+     * and the fleet showed an empty zone with nothing on screen to explain it.
+     *
+     * The addresses are a convenience; the agents are the point. A list that
+     * will not fit is dropped, and the machines behind the relay still arrive.
+     */
+    const proxy = await pairAs('proxy/0.1.0')
+    const tooMany = Array.from({ length: 200 }, (_, i) => `10.0.0.${i % 255}`)
+
+    const declared = await fx.app.inject({
+      method: 'POST',
+      url: '/api/v1/agent/zone',
+      headers: { authorization: `Bearer ${proxy.key}` },
+      payload: {
+        agents: [{ name: 'zone-a', lastSeenUnix: null, ip: null }],
+        listen: '10.0.0.1:38787',
+        addresses: tooMany,
+      },
+    })
+
+    expect(declared.statusCode).toBe(200)
+    expect(declared.json().known).toBe(1)
+
+    const rows = (await fleet()) as unknown as {
+      id: string
+      zoneAddress: string | null
+      zoneAddresses: string[]
+    }[]
+    const row = rows.find((r) => r.id === proxy.id)
+    // The address it binds still lands — only the oversized list is dropped.
+    expect(row?.zoneAddress).toBe('10.0.0.1:38787')
+    expect(row?.zoneAddresses).toEqual([])
+  })
+
   it('leaves it null for a relay too old to say', async () => {
     // A relay deployed before this release sends no such field, and must keep
     // working — the admin falls back to its guess and labels it as one.

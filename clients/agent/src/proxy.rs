@@ -223,8 +223,32 @@ pub fn routable_addresses() -> Vec<String> {
         return Vec::new();
     };
 
+    // Virtual bridges are left out by name. A machine running containers has
+    // one gateway per network — twenty-four addresses on the host this was
+    // found on, of which two were reachable from anywhere else. Offering the
+    // rest as somewhere to dial a relay is worse than offering nothing: it is
+    // twenty wrong answers among two right ones, and the reader has no way to
+    // tell which is which.
+    //
+    // By name and not by range, because 172.16/12 and 192.168/16 are ordinary
+    // private networks that a real zone may well live on.
+    let virtual_prefixes = [
+        "docker",
+        "br-",
+        "virbr",
+        "veth",
+        "cni",
+        "flannel",
+        "tailscale",
+    ];
+
     let mut out: Vec<String> = interfaces
         .iter()
+        .filter(|interface| {
+            !virtual_prefixes
+                .iter()
+                .any(|prefix| interface.name.starts_with(prefix))
+        })
         .filter_map(|interface| match interface.ip() {
             std::net::IpAddr::V4(address) if !address.is_loopback() && !address.is_link_local() => {
                 Some(address.to_string())
