@@ -130,19 +130,17 @@ const routes: FastifyPluginAsyncZod = async (app) => {
               /** Refuses every write. Travels with `isDemo`; not only with it. */
               readOnly: z.boolean(),
               /**
-               * The stylesheet a `custom` layout applies to itself, and null for
-               * every other layout — there is no reason to put a hundred
-               * kilobytes of someone's unused draft on the path every visitor
-               * hits.
-               *
-               * CSS only. The `customHtml` and `customJs` columns still exist
-               * and are still written by the admin's older payloads, but the
-               * public page no longer renders a tenant document: the page it
-               * used to be embedded in is now arranged out of blocks, and a
-               * stylesheet is what was actually being asked for. See
-               * `TenantStyle.tsx` for the whole of that reasoning.
+               * The document a `custom` layout renders, and null for every
+               * other layout — there is no reason to put a hundred kilobytes of
+               * someone's unused draft on the path every visitor hits.
                */
-              custom: z.object({ css: z.string() }).nullable(),
+              custom: z
+                .object({
+                  html: z.string(),
+                  css: z.string(),
+                  js: z.string(),
+                })
+                .nullable(),
               /** Blocks on a grid. The arrangement *is* the page in `custom`. */
               customBlocks: z.array(z.unknown()),
               branding: z.record(z.string(), z.unknown()),
@@ -390,7 +388,14 @@ const routes: FastifyPluginAsyncZod = async (app) => {
           isDemo: tenantRow.isDemo,
           readOnly: tenantRow.readOnly,
           customBlocks: tenantRow.layout === 'custom' ? tenantRow.customBlocks : [],
-          custom: tenantRow.layout === 'custom' ? { css: tenantRow.customCss ?? '' } : null,
+          custom:
+            tenantRow.layout === 'custom'
+              ? {
+                  html: tenantRow.customHtml ?? '',
+                  css: tenantRow.customCss ?? '',
+                  js: tenantRow.customJs ?? '',
+                }
+              : null,
           branding: tenantRow.branding,
         },
         overall: {
