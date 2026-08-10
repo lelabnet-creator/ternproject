@@ -112,11 +112,20 @@ describe('the relay card', () => {
     expect(html).toContain('never paired these')
   })
 
-  it('says where a zone PIN comes from, and why it cannot come from here', () => {
-    // The limit that makes the zone safe, and the command that works with it.
-    // Without this the screen offers no way at all to add an agent behind a
-    // relay, which is what it looked like before.
-    expect(html).toContain('cannot mint a PIN for a zone')
+  it('points at the one place that adds a machine behind it', () => {
+    /*
+     * This used to assert the opposite — that TERN could not mint a PIN for a
+     * zone — which was true when it was written and stopped being true one
+     * release later, when the relay started redeeming a code from here. The
+     * assertion outlived the fact, and the paragraph it guarded went on
+     * sending people to a config path that exists on one machine.
+     */
+    expect(html).not.toContain('cannot mint a PIN for a zone')
+    expect(html).toContain('An agent behind a relay')
+    // The property that did not change, which is the one worth keeping said.
+    expect(html).toContain('never holds a key to this server')
+    // And the way out when the relay cannot ask: still there, now as the
+    // exception rather than the rule.
     expect(html).toContain('tern-proxy pin')
   })
 })

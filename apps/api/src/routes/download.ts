@@ -217,8 +217,9 @@ L1="Picking the binary for this machine"
 L2="Downloading"
 L3="Pairing"
 L4="Registering to start at boot"
-M1="  "; M2="  "; M3="  "; M4="  "
+M1=" "; M2=" "; M3=" "; M4=" "
 DRAWN=0
+DONE=0
 OK="✓"
 GOING="›"
 
@@ -241,13 +242,33 @@ trap 'exec 1>&3 3>&-; if [ -s "$HELD" ]; then cat "$HELD"; fi; rm -f "$HELD"' EX
 
 draw_list() {
   [ "$TTY" = 1 ] || return 0
-  # Back over the five lines drawn last time — the title and the four steps.
-  if [ "$DRAWN" = 1 ]; then printf '\\033[5A' >&3; fi
-  printf '  %s\\033[K\\n' "$BIN" >&3
-  printf '  %s %s\\033[K\\n' "$M1" "$L1" >&3
-  printf '  %s %s\\033[K\\n' "$M2" "$L2" >&3
-  printf '  %s %s\\033[K\\n' "$M3" "$L3" >&3
-  printf '  %s %s\\033[K\\n' "$M4" "$L4" >&3
+  # Back over the eight lines drawn last time: title, four steps, a blank, the
+  # counter, and the closing rule.
+  if [ "$DRAWN" = 1 ]; then printf '\\033[8A' >&3; fi
+
+  # The same frame tern-setup draws, in the same characters, because the two
+  # are the same product seen a minute apart — one installs the instance, the
+  # other installs what reports to it, and a reader should not have to notice
+  # they were written by different tools.
+  # Both binaries are ten characters, so one dash run closes the title for
+  # either — checked rather than assumed, since a mismatched rule is the first
+  # thing an eye catches in a box.
+  printf '\\033[K\\n' >&3
+  printf '◇  Installing %s ─────────────────────────╮\\033[K\\n' "$BIN" >&3
+  printf '│  %s  %-44s│\\033[K\\n' "$M1" "$L1" >&3
+  printf '│  %s  %-44s│\\033[K\\n' "$M2" "$L2" >&3
+  printf '│  %s  %-44s│\\033[K\\n' "$M3" "$L3" >&3
+  printf '│  %s  %-44s│\\033[K\\n' "$M4" "$L4" >&3
+
+  # Filled cells out of sixteen, from the number of steps finished.
+  bar=""
+  i=0
+  while [ "$i" -lt 16 ]; do
+    if [ $((i * 4)) -lt $((DONE * 16)) ]; then bar="$bar■"; else bar="$bar□"; fi
+    i=$((i + 1))
+  done
+  printf '│  Step %s of 4  %s  %3s%%            │\\033[K\\n' "$DONE" "$bar" "$((DONE * 25))" >&3
+  printf '├─────────────────────────────────────────────────╯\\033[K\\n' >&3
   DRAWN=1
 }
 
@@ -259,6 +280,7 @@ mark() {
     3) M3="$2" ;;
     4) M4="$2" ;;
   esac
+  if [ "$2" = "$OK" ]; then DONE="$1"; fi
   if [ "$TTY" = 1 ]; then
     draw_list
   else
@@ -475,13 +497,24 @@ UNIT_EOF
 
   if [ "$(id -u)" = 0 ]; then
     systemctl daemon-reload
-    systemctl enable --now "$BIN.service"
+    # enable, then restart — not "enable --now".
+    #
+    # The --now flag starts a unit that is stopped and does nothing at all to
+    # one that is already running. Re-running this installer then left the previous
+    # process serving the previous config: the old port, the old keys. The
+    # screen said the service was registered, which reads as "running what you
+    # just wrote", and an agent paired against it was refused by a relay still
+    # holding yesterday's inventory.
+    systemctl enable "$BIN.service"
+    systemctl restart "$BIN.service"
     echo "✓ Registered with systemd — starts at boot."
     echo "  Status: systemctl status $BIN"
     echo "  Logs:   journalctl -u $BIN -f"
   else
     systemctl --user daemon-reload
-    systemctl --user enable --now "$BIN.service"
+    # See the note above: restart, so a second install actually takes effect.
+    systemctl --user enable "$BIN.service"
+    systemctl --user restart "$BIN.service"
 
     # Without lingering, a user unit stops when the last session closes and
     # does not come back until somebody logs in — which on a server is never.

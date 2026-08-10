@@ -119,6 +119,25 @@ describe('the shell installer', () => {
     expect(script).toContain('The command to run on a machine in this zone was printed above')
   })
 
+  it('restarts a service that was already running', () => {
+    /*
+     * `enable --now` starts a stopped unit and does nothing to a running one.
+     * A second install therefore left the previous process serving the previous
+     * config — old port, old keys — while the screen said the service was
+     * registered. An agent paired against that relay was then refused by it,
+     * with a 401 that pointed at everything except the cause.
+     *
+     * OpenRC and launchd already restarted; systemd was the odd one out, and
+     * the common one.
+     */
+    expect(script).toContain('systemctl restart "$BIN.service"')
+    expect(script).toContain('systemctl --user restart "$BIN.service"')
+    // The command, not the prose: the comment above it in the script names the
+    // flag it stopped using, and a test that forbade the words would forbid
+    // explaining the decision.
+    expect(script).not.toMatch(/systemctl (--user )?enable --now/)
+  })
+
   it('can be told not to touch the boot configuration', () => {
     expect(script).toContain('--no-service')
   })

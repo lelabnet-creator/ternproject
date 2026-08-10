@@ -1116,13 +1116,32 @@ export function AgentRow({
                 revoke them — the relay does, and rewrites this list every time it reports.{' '}
               </>
             )}
-            TERN cannot mint a PIN for a zone. The relay issues its own, on its own machine, which
-            is what keeps a compromised host in the zone from ever holding a credential for this
-            server. To add an agent behind this relay, run there:
+            {/*
+              This said the opposite until it was left behind by its own
+              feature: that TERN could not mint a PIN for a zone, and that the
+              only way in was to run a command on the relay. That stopped being
+              true when the relay started redeeming a code from here, and the
+              paragraph went on sending people to a config path that exists on
+              one machine — while the panel above had grown the button that does
+              the whole thing.
+            */}
+            To add one, press <strong>Add an agent</strong> above and choose{' '}
+            <strong>An agent behind a relay</strong>. It gives you a line to run on the isolated
+            machine, with this relay&rsquo;s address already in it.
           </p>
-          <CodeBlock label={`On ${agent.name}`}>
-            tern-proxy pin --config /etc/tern/proxy.toml
-          </CodeBlock>
+          <p
+            style={{
+              margin: 0,
+              fontSize: 'var(--text-xs)',
+              color: 'var(--color-fg-subtle)',
+              lineHeight: 1.6,
+            }}
+          >
+            The machine never holds a key to this server: the relay redeems the code over its own
+            connection and issues one of its own, so a compromised host in the zone has nothing to
+            replay here. If this relay cannot reach TERN at that moment, mint a code on the relay
+            itself with <code>tern-proxy pin</code>.
+          </p>
         </div>
       )}
 
