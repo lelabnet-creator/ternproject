@@ -179,7 +179,24 @@ async fn main() -> Result<()> {
                 );
             }
 
-            println!("Then: tern-agent run --config {}", path.display());
+            /*
+             * Its own path, not its own name.
+             *
+             * The installer puts this binary in `~/.local/bin`, which is on
+             * nobody's PATH by default on a server — it says so, two lines
+             * above. Printing a bare `tern-agent run` right underneath that
+             * warning is how somebody ends up at `command not found` with
+             * nothing to connect it to, and it happened.
+             *
+             * `current_exe` and not the argv name: a relative invocation would
+             * otherwise be echoed back as a relative path, which stops working
+             * the moment the reader is in a different directory — which they
+             * will be, since this line is meant to be run later.
+             */
+            let me = std::env::current_exe()
+                .map(|p| p.display().to_string())
+                .unwrap_or_else(|_| "tern-agent".to_string());
+            println!("Then: {me} run --config {}", path.display());
             Ok(())
         }
 

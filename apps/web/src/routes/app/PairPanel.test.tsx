@@ -1,6 +1,18 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
+import type { Agent } from '../../lib/adminApi'
+
+/*
+ * Two relays, so the picker has something to pick between — and so the case
+ * that matters is covered: telling apart two machines whose names came from
+ * their hostnames.
+ */
+const RELAYS: Partial<Agent>[] = [
+  { id: 'r1', name: 'dmz-proxy', role: 'proxy', pairedIp: '192.168.10.4', status: 'active' },
+  { id: 'r2', name: 'dmz-proxy', role: 'proxy', pairedIp: '192.168.20.9', status: 'active' },
+  { id: 'a1', name: 'an-agent', role: 'agent', pairedIp: '10.0.0.2', status: 'active' },
+]
 
 /*
  * The panel reads `window.location.origin` — the installer is served by the
@@ -14,7 +26,7 @@ Object.defineProperty(globalThis, 'window', {
   configurable: true,
 })
 
-const { PairPanel, PairCommands } = await import('./FleetScreen')
+const { PairPanel, PairCommands, RelayPicker } = await import('./FleetScreen')
 
 /**
  * Adding a relay from the same panel that adds an agent.
@@ -145,5 +157,53 @@ describe('a machine behind a relay', () => {
     )
     expect(direct).not.toContain('--server')
     expect(direct).toContain('curl -fsSL https://status.example.com/install.sh')
+  })
+})
+
+/**
+ * Choosing the relay from a list rather than typing its address.
+ *
+ * Rendered directly, because the panel opens on "An agent" and a static render
+ * cannot click the third option. A test that could not reach the thing it names
+ * would assert nothing — which is what the first version of this did.
+ */
+describe('picking a relay', () => {
+  const html = renderToStaticMarkup(
+    <RelayPicker
+      relays={RELAYS.filter((r) => r.role === 'proxy') as Agent[]}
+      chosenId="r2"
+      origin="http://192.168.20.9:8787"
+      onPick={() => {}}
+      onAddress={() => {}}
+    />,
+  )
+
+  it('tells apart two relays that share a name', () => {
+    // They are named after their hosts, so this is the ordinary case rather
+    // than the odd one — and the address is the only thing separating them.
+    expect(html).toContain('192.168.10.4')
+    expect(html).toContain('192.168.20.9')
+    expect(html.match(/dmz-proxy/g)).toHaveLength(2)
+  })
+
+  it('shows the one that is chosen, not the first in the list', () => {
+    // A picker that displays r1 while the command is built from r2 installs
+    // into the wrong zone and looks right doing it.
+    expect(html).toContain('value="r2"')
+    expect(html).toContain('http://192.168.20.9:8787')
+  })
+
+  it('says when it has no address to offer', () => {
+    const unknown = renderToStaticMarkup(
+      <RelayPicker
+        relays={[{ id: 'x', name: 'silent', role: 'proxy', pairedIp: null } as Agent]}
+        chosenId="x"
+        origin=""
+        onPick={() => {}}
+        onAddress={() => {}}
+      />,
+    )
+    // Rather than an empty dash, which reads as a rendering fault.
+    expect(unknown).toContain('address unknown')
   })
 })

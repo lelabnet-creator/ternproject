@@ -2,7 +2,16 @@ import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { adminApi, ApiError, type Agent } from '../../lib/adminApi'
 import { AgentGalaxy, freshnessOf } from '../../charts/AgentGalaxy'
-import { Banner, Button, Card, CodeBlock, EmptyState, Field, Input } from '../../components/ui'
+import {
+  Banner,
+  Button,
+  Card,
+  CodeBlock,
+  EmptyState,
+  Field,
+  Input,
+  Select,
+} from '../../components/ui'
 
 /**
  * The fleet.
@@ -218,6 +227,61 @@ export function rootsOf(agents: Agent[]): Agent[] {
  * `--proxy` to the wrong line installs a relay where somebody wanted an agent,
  * and they find out at the far end of an install.
  */
+/**
+ * Which relay, and at what address.
+ *
+ * Its own component for the reason `PairCommands` is: it can then be rendered
+ * without a query, a click or a server, which is the only way to hold it to
+ * what it claims.
+ *
+ * Two fields and not one. The name is something this server knows; the address
+ * is something it guesses — it holds where each relay paired *from*, which is
+ * where it serves on an ordinary single-homed machine and is not on one with
+ * two cards. So one is a choice and the other stays typeable.
+ */
+export function RelayPicker({
+  relays,
+  chosenId,
+  origin,
+  onPick,
+  onAddress,
+}: {
+  relays: Agent[]
+  chosenId: string
+  origin: string
+  onPick: (id: string) => void
+  onAddress: (address: string) => void
+}) {
+  return (
+    <div style={{ display: 'grid', gap: 'var(--space-3)' }}>
+      <Field label="Through this relay" hint="Which one stands in front of that machine.">
+        <Select value={chosenId} onChange={(e) => onPick(e.target.value)}>
+          {relays.map((relay) => (
+            <option key={relay.id} value={relay.id}>
+              {/* The address beside the name: relays are named after their
+                  hosts, so two of them can share a name and be told apart only
+                  by where they answer. */}
+              {relay.name}
+              {relay.pairedIp ? ` — ${relay.pairedIp}` : ' — address unknown'}
+            </option>
+          ))}
+        </Select>
+      </Field>
+
+      <Field
+        label="At this address"
+        hint="Where the isolated machine reaches it. Taken from where the relay paired — change it if it serves the zone on another card."
+      >
+        <Input
+          value={origin}
+          placeholder="http://192.168.10.4:8787"
+          onChange={(e) => onAddress(e.target.value)}
+        />
+      </Field>
+    </div>
+  )
+}
+
 export function PairCommands({
   origin,
   pin,
@@ -296,9 +360,28 @@ export function PairPanel({ slug, onDone }: { slug: string; onDone: () => void }
   })
   const relays = (fleet.data ?? []).filter((a) => a.role === 'proxy' && a.status !== 'revoked')
 
+  /*
+   * Which relay, and at what address.
+   *
+   * Two states rather than one, because they answer different questions and
+   * only the first can be offered as a list: this server knows its relays by
+   * name, and knows the address each one paired *from* — which is a good guess
+   * at where it serves and not a fact. Picking a relay fills the address;
+   * typing over the address does not un-pick the relay.
+   */
+  const [chosenId, setChosenId] = useState<string | null>(null)
   const [via, setVia] = useState<string | null>(null)
-  const suggested = relays.find((r) => r.pairedIp)?.pairedIp
-  const zoneOrigin = via ?? (suggested ? `http://${suggested}:8787` : '')
+  const chosen = relays.find((r) => r.id === chosenId) ?? relays[0]
+  const suggested = chosen?.pairedIp ? `http://${chosen.pairedIp}:8787` : ''
+  const zoneOrigin = via ?? suggested
+
+  const pickRelay = (id: string) => {
+    setChosenId(id)
+    // The address follows the choice: a field still holding the previous
+    // relay's address after picking another is a command that installs into
+    // the wrong zone, and it looks right.
+    setVia(null)
+  }
 
   return (
     <Card>
@@ -358,16 +441,13 @@ export function PairPanel({ slug, onDone }: { slug: string; onDone: () => void }
               run its command on the machine that <em>can</em> reach here.
             </Banner>
           ) : (
-            <Field
-              label="Through this relay"
-              hint="The address the isolated machine can reach it on. Filled in from where it paired; change it if the relay serves the zone on another card."
-            >
-              <Input
-                value={zoneOrigin}
-                placeholder="http://192.168.10.4:8787"
-                onChange={(e) => setVia(e.target.value)}
-              />
-            </Field>
+            <RelayPicker
+              relays={relays}
+              chosenId={chosen?.id ?? ''}
+              origin={zoneOrigin}
+              onPick={pickRelay}
+              onAddress={setVia}
+            />
           )}
         </div>
       )}

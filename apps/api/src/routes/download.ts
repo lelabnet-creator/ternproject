@@ -214,16 +214,35 @@ L3="Pairing"
 L4="Registering to start at boot"
 M1="  "; M2="  "; M3="  "; M4="  "
 DRAWN=0
+OK="✓"
+GOING="›"
+
+# Everything else printed from here on is held back until the list has stopped
+# moving, and shown in one go after it.
+#
+# Not a nicety. Pairing prints a block of its own, and registering a service
+# prints several lines more; a list redrawn above them walks straight over what
+# they said. That is how the line naming where the binary landed vanished from
+# the one screen that needed it, leaving somebody with a command not found and
+# nothing to connect it to.
+#
+# fd 3 is the terminal, kept aside for the list alone. The trap flushes whatever
+# way this ends — a failure's reason is in there too, and losing it would be far
+# worse than losing a progress display.
+HELD="\${TMPDIR:-/tmp}/tern-install.$$"
+exec 3>&1
+exec > "$HELD" 2>&1
+trap 'exec 1>&3 3>&-; if [ -s "$HELD" ]; then cat "$HELD"; fi; rm -f "$HELD"' EXIT
 
 draw_list() {
   [ "$TTY" = 1 ] || return 0
   # Back over the five lines drawn last time — the title and the four steps.
-  [ "$DRAWN" = 1 ] && printf '\\033[5A'
-  printf '  %s\\033[K\\n' "$BIN"
-  printf '  %s %s\\033[K\\n' "$M1" "$L1"
-  printf '  %s %s\\033[K\\n' "$M2" "$L2"
-  printf '  %s %s\\033[K\\n' "$M3" "$L3"
-  printf '  %s %s\\033[K\\n' "$M4" "$L4"
+  if [ "$DRAWN" = 1 ]; then printf '\\033[5A' >&3; fi
+  printf '  %s\\033[K\\n' "$BIN" >&3
+  printf '  %s %s\\033[K\\n' "$M1" "$L1" >&3
+  printf '  %s %s\\033[K\\n' "$M2" "$L2" >&3
+  printf '  %s %s\\033[K\\n' "$M3" "$L3" >&3
+  printf '  %s %s\\033[K\\n' "$M4" "$L4" >&3
   DRAWN=1
 }
 
@@ -239,20 +258,12 @@ mark() {
     draw_list
   else
     # One line, and only when a step is finished: a "started" line for every
-    # step doubles the length of a log that nobody reads until something breaks.
+    # step doubles the length of a log nobody reads until something breaks.
     case "$2" in
-      "$OK") eval "printf '  %s %s\\n' \\"$2\\" \\"\\$L$1\\"" ;;
+      "$OK") eval "printf '  %s %s\\n' \\"$2\\" \\"\\$L$1\\"" >&3 ;;
     esac
   fi
 }
-
-OK="✓"
-GOING="›"
-
-# Declared here and not inside the pairing branch: this script runs with unset
-# variables treated as errors, and the printer below is reachable from a path
-# that never paired.
-JOINED=""
 
 os=$(uname -s)
 arch=$(uname -m)
@@ -332,30 +343,16 @@ mkdir -p "$CONF_DIR" "$STATE_DIR"
 # the address it will serve on, so it walks the same path from this line down.
 if [ -n "$PIN" ]; then
   mark 3 "$GOING"
-  # Captured rather than shown as it happens: pairing prints a block of its own —
-  # what it paired with, where the config went, the command for the next machine
-  # — and a list being redrawn above it would walk over those lines. Held here
-  # and printed once the list is finished, which is also where somebody reading
-  # the screen expects to find it.
-  JOINED="$STATE_DIR/pairing.out"
+  echo
+  # Its own block — what it paired with, where the config went, the command for
+  # the next machine — lands in the held buffer with everything else, so the
+  # list above can keep moving without walking over it.
+  #
   # Only the relay has an interface to choose; tern-agent would refuse the flag.
   if [ "$BIN" = "tern-proxy" ] && [ -n "$IFACE" ]; then
-    set +e
-    "$DEST/$BIN" $JOIN --server "$SERVER" --pin "$PIN" --config "$CONF" --interface "$IFACE" > "$JOINED" 2>&1
-    joined=$?
-    set -e
+    "$DEST/$BIN" $JOIN --server "$SERVER" --pin "$PIN" --config "$CONF" --interface "$IFACE"
   else
-    set +e
-    "$DEST/$BIN" $JOIN --server "$SERVER" --pin "$PIN" --config "$CONF" > "$JOINED" 2>&1
-    joined=$?
-    set -e
-  fi
-  if [ "$joined" != 0 ]; then
-    mark 3 "×"
-    echo
-    cat "$JOINED" >&2
-    rm -f "$JOINED"
-    exit 1
+    "$DEST/$BIN" $JOIN --server "$SERVER" --pin "$PIN" --config "$CONF"
   fi
   mark 3 "$OK"
 else
@@ -365,16 +362,7 @@ else
   exit 0
 fi
 
-# What pairing said, once the list above has stopped moving.
-show_pairing() {
-  if [ -n "$JOINED" ] && [ -f "$JOINED" ]; then
-    echo
-    cat "$JOINED"
-    rm -f "$JOINED"
-  fi
-}
-
-[ "$SERVICE" = 1 ] || { show_pairing; exit 0; }
+[ "$SERVICE" = 1 ] || exit 0
 
 mark 4 "$GOING"
 
@@ -558,7 +546,6 @@ else
 fi
 
 mark 4 "$OK"
-show_pairing
 
 # ICMP without root, which is what \`ping\` controls need. Said only where it
 # applies: root already has it, and macOS allows it unprivileged.

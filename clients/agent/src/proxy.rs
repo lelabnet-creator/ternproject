@@ -990,8 +990,15 @@ pub async fn init(
     );
     println!("  Wrote {} (readable only by you)", config_path.display());
     println!();
+    // Its own path, not its own name: the installer puts this in ~/.local/bin,
+    // which is on nobody's PATH by default on a server — and a bare name
+    // printed under that warning is a `command not found` waiting to happen.
+    let me = std::env::current_exe()
+        .map(|p| p.display().to_string())
+        .unwrap_or_else(|_| "tern-proxy".to_string());
+
     println!("Next:");
-    println!("  tern-proxy run   --config {}", config_path.display());
+    println!("  {me} run --config {}", config_path.display());
     println!();
 
     /*
@@ -1020,7 +1027,7 @@ pub async fn init(
     println!();
     println!("  <PIN> comes from the admin, under Agents. If this relay cannot reach");
     println!("  TERN at that moment, mint one here instead:");
-    println!("      tern-proxy pin --config {}", config_path.display());
+    println!("      {me} pin --config {}", config_path.display());
     Ok(())
 }
 
