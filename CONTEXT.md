@@ -2,23 +2,22 @@
 
 ## Current Task
 
-Rien en cours. `v0.1.14` est taguée. Elle répond à « comment une machine sans
-route vers TERN envoie-t-elle ses mesures à travers une autre » : le relais sert
-l'installateur et les binaires de sa zone, `install.sh` gagne `--server`,
-`tern-proxy pin` imprime la une-ligne, et la carte du relais montre les machines
-derrière lui. Vert : 772 tests JS, 54 côté agent.
+Rien en cours. `v0.1.15` est taguée. Elle apporte `sh setup.sh --upgrade-only`
+et `--check` : redéployer l'image sur la configuration en place, ou savoir si une
+plus récente existe — sans question, donc par ssh et depuis cron. Vert : 772
+tests JS, 75 côté installateur, 54 côté agent.
 
 ## Key Decisions
 
-- L'autorisation du HTTP en clair est décidée **par le script, à l'exécution**.
-  Gravée à la génération, elle répondait pour l'adresse de TERN alors que
-  `--server` vise celle d'un relais que l'instance ne connaît pas.
-- Le relais relaie l'installation sans cache et sans réécriture : c'est
-  `--server` qui ramène l'installation vers lui. La seule route qui prend un nom
-  dans la requête est gardée par une liste de formes.
-- Un agent de zone n'apparaît qu'une fois, dans la carte de son relais — mais un
-  orphelin reste au premier niveau : un relais absent ne doit pas faire
-  disparaître une machine de l'écran qui dit lesquelles existent.
+- `setup.sh` passait déjà `"$@"` depuis toujours ; c'est `tern-setup` qui ne
+  lisait aucun argument et les ignorait en silence. Il refuse désormais une
+  option inconnue plutôt que de dérouler une installation complète.
+- Les versions sont lues sur l'image, par le label OCI et `docker inspect
+  --format` : ce binaire n'a ni client HTTP ni parseur JSON, délibérément. La
+  version en service vient du **conteneur**, pas de la référence.
+- `--check` interroge `:latest` et non la référence configurée — épinglée, une
+  instance se comparerait à elle-même et se dirait à jour pour toujours.
+  `--upgrade-only` respecte l'épinglage, et le dit.
 
 ## Next Steps
 
