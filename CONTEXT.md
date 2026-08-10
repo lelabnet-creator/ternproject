@@ -2,26 +2,28 @@
 
 ## Current Task
 
-Rien en cours. `v0.1.16` est taguée. Deux corrections tirées de l'usage : un
-relais s'installe désormais sur une adresse que sa zone peut joindre, et le mode
-`custom` d'une page part d'un exemple au lieu de trois champs vides. Vert : 776
-tests JS, 56 côté agent, 75 côté installateur.
+Rien en cours. `v0.1.17` est taguée. Une machine sans route vers TERN s'installe
+maintenant en une commande copiée depuis l'admin : le PIN vient d'ici, le relais
+le rachète en amont, et tout le reste passe par lui. Les trois installateurs
+montrent une liste d'étapes qui se remplit. Vert : 785 tests JS, 56 côté agent,
+75 côté installateur.
 
 ## Key Decisions
 
-- `listen` d'un `proxy.toml` neuf porte l'adresse de l'interface qui parle déjà
-  à TERN, lue dans la table de routage. `--interface` en désigne une autre.
-  Loopback ne servait personne ; `0.0.0.0` n'aurait rien dit à un lecteur.
-- Le document d'exemple vit dans `@tern/shared/custom-document`, d'où la démo
-  **et** l'éditeur le tirent. Un exemple qui diverge de la démo serait pire que
-  pas d'exemple : la démo est où l'on regarde d'abord.
-- Le brouillon n'est pré-rempli qu'une fois, gardé par un `ref` : qui vide les
-  trois champs délibérément ne doit pas les voir se réécrire.
+- Un PIN émis par TERN est **racheté par le relais** (`/agent/zone/redeem`,
+  authentifié comme le relais, refusé aux non-proxy). La réponse ne porte
+  aucune clé : l'agent de zone reçoit celle du relais, sans valeur en amont.
+  C'est ce qui rend la commande copiable sans rien céder.
+- Le rendu animé retombe en lignes simples quand la sortie n'est pas un
+  terminal. `Checklist` le décidait déjà seul ; `install.sh` teste la sortie
+  standard et non l'entrée, qu'un `curl | sh` occupe de toute façon.
+- La sortie d'appairage est capturée puis restituée après la liste : elle porte
+  la commande pour la machine suivante, et un redessin lui passerait dessus.
 
 ## Next Steps
 
-- La recette VM avec un **isolement réel** reste à jouer. Les deux scripts sont
-  écrits (`.vm-lab/zone-firewall.sh`, `check-connectivity.sh`) et une mesure
-  d'avant-coupure est prise ; il manque l'appairage du relais.
+- La recette VM avec isolement réel reste à jouer — scripts posés
+  (`.vm-lab/zone-firewall.sh`, `check-connectivity.sh`), mesure d'avant-coupure
+  prise, appairage du relais à faire.
 - Le service worker sert un bundle périmé après une mise à jour.
 - Aucun test serveur pour HTTP, TCP, DNS ; `ping` couvert par son seul checksum.
