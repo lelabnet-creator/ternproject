@@ -23,6 +23,7 @@ use tern_setup::journal::Journal;
 use tern_setup::probe::{self, PackageManager};
 use tern_setup::run;
 use tern_setup::theme;
+use tern_setup::upgrade::{self, Mode, Verdict};
 
 /// The compose file is the only other file an install needs, and this binary
 /// fetches it when it is missing. Cloning the repository is only worth it in
@@ -62,6 +63,12 @@ const HEALTH_PROBE: &str = "fetch('http://127.0.0.1:'+(process.env.API_PORT||301
 const VOLUME_PROBE: &str =
     r#"test -s "$PGDATA/PG_VERSION" && grep -q " /home/postgres/pgdata " /proc/mounts"#;
 
+/// `--check` found a newer image.
+///
+/// A code of its own so a script can act on it. Not 1: that is a failure, and
+/// "an upgrade is waiting" is a successful answer to the question asked.
+const EXIT_UPDATE_AVAILABLE: u8 = 10;
+
 fn main() -> std::process::ExitCode {
     let catalog = i18n::detect_from_env().catalog();
     // Before anything is drawn: every prompt, log line and note below goes
@@ -69,8 +76,30 @@ fn main() -> std::process::ExitCode {
     // server console does not render. See `theme`.
     theme::install(catalog);
 
-    match install(catalog) {
-        Ok(()) => std::process::ExitCode::SUCCESS,
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let mode = match upgrade::parse_mode(&args) {
+        Ok(mode) => mode,
+        Err(bad) => {
+            eprintln!("{}", fill(catalog.unknown_option, &[&bad]));
+            eprintln!();
+            eprintln!("{}", catalog.usage);
+            return std::process::ExitCode::FAILURE;
+        }
+    };
+
+    let outcome = match mode {
+        Mode::Help => {
+            println!("{}", catalog.usage);
+            return std::process::ExitCode::SUCCESS;
+        }
+        Mode::Install => install(catalog).map(|()| None),
+        Mode::Check => check(catalog).map(Some),
+        Mode::UpgradeOnly => redeploy(catalog).map(|()| None),
+    };
+
+    match outcome {
+        Ok(Some(Verdict::Update)) => std::process::ExitCode::from(EXIT_UPDATE_AVAILABLE),
+        Ok(_) => std::process::ExitCode::SUCCESS,
         Err(stop) => {
             report(&stop, catalog);
             std::process::ExitCode::FAILURE
@@ -281,6 +310,285 @@ fn install(c: &'static Catalog) -> Result<(), Stop> {
     )?;
     cliclack::outro(fill(c.outro_ready, &[&admin]))?;
     ctx.journal.line("run finished: success");
+    Ok(())
+}
+
+// --- redeploying an instance that already exists -----------------------------
+//
+// Both modes below print plain lines rather than the checklist the install
+// draws. That is not a shortcut: a list that redraws itself needs a terminal to
+// redraw on, and the reason these modes exist is to run where there is none —
+// over `ssh host 'sh setup.sh --upgrade-only'`, from cron, from an orchestrator.
+// A progress display that turns into a screenful of escape codes in a log is
+// worse than no progress display.
+
+/// What an image says its own version is.
+///
+/// From the OCI label, through `docker inspect --format`, rather than from a
+/// registry API. This binary has no HTTP client and no JSON parser, on purpose
+/// — it is downloaded and run on somebody else's machine, and every dependency
+/// is one more thing they are trusting. `docker` is already required here, and
+/// its format string returns exactly one value.
+///
+/// Works on a container as well as an image: a container carries the labels of
+/// the image it was made from, which is what lets the running version be read
+/// from the container that is actually running.
+fn label_version(journal: &Journal, subject: &str) -> Option<String> {
+    let outcome = run::run(
+        journal,
+        run::command(
+            "docker",
+            &[
+                "inspect",
+                "--format",
+                "{{index .Config.Labels \"org.opencontainers.image.version\"}}",
+                subject,
+            ],
+        ),
+    );
+
+    if !outcome.ok {
+        return None;
+    }
+
+    // `<no value>` for a label the image does not carry, empty for one it
+    // carries empty. Neither is a version, and passing either along as one is
+    // how "up to date" gets said about an instance nobody can identify — which
+    // is a thing this product has already done, for five releases.
+    let text = outcome.trimmed_stdout();
+    (!text.is_empty() && text != "<no value>").then(|| text.to_string())
+}
+
+/// An install that is already here, and the image it runs.
+struct Deployment {
+    journal: Journal,
+    image: String,
+}
+
+/// Everything both modes need before they can say anything true.
+///
+/// No questions, and no check for a terminal: that check is what makes the
+/// ordinary install refuse to run unattended, and running unattended is the
+/// entire point here.
+fn deployment(c: &'static Catalog) -> Result<Deployment, Stop> {
+    let root = probe::install_root(COMPOSE_FILE);
+    let _ = std::env::set_current_dir(&root);
+    let journal = Journal::open(&root);
+    journal.line(&format!("working directory: {}", root.display()));
+
+    // Both files, because either one missing means this is not an install to
+    // redeploy — and an upgrade that helpfully installs from scratch instead
+    // would write a fresh `.env` over nothing, which is the opposite of the
+    // promise this mode makes.
+    for required in [COMPOSE_FILE, ENV_FILE] {
+        if !Path::new(required).is_file() {
+            journal.line(&format!("refused: {required} is missing"));
+            return Err(Stop::new(fill(c.no_install, &[required])).logged(&journal));
+        }
+    }
+
+    if !run::succeeds(&journal, "docker", &["info"]) {
+        return Err(if Path::new(DOCKER_SOCKET).exists() {
+            Stop::new(c.daemon_no_access).logged(&journal)
+        } else {
+            Stop::new(c.daemon_down).logged(&journal)
+        });
+    }
+
+    // Read for the one value that says which image to look at. Read, and not
+    // rewritten: keeping the configuration means leaving the file alone, not
+    // reconstructing it from values parsed back out of itself.
+    let image = std::fs::read_to_string(ENV_FILE)
+        .ok()
+        .and_then(|text| envfile::get(&text, "TERN_IMAGE"))
+        .filter(|image| !image.is_empty())
+        .unwrap_or_else(|| PUBLISHED_IMAGE.to_string());
+
+    Ok(Deployment { journal, image })
+}
+
+/// The version of the image the `app` service is running right now.
+///
+/// From the container rather than from the image reference, because the two can
+/// differ: `:latest` on disk may already have been replaced by a newer pull
+/// while the container still runs the old one. The running container is the
+/// only thing that answers "what is serving this instance".
+fn running_version(d: &Deployment) -> Option<String> {
+    let ps = run::run(&d.journal, run::compose(COMPOSE_FILE, &["ps", "-q", "app"]));
+    let container = ps.trimmed_stdout().lines().next().unwrap_or("").to_string();
+
+    if container.is_empty() {
+        // Nothing running: the image on disk is the honest second answer, and
+        // saying nothing at all would be worse than saying what is installed.
+        return label_version(&d.journal, &d.image);
+    }
+    label_version(&d.journal, &container)
+}
+
+/// Prints the two versions and what they mean together.
+fn report_versions(c: &'static Catalog, running: Option<&str>, published: Option<&str>) -> Verdict {
+    let unknown = c.version_unknown;
+    println!(
+        "  {}",
+        fill(c.version_running, &[running.unwrap_or(unknown)])
+    );
+    println!(
+        "  {}",
+        fill(c.version_published, &[published.unwrap_or(unknown)])
+    );
+    println!();
+
+    let verdict = upgrade::verdict(running, published);
+    println!(
+        "{}",
+        match verdict {
+            Verdict::Current => c.verdict_current,
+            Verdict::Update => c.verdict_update,
+            Verdict::Unknown => c.verdict_unknown,
+        }
+    );
+    verdict
+}
+
+/// `--check`: says whether a newer image is published, and changes nothing.
+///
+/// It does fetch the image, which is the only way to learn what a moving tag
+/// like `:latest` points at today — there is no version in a manifest, only in
+/// the config the pull brings down. Nothing is restarted, so the instance runs
+/// exactly what it ran before; and the fetch is not wasted, since a following
+/// `--upgrade-only` then has nothing left to download.
+fn check(c: &'static Catalog) -> Result<Verdict, Stop> {
+    let d = deployment(c)?;
+    println!("{}", style(&c.check_title).bold());
+    println!();
+
+    let running = running_version(&d);
+
+    // The newest published image, not the one `.env` names — see
+    // `upgrade::latest_ref`. Fetched with `docker pull` rather than through
+    // compose, because compose would fetch what the file says and that is the
+    // reference this check exists to look past.
+    let newest = upgrade::latest_ref(&d.image);
+    let pull = run::run(
+        &d.journal,
+        run::command("docker", &["pull", "--quiet", &newest]),
+    );
+
+    // A registry that cannot be reached, or an image built from sources with no
+    // published twin, leaves the question unanswered — and unanswered is a
+    // verdict of its own here, never silently folded into "up to date".
+    let published = pull
+        .ok
+        .then(|| label_version(&d.journal, &newest))
+        .flatten();
+    if !pull.ok {
+        d.journal.line(&format!(
+            "could not fetch {newest}: {}",
+            pull.output().trim()
+        ));
+    }
+
+    let verdict = report_versions(c, running.as_deref(), published.as_deref());
+    if verdict == Verdict::Update {
+        println!("{}", c.verdict_how);
+    }
+    d.journal.line(&format!("check: {verdict:?}"));
+    Ok(verdict)
+}
+
+/// `--upgrade-only`: deploys the published image over the configuration that is
+/// already on the machine.
+fn redeploy(c: &'static Catalog) -> Result<(), Stop> {
+    let d = deployment(c)?;
+    println!("{}", style(&c.upgrade_title).bold());
+    println!();
+
+    let before = running_version(&d);
+
+    println!("{}{}", c.upgrade_pulling, ELLIPSIS.pick());
+    let pull = run::run(&d.journal, run::compose(COMPOSE_FILE, &["pull", "--quiet"]));
+    if !pull.ok {
+        return Err(Stop::new(fill(c.image_not_found, &[&d.image]))
+            .saying(&pull.output())
+            .logged(&d.journal));
+    }
+
+    let after = label_version(&d.journal, &d.image);
+
+    // Before and after, and no verdict. `report_versions` answers "is anything
+    // newer published", which is a different question from the one being
+    // answered here — printing its wording under a pinned tag produced "this is
+    // the newest published image" about a deployment of 0.1.13 while 0.1.14 was
+    // out. Seen on screen, which is the only place it could have been seen.
+    let unknown = c.version_unknown;
+    println!(
+        "  {}",
+        fill(c.version_before, &[before.as_deref().unwrap_or(unknown)])
+    );
+    println!(
+        "  {}",
+        fill(c.version_after, &[after.as_deref().unwrap_or(unknown)])
+    );
+    println!();
+
+    println!("{}{}", c.upgrade_starting, ELLIPSIS.pick());
+    let up = run::run(&d.journal, run::compose(COMPOSE_FILE, &["up", "-d"]));
+    if !up.ok {
+        return Err(Stop::new(c.start_failed)
+            .saying(&up.output())
+            .hint(fill(c.logs_hint, &[COMPOSE_FILE]))
+            .logged(&d.journal));
+    }
+
+    // The same wait the install does, and for the same reason: a new image
+    // usually brings migrations, and reporting an upgrade finished while they
+    // are still running would put the operator in front of an instance that
+    // answers nothing.
+    println!("{}{}", c.upgrade_waiting, ELLIPSIS.pick());
+    let mut answered = false;
+    for attempt in 1..=API_ATTEMPTS {
+        if run::run(
+            &d.journal,
+            run::compose(
+                COMPOSE_FILE,
+                &["exec", "-T", "app", "node", "-e", HEALTH_PROBE],
+            ),
+        )
+        .ok
+        {
+            d.journal
+                .line(&format!("the API answered on attempt {attempt}"));
+            answered = true;
+            break;
+        }
+        std::thread::sleep(API_INTERVAL);
+    }
+    if !answered {
+        return Err(Stop::new(c.api_timeout)
+            .hint(c.api_migrating)
+            .hint(fill(c.logs_hint, &[COMPOSE_FILE]))
+            .logged(&d.journal));
+    }
+
+    println!();
+    println!(
+        "{}",
+        fill(
+            c.upgrade_done,
+            &[after.as_deref().unwrap_or(c.version_unknown)]
+        )
+    );
+
+    // A pinned tag deploys itself for ever, which is what pinning is for — but
+    // an operator who runs an upgrade and gets the same version back deserves to
+    // be told why rather than left wondering whether it worked. Free to detect:
+    // a reference already at `:latest` is its own newest.
+    if d.image != upgrade::latest_ref(&d.image) {
+        println!("{}", fill(c.pinned_behind, &[&d.image]));
+    }
+
+    println!("{}", c.upgrade_unchanged);
+    d.journal.line("upgrade finished: success");
     Ok(())
 }
 

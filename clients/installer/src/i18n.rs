@@ -260,6 +260,38 @@ pub struct Catalog {
     pub stop_label: &'static str,
     pub logs_label: &'static str,
     pub outro_ready: &'static str,
+
+    // --- redeploying an instance that already exists -------------------------
+    /// Printed for `--help`, and for an option this binary does not know.
+    pub usage: &'static str,
+    pub unknown_option: &'static str,
+    /// Refused when there is no install here to upgrade or to report on.
+    pub no_install: &'static str,
+    pub upgrade_title: &'static str,
+    pub check_title: &'static str,
+    /// The two lines the whole feature exists to print.
+    pub version_running: &'static str,
+    pub version_published: &'static str,
+    /// The upgrade path says before and after, not running and published: the
+    /// second number there is what this configuration deploys, which is not the
+    /// same question as what is newest.
+    pub version_before: &'static str,
+    pub version_after: &'static str,
+    /// Said when `.env` pins a tag behind the newest published one.
+    pub pinned_behind: &'static str,
+    /// Neither "current" nor "behind" — see `upgrade::Verdict::Unknown`.
+    pub version_unknown: &'static str,
+    pub verdict_current: &'static str,
+    pub verdict_update: &'static str,
+    pub verdict_unknown: &'static str,
+    /// What to run once a newer image has been announced.
+    pub verdict_how: &'static str,
+    pub upgrade_pulling: &'static str,
+    pub upgrade_starting: &'static str,
+    pub upgrade_waiting: &'static str,
+    /// Said at the end, because it is the promise this mode makes.
+    pub upgrade_done: &'static str,
+    pub upgrade_unchanged: &'static str,
 }
 
 // ── english ──────────────────────────────────────────────────────────────────
@@ -469,6 +501,41 @@ pub static EN: Catalog = Catalog {
     stop_label: "Stop          : docker compose -f {} down",
     logs_label: "Logs          : docker compose -f {} logs -f app",
     outro_ready: "Ready - {}",
+
+    usage: "TERN installer.\n\n\
+         sh setup.sh                  install, or replay the configuration\n\
+         sh setup.sh --check          say whether a newer image is published\n\
+         sh setup.sh --upgrade-only   deploy the published image, same config\n\
+         sh setup.sh --help           this\n\n\
+         --check and --upgrade-only ask nothing, so they work over ssh and\n\
+         from cron. Neither rewrites .env.\n\n\
+         --check exits 0 when up to date and 10 when an image is waiting, so\n\
+         a script can branch on it. A failure is still 1.",
+    unknown_option: "Unknown option: {}",
+    no_install: "No TERN install in this directory: {} is missing.\n\
+         There is nothing here to redeploy or to report on. Run this with no\n\
+         options to install one.",
+    upgrade_title: "Upgrading TERN",
+    check_title: "Checking for a newer TERN",
+    version_running: "running   {}",
+    version_published: "published {}",
+    version_before: "was       {}",
+    version_after: "now       {}",
+    pinned_behind: "This install names {} in .env, so that is what was deployed.\n\
+         Point TERN_IMAGE at :latest, or at a newer tag, to move past it.",
+    version_unknown: "not stated by the image",
+    verdict_current: "This is the newest published image.",
+    verdict_update: "A newer image is published.",
+    verdict_unknown: "Cannot tell: one of the two versions is not stated.\n\
+         An image built from sources, or one older than the label, says nothing\n\
+         about which version it is - which is not the same as being current.",
+    verdict_how: "Deploy it:    sh setup.sh --upgrade-only",
+    upgrade_pulling: "Fetching the published image",
+    upgrade_starting: "Restarting the services",
+    upgrade_waiting: "Waiting for the API",
+    upgrade_done: "Now running {}.",
+    upgrade_unchanged: ".env was read for the image to deploy and not rewritten: this instance\n\
+         keeps exactly the configuration it was installed with.",
 };
 
 // ── français ─────────────────────────────────────────────────────────────────
@@ -682,6 +749,42 @@ pub static FR: Catalog = Catalog {
     stop_label: "Arrêt          : docker compose -f {} down",
     logs_label: "Journaux       : docker compose -f {} logs -f app",
     outro_ready: "Prêt - {}",
+
+    usage: "Installateur TERN.\n\n\
+         sh setup.sh                  installe, ou rejoue la configuration\n\
+         sh setup.sh --check          dit si une image plus récente est publiée\n\
+         sh setup.sh --upgrade-only   déploie l'image publiée, même configuration\n\
+         sh setup.sh --help           ceci\n\n\
+         --check et --upgrade-only ne posent aucune question : ils fonctionnent\n\
+         donc par ssh et depuis cron. Ni l'un ni l'autre ne réécrit .env.\n\n\
+         --check sort avec 0 si tout est à jour et 10 si une image attend, de\n\
+         quoi enchaîner dans un script. Un échec reste 1.",
+    unknown_option: "Option inconnue : {}",
+    no_install: "Aucune installation TERN dans ce répertoire : {} est absent.\n\
+         Il n'y a donc rien à redéployer ni à examiner. Lancez sans option pour\n\
+         en poser une.",
+    upgrade_title: "Mise à jour de TERN",
+    check_title: "Recherche d'une version plus récente",
+    version_running: "en service {}",
+    version_published: "publiée    {}",
+    version_before: "avant      {}",
+    version_after: "après      {}",
+    pinned_behind: "Cette installation nomme {} dans .env : c'est donc elle qui a été\n\
+         déployée. Pointez TERN_IMAGE sur :latest, ou sur un tag plus récent,\n\
+         pour aller au-delà.",
+    version_unknown: "l'image ne le dit pas",
+    verdict_current: "C'est l'image publiée la plus récente.",
+    verdict_update: "Une image plus récente est publiée.",
+    verdict_unknown: "Impossible de conclure : l'une des deux versions n'est pas déclarée.\n\
+         Une image construite depuis les sources, ou antérieure au label, ne dit\n\
+         rien de sa version - ce qui n'est pas la même chose qu'être à jour.",
+    verdict_how: "La déployer : sh setup.sh --upgrade-only",
+    upgrade_pulling: "Récupération de l'image publiée",
+    upgrade_starting: "Redémarrage des services",
+    upgrade_waiting: "Attente de l'API",
+    upgrade_done: "En service : {}.",
+    upgrade_unchanged: ".env a été lu pour connaître l'image à déployer, et non réécrit : cette\n\
+         instance garde exactement la configuration de son installation.",
 };
 
 #[cfg(test)]
