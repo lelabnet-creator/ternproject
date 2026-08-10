@@ -628,9 +628,13 @@ export const adminApi = {
     body: {
       layout: 'list' | 'grid' | 'compact' | 'custom'
       order: { controlId: string }[]
-      customHtml?: string
+      /**
+       * The stylesheet applied to the public page. `customHtml` and `customJs`
+       * still exist on the route and in the database, dormant: the public page
+       * no longer renders a tenant document, and nothing was deleted so the
+       * decision stays reversible.
+       */
       customCss?: string
-      customJs?: string
       customBlocks?: Block[]
     },
   ) => request<{ ok: boolean; reordered: number }>('PATCH', `/api/v1/${slug}/layout`, body),

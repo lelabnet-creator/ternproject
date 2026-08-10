@@ -3219,7 +3219,11 @@ function LoginScreen({ onSignedIn }: { onSignedIn: () => void }) {
      * two doors that look unrelated make the second one feel like a different
      * building.
      */
-    <main className="landing">
+    // `landing--fit` pins this to exactly one screen: a card and a credit are
+    // the whole content, and nothing here is meant to be scrolled to. The setup
+    // wizard shares this shell and deliberately does not take the modifier — it
+    // is a long form that may legitimately need the page.
+    <main className="landing landing--fit">
       <div className="landing-image" role="img" aria-label="A tern over the sea" />
 
       <div className="landing-panel">
@@ -3346,7 +3350,13 @@ function LoginScreen({ onSignedIn }: { onSignedIn: () => void }) {
             )}
           </form>
         </Card>
+      </div>
 
+      {/* Across the foot of the page, not under the form. It says who made
+          TERN, which is a fact about this whole surface rather than about
+          signing in — and in the panel it read as a footnote to the field
+          above it. */}
+      <div className="landing-footer">
         <SiteFooter compact />
       </div>
     </main>
@@ -3371,7 +3381,11 @@ function RecoverScreen({ onBack }: { onBack: () => void }) {
   })
 
   return (
-    <main className="landing">
+    // `landing--fit` pins this to exactly one screen: a card and a credit are
+    // the whole content, and nothing here is meant to be scrolled to. The setup
+    // wizard shares this shell and deliberately does not take the modifier — it
+    // is a long form that may legitimately need the page.
+    <main className="landing landing--fit">
       <div className="landing-image" role="img" aria-label="A tern over the sea" />
 
       <div className="landing-panel">
@@ -3456,7 +3470,13 @@ function RecoverScreen({ onBack }: { onBack: () => void }) {
             </form>
           )}
         </Card>
+      </div>
 
+      {/* Across the foot of the page, not under the form. It says who made
+          TERN, which is a fact about this whole surface rather than about
+          signing in — and in the panel it read as a footnote to the field
+          above it. */}
+      <div className="landing-footer">
         <SiteFooter compact />
       </div>
     </main>

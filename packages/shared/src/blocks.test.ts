@@ -2,9 +2,12 @@ import { describe, expect, it } from 'vitest'
 import {
   blocksSchema,
   clampBlock,
+  defaultBlocks,
   GRID_COLUMNS,
+  hasComponentsBlock,
   hasIncidentsBlock,
   nextFreeRow,
+  parseBlocks,
   type Block,
 } from './blocks.js'
 
@@ -140,5 +143,113 @@ describe('whether the arrangement takes the incidents', () => {
 
   it('says yes as soon as one is placed', () => {
     expect(hasIncidentsBlock([text, incidents])).toBe(true)
+  })
+})
+
+describe('the page as blocks', () => {
+  it('takes every part the default layouts draw', () => {
+    const parsed = blocksSchema.safeParse([
+      { type: 'header', id: 'a', x: 0, y: 0, w: 12, h: 1 },
+      { type: 'pulse', id: 'b', x: 0, y: 1, w: 12, h: 4 },
+      { type: 'subscribe', id: 'c', x: 0, y: 5, w: 12, h: 1 },
+      { type: 'components', id: 'd', x: 0, y: 6, w: 12, h: 6 },
+    ])
+    expect(parsed.success).toBe(true)
+  })
+
+  it('defaults the pulse to showing when it was updated, and the components to a list', () => {
+    const parsed = blocksSchema.safeParse([
+      { type: 'pulse', id: 'b', x: 0, y: 0, w: 12, h: 4 },
+      { type: 'components', id: 'd', x: 0, y: 4, w: 12, h: 6 },
+    ])
+    expect(parsed.data?.[0]).toMatchObject({ showUpdatedAt: true })
+    expect(parsed.data?.[1]).toMatchObject({ density: 'list' })
+  })
+
+  it('gives the header a position and nothing to configure', () => {
+    // The logo and the name come from the branding settings. An option here
+    // would be a second place to set the same thing, and the two would disagree.
+    const parsed = blocksSchema.safeParse([
+      { type: 'header', id: 'a', x: 0, y: 0, w: 12, h: 1, logoUrl: 'https://evil.example/x.png' },
+    ])
+    expect(parsed.success).toBe(true)
+    expect(parsed.data?.[0]).not.toHaveProperty('logoUrl')
+  })
+
+  it('offers the default page, and the server would accept it', () => {
+    expect(blocksSchema.safeParse(defaultBlocks()).success).toBe(true)
+  })
+
+  it('starts everybody on a page that shows a status', () => {
+    // The point of seeding: the mode opens on the page the operator already
+    // had, so neither guarantee has to rescue the first save.
+    expect(hasIncidentsBlock(defaultBlocks())).toBe(true)
+    expect(hasComponentsBlock(defaultBlocks())).toBe(true)
+  })
+})
+
+describe('whether the arrangement shows any component', () => {
+  const text: Block = { type: 'text', id: 't', body: 'x', style: 'body', x: 0, y: 0, w: 6, h: 1 }
+
+  it('says no for an arrangement of nothing but decoration', () => {
+    expect(hasComponentsBlock([text])).toBe(false)
+  })
+
+  it('says no for an empty arrangement', () => {
+    expect(hasComponentsBlock([])).toBe(false)
+  })
+
+  it('counts the block that draws them all', () => {
+    const all: Block = { type: 'components', id: 'c', density: 'grid', x: 0, y: 1, w: 12, h: 6 }
+    expect(hasComponentsBlock([text, all])).toBe(true)
+  })
+
+  it('counts a single hand-placed component', () => {
+    // Somebody who placed three components chose those three. Appending the
+    // full list under them would override a decision rather than protect one.
+    const one: Block = { type: 'control', id: 'c', controlId: 'x', x: 0, y: 1, w: 4, h: 3 }
+    expect(hasComponentsBlock([one])).toBe(true)
+  })
+})
+
+describe('reading an arrangement back', () => {
+  it('drops a block it cannot read and draws the rest', () => {
+    // All-or-nothing parsing sent the whole page to `[]` because one block came
+    // from a newer version. Survivable when custom was one panel; now it is the
+    // page.
+    const blocks = parseBlocks([
+      { type: 'header', id: 'a', x: 0, y: 0, w: 12, h: 1 },
+      { type: 'sparkline-from-2027', id: 'b', x: 0, y: 1, w: 6, h: 2 },
+      { type: 'components', id: 'c', x: 0, y: 3, w: 12, h: 6 },
+    ])
+    expect(blocks.map((block) => block.id)).toEqual(['a', 'c'])
+  })
+
+  it('drops a block placed off the grid rather than the page around it', () => {
+    const blocks = parseBlocks([
+      { type: 'incidents', id: 'a', x: 99, y: 0, w: 12, h: 2 },
+      { type: 'incidents', id: 'b', x: 0, y: 0, w: 12, h: 2 },
+    ])
+    expect(blocks.map((block) => block.id)).toEqual(['b'])
+  })
+
+  it('reads nothing out of anything that is not an arrangement', () => {
+    expect(parseBlocks(null)).toEqual([])
+    expect(parseBlocks({ blocks: [] })).toEqual([])
+    expect(parseBlocks('[]')).toEqual([])
+  })
+
+  it('stops at the same length the server stores', () => {
+    const many = Array.from({ length: 250 }, (_, i) => ({
+      type: 'text',
+      id: `t${i}`,
+      body: 'x',
+      style: 'body',
+      x: 0,
+      y: 0,
+      w: 1,
+      h: 1,
+    }))
+    expect(parseBlocks(many)).toHaveLength(200)
   })
 })

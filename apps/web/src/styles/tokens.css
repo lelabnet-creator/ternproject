@@ -982,71 +982,103 @@ a.tern-target {
 }
 
 /* ── The landing screen ────────────────────────────────────────────────────
- * Photograph on one side, the form on the other, once there is room for two.
- * Below that the photo becomes a band above the card: a half-width column on a
- * phone is neither a picture nor a form.
+ * The photograph is the page, at every width. The form floats on it, and the
+ * credit sits along the foot.
+ *
+ * It used to stack on a phone: a 12rem band of photograph above a flat panel
+ * holding the card. Three problems at once — the bird ended up an inch tall,
+ * the panel and the card were two dark rectangles with almost no contrast
+ * between them, and the three stacked rows added up to more than a short
+ * phone has, so the credit fell below the fold. One layer instead of three
+ * rows solves all three, and the page is exactly one screen tall.
  */
 .landing {
   display: grid;
-  grid-template-rows: 12rem 1fr;
+  /* The form takes what is left, the credit takes what it needs. */
+  grid-template-rows: minmax(0, 1fr) auto;
   min-height: 100dvh;
-}
-
-/* Stacked, the seam is horizontal — the vertical one would sit across nothing. */
-.landing-image::after,
-.landing-panel::before {
-  display: none;
-}
-
-@media (min-width: 64rem) {
-  .landing-image::after,
-  .landing-panel::before {
-    display: block;
-  }
-}
-
-.landing-image {
   position: relative;
-  background-image: url('/bg.jpeg');
-  background-size: cover;
-  background-position: center;
 }
 
 /*
- * The seam between photograph and form, given depth.
+ * One screen, exactly — for the screens whose content is one card.
  *
- * Two layers rather than a border: a shadow cast *onto* the photograph by the
- * panel, and a thin highlight on the panel's own edge. That is how an edge
- * reads as one surface overlapping another rather than as two images butted
- * together — which is what a 1px line looks like at this scale.
+ * `height` rather than `min-height`, so a sign-in form with a credit under it
+ * cannot end up scrolling by forty pixels, which is the amount that makes a
+ * page look broken rather than long.
  *
- * Drawn on the image so it lands under the panel in the stacking order, and
- * cheap: two gradients, no filter, nothing to composite per frame.
+ * A modifier and not the default, because the same shell carries the setup
+ * wizard: several steps, a long form, content that legitimately exceeds a
+ * phone. Pinning that to the viewport would trap a multi-step flow inside a
+ * scroll region, which is worse than the page scrolling like a page.
  */
-.landing-image::after {
-  content: '';
-  position: absolute;
-  inset-block: 0;
-  inset-inline-end: 0;
-  width: 28px;
-  background: linear-gradient(to right, transparent, rgb(0 0 0 / 0.28));
-  pointer-events: none;
+.landing--fit {
+  height: 100dvh;
 }
 
+/*
+ * The escape hatch, not the plan: at the largest Dynamic Type on the shortest
+ * phone even one card can outgrow the viewport, and clipping it would put the
+ * password field somewhere unreachable. The page still does not scroll — this
+ * one region does, and only when it must.
+ */
+.landing--fit .landing-panel {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.landing-image {
+  position: absolute;
+  inset: 0;
+  background-image: url('/bg.jpeg');
+  background-size: cover;
+  /*
+   * Off-centre, and only until there is room for two columns.
+   *
+   * `cover` on a portrait viewport crops a landscape photograph horizontally
+   * from the middle, which lands on open water — the bird is a third of the way
+   * in. This keeps the subject in frame on a phone. On a wide screen the whole
+   * width is visible and centre is right again.
+   */
+  background-position: 34% center;
+}
+
+/* The form, floating on the photograph. */
 .landing-panel {
   position: relative;
   display: grid;
   place-items: center;
   padding: var(--space-6) var(--space-4);
-  /*
-   * Translucent over the photograph, blurred so the card on top stays legible.
-   *
-   * `color-mix` rather than a hand-picked rgba: the panel then follows the
-   * theme's own background instead of being a third colour that has to be
-   * maintained beside it. The fallback is the opaque token, so a browser
-   * without `backdrop-filter` gets a solid panel rather than text over a
-   * photograph.
-   */
+}
+
+/*
+ * The credit, across the foot of the page rather than under the form.
+ *
+ * It used to live inside the panel, which put "who made this" in the same
+ * column as "sign in" — a footnote to the form instead of a footnote to the
+ * page. It says nothing about signing in, so it belongs to the whole surface.
+ *
+ * It is frosted, and it is the only thing on this screen that is. That is not
+ * decoration but the one case `blur-purpose` allows: the photograph runs full
+ * bleed underneath, and small grey type is the one thing in this palette that
+ * cannot be made legible over a picture. The card above solves the same problem
+ * with an opaque surface, which is why the panel around it needs nothing.
+ *
+ * `color-mix` rather than a hand-picked rgba, so the band follows the theme's
+ * own background instead of being a third colour maintained beside it. The
+ * fallback is the opaque token: a browser without `backdrop-filter` gets a
+ * solid band rather than text over a photograph.
+ */
+.landing-footer {
+  /* Positioned, or the full-bleed photograph would paint over it: an absolutely
+     positioned sibling wins against a static one whatever the source order. */
+  position: relative;
+  display: grid;
+  place-items: center;
+  /* Clear of the home indicator. `max` rather than adding the inset, so a
+     device without one keeps the designed padding instead of none. */
+  padding: var(--space-3) var(--space-4) max(var(--space-3), env(safe-area-inset-bottom));
   background: var(--color-bg);
   background: color-mix(in srgb, var(--color-bg) 72%, transparent);
   backdrop-filter: blur(18px) saturate(1.1);
@@ -1054,69 +1086,48 @@ a.tern-target {
 }
 
 @supports not (backdrop-filter: blur(1px)) {
-  .landing-panel {
+  .landing-footer {
     background: var(--color-bg);
   }
 }
 
-/* The lit edge of the panel itself, catching the light from the photograph. */
-.landing-panel::before {
-  content: '';
-  position: absolute;
-  inset-block: 0;
-  inset-inline-start: 0;
-  width: 1px;
-  background: linear-gradient(
-    to bottom,
-    transparent,
-    rgb(255 255 255 / 0.6) 20%,
-    rgb(255 255 255 / 0.6) 80%,
-    transparent
-  );
-  pointer-events: none;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme='light']) .landing-panel::before {
-    /* A white highlight on a dark panel reads as a scratch, not as an edge. */
-    background: linear-gradient(
-      to bottom,
-      transparent,
-      rgb(255 255 255 / 0.14) 20%,
-      rgb(255 255 255 / 0.14) 80%,
-      transparent
-    );
-  }
-}
-
-[data-theme='dark'] .landing-panel::before {
-  background: linear-gradient(
-    to bottom,
-    transparent,
-    rgb(255 255 255 / 0.14) 20%,
-    rgb(255 255 255 / 0.14) 80%,
-    transparent
-  );
+/* The footer's own padding already spaces it; the component's top padding on
+   top of that reads as a gap nobody put there. */
+.landing-footer > footer {
+  padding-top: 0;
 }
 
 @media (min-width: 64rem) {
   .landing {
-    position: relative;
-    grid-template-rows: none;
     /* The photo takes the larger share: it is the reason the page is worth
        looking at, and the form needs a measure, not a half. */
     grid-template-columns: 1fr minmax(26rem, 34rem);
   }
 
+  /* The whole width is in frame here, so the subject needs no help. */
   .landing-image {
-    min-height: 100dvh;
-    /* Full bleed under both columns: a blur with nothing behind it is a tint. */
-    position: absolute;
-    inset: 0;
+    background-position: center;
   }
 
+  /*
+   * The column has nothing of its own: no tint, no blur, no seam.
+   *
+   * It used to be a translucent blurred panel, which turned the right third of
+   * the photograph into a smear. Frosting is how you make text legible over a
+   * picture, and the only text here sits inside a card that already has an
+   * opaque surface, a border and a shadow — so the blur was buying legibility
+   * nobody needed, and charging a third of the image for it.
+   */
   .landing-panel {
     grid-column: 2;
+    grid-row: 1;
+  }
+
+  /* Both columns: the point of moving it here is that it is the page's credit
+     and not the form's. */
+  .landing-footer {
+    grid-column: 1 / -1;
+    grid-row: 2;
   }
 }
 

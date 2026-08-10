@@ -66,7 +66,15 @@
   "blocks": {
     "incidents": "Incidents and maintenance",
     "addIncidents": "Add incidents",
-    "incidentsHint": "Incidents and maintenance are always shown. Place this block to choose where they go; remove it and they go back above the arrangement."
+    "incidentsHint": "Incidents and components are always shown. Place these blocks to choose where they go; remove them and they go back around the arrangement.",
+    "header": "Header — logo and page name",
+    "addHeader": "Add the header",
+    "pulse": "Status ring",
+    "addPulse": "Add the status ring",
+    "subscribe": "Subscribe box",
+    "addSubscribe": "Add the subscribe box",
+    "components": "All components",
+    "addComponents": "Add all components"
   },
   "period": {
     "24h": "24 hours",

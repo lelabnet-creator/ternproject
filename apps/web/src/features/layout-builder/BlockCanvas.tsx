@@ -6,6 +6,7 @@ import {
   hasIncidentsBlock,
   nextFreeRow,
   type Block,
+  type BlockType,
 } from '@tern/shared/blocks'
 import { Button, Field, Input, Select, Textarea } from '../../components/ui'
 import type { Control } from '../../lib/adminApi'
@@ -141,7 +142,8 @@ export function BlockCanvas({
               fontSize: 'var(--text-sm)',
             }}
           >
-            Nothing placed yet. Add a component, your incidents, a line of text or an image above.
+            Nothing placed yet. This canvas is the whole public page — add the header, the status
+            ring, your components, your incidents, a line of text or an image above.
           </p>
         )}
 
@@ -224,9 +226,15 @@ function Palette({
   const [controlId, setControlId] = useState('')
   const y = nextFreeRow(blocks)
 
-  // One is the whole point: the block says *where* the page's incidents go, and
-  // a second would print the same notes twice rather than say anything new.
-  // Disabled rather than hidden, so the reason is where the button was.
+  /*
+   * One of each, for the blocks that draw something the page has only one of.
+   *
+   * A second incidents block would print the same notes twice rather than say
+   * anything new; a second header would put the page's name on it twice. The
+   * button is disabled rather than hidden, so the reason is where the button
+   * was rather than in a place nobody looks.
+   */
+  const placed = (type: BlockType) => blocks.some((block) => block.type === type)
   const incidentsPlaced = hasIncidentsBlock(blocks)
 
   return (
@@ -252,6 +260,41 @@ function Palette({
           }}
         >
           Place
+        </Button>
+      </div>
+
+      {/* The page's own parts. First in the palette because they are what a
+          page is made of — the text and image blocks below decorate it. */}
+      <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
+        <Button
+          disabled={placed('header')}
+          onClick={() => onAdd({ type: 'header', id: newId(), x: 0, y, w: 12, h: 1 })}
+        >
+          {t('blocks.addHeader')}
+        </Button>
+        {/* Four rows: the ring is the tallest thing on the page and a block too
+            short for it would crop the one figure everybody came to read. */}
+        <Button
+          disabled={placed('pulse')}
+          onClick={() =>
+            onAdd({ type: 'pulse', id: newId(), showUpdatedAt: true, x: 0, y, w: 12, h: 4 })
+          }
+        >
+          {t('blocks.addPulse')}
+        </Button>
+        <Button
+          disabled={placed('subscribe')}
+          onClick={() => onAdd({ type: 'subscribe', id: newId(), x: 0, y, w: 12, h: 1 })}
+        >
+          {t('blocks.addSubscribe')}
+        </Button>
+        <Button
+          disabled={placed('components')}
+          onClick={() =>
+            onAdd({ type: 'components', id: newId(), density: 'list', x: 0, y, w: 12, h: 6 })
+          }
+        >
+          {t('blocks.addComponents')}
         </Button>
       </div>
 
@@ -371,6 +414,38 @@ function Inspector({
         </>
       )}
 
+      {block.type === 'components' && (
+        <Field
+          label="Density"
+          hint="The same three the other layouts offer — this block is where they still apply."
+        >
+          <Select
+            value={block.density}
+            onChange={(e) => onChange({ density: e.target.value } as Partial<Block>)}
+          >
+            <option value="list">List — one component per row</option>
+            <option value="grid">Grid — cards side by side</option>
+            <option value="compact">Compact — tight rows, no charts</option>
+          </Select>
+        </Field>
+      )}
+
+      {block.type === 'pulse' && (
+        <Field
+          label="Timestamp"
+          hint="The “Updated at” line under the ring. The ring itself is not optional."
+        >
+          <label style={{ display: 'flex', gap: 'var(--space-2)', alignItems: 'center' }}>
+            <input
+              type="checkbox"
+              checked={block.showUpdatedAt}
+              onChange={(e) => onChange({ showUpdatedAt: e.target.checked } as Partial<Block>)}
+            />
+            <span style={{ fontSize: 'var(--text-sm)' }}>Show when the page last updated</span>
+          </label>
+        </Field>
+      )}
+
       {block.type === 'image' && (
         <>
           <Field label="Image URL" hint="Served from wherever you host it.">
@@ -429,6 +504,10 @@ function Inspector({
 
 function describe(block: Block, controls: Control[], t: (key: string) => string): string {
   if (block.type === 'incidents') return t('blocks.incidents')
+  if (block.type === 'header') return t('blocks.header')
+  if (block.type === 'pulse') return t('blocks.pulse')
+  if (block.type === 'subscribe') return t('blocks.subscribe')
+  if (block.type === 'components') return t('blocks.components')
   if (block.type === 'text') return block.body.slice(0, 40) || 'Text'
   if (block.type === 'image') return block.alt || 'Image'
   return controls.find((c) => c.id === block.controlId)?.name ?? 'Component'

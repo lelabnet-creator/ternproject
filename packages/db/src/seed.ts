@@ -1,4 +1,5 @@
-import { starterDocument } from '@tern/shared/custom-document'
+import { defaultBlocks } from '@tern/shared/blocks'
+import { starterStylesheet } from '@tern/shared/custom-style'
 import { eq, inArray } from 'drizzle-orm'
 import { generateMockSeries, generateToken, hashPassword, hashToken } from '@tern/shared'
 import { createDatabase } from './client.js'
@@ -71,20 +72,17 @@ const GROUPS = [
 ] as const
 
 /**
- * The wall the demo ships with.
+ * The page the demo ships with, and the stylesheet over it.
  *
- * A `custom` layout is the free arrangement the backlog turned down as a drag
- * editor — the operator writes it, so their own media queries answer the
- * question of what a four-column wall becomes on a phone, and a textarea is
- * reachable from a keyboard where two-dimensional dragging is not.
- *
- * Worth knowing, and the reason the widget assignments above still matter: in
- * `custom` mode TERN draws none of its own widgets. The document is handed the
- * data and paints it. Switch the page to `grid` and the seven widgets appear;
- * leave it here and this does. The demo ships on `custom` because that is the
- * mode nothing else demonstrates.
+ * `custom` is the whole public page arranged out of blocks: the header, the
+ * ring, the subscribe box and the components, placed on a twelve-column grid
+ * rather than in the order TERN happens to draw them. The demo ships on it
+ * because it is the mode nothing else demonstrates — and, unlike the sandboxed
+ * document it replaced, it still draws the seven widgets assigned above, so the
+ * two halves of the demo no longer contradict each other.
  */
-const DASHBOARD = starterDocument('Acme Corp')
+const DEMO_BLOCKS = defaultBlocks()
+const DEMO_CSS = starterStylesheet('Acme Corp')
 
 const CONTROLS: ControlSpec[] = [
   {
@@ -268,9 +266,8 @@ async function main() {
         readOnly: process.env.TERN_DEMO === '1',
 
         layout: 'custom',
-        customHtml: DASHBOARD.html,
-        customCss: DASHBOARD.css,
-        customJs: DASHBOARD.js,
+        customBlocks: DEMO_BLOCKS,
+        customCss: DEMO_CSS,
       })
       .returning()
     if (!tenant) throw new Error('tenant insert returned no row')

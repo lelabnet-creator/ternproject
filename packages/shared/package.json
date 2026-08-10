@@ -20,7 +20,7 @@
     "./blocks": "./src/blocks.ts",
     "./control-import": "./src/control-import.ts",
     "./yaml-schema": "./src/yaml-schema.ts",
-    "./custom-document": "./src/custom-document.ts"
+    "./custom-style": "./src/custom-style.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

@@ -81,10 +81,11 @@ export function LandingPage() {
 
   // Blank rather than a spinner: this resolves in two parallel requests against
   // an API on the same origin, and a spinner that shows for 80ms is a flicker.
-  if (resolving) return <main className="landing" aria-busy="true" />
+  if (resolving) return <main className="landing landing--fit" aria-busy="true" />
 
   return (
-    <main className="landing">
+    // One screen: a picker card and a credit, like the sign-in it sits beside.
+    <main className="landing landing--fit">
       {/* The photograph, not a drawn scene: a real tern over real water says
           what the product is called and where the name comes from. It carries
           no text, so nothing depends on which part of it a word lands over. */}
@@ -262,7 +263,13 @@ export function LandingPage() {
             <ThemePicker compact />
           </div>
         </div>
+      </div>
 
+      {/* Across the foot of the page rather than under the panel, so the root
+          and the sign-in keep the same shape — they are the two doors into the
+          product, and a credit that moves between them makes the second one
+          feel like a different building. */}
+      <div className="landing-footer">
         <SiteFooter compact />
       </div>
     </main>
