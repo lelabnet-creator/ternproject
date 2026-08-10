@@ -27,6 +27,15 @@ struct Cli {
     log_json: bool,
 }
 
+/// The port out of a `host:port`, for suggesting a listen address that keeps
+/// the one already chosen.
+fn port_of(listen: &str) -> &str {
+    listen
+        .rsplit_once(':')
+        .map(|(_, port)| port)
+        .unwrap_or("8787")
+}
+
 /// `batch` or `stream`, named rather than derived — the enum is serde's, and a
 /// wrong word here should be a refusal with the two options in it.
 fn parse_forward(raw: &str) -> Result<proxy::Forward, String> {
@@ -141,14 +150,48 @@ async fn main() -> Result<()> {
             println!("PIN: {pin}");
             println!("Valid for {ttl_minutes} minutes, once.");
             println!();
-            // The whole point of the proxy, in one line: the agent is told to
-            // talk to this host, and nothing else about it changes.
+
             let config = proxy::ProxyConfig::load(&path)?;
-            println!("On the agent, in this zone:");
-            println!(
-                "  tern-agent pair --server http://{} --pin {pin}",
-                config.listen
-            );
+            let zone = proxy::zone_address(&config.listen, proxy::outbound_address(&config.server));
+            let origin = format!("http://{}", zone.authority);
+
+            // Said before the commands, not after: it decides whether they can
+            // work at all, and a warning printed under something that looks
+            // ready to copy is a warning nobody reads.
+            match zone.caveat {
+                Some(proxy::ZoneCaveat::LoopbackOnly) => {
+                    println!(
+                        "⚠ This relay listens on {} — loopback only, so no",
+                        config.listen
+                    );
+                    println!("  other machine can reach it. The commands below will fail with a");
+                    println!("  connection refused until it serves an address the zone can see:");
+                    println!(
+                        "      tern-proxy run --config {} --listen 0.0.0.0:{}",
+                        path.display(),
+                        port_of(&config.listen)
+                    );
+                    println!("  (or set listen in the config, which the service already reads)");
+                    println!();
+                }
+                Some(proxy::ZoneCaveat::Guessed) => {
+                    println!("Note: this relay binds every interface, so there is no single");
+                    println!("address to give. Below is the one it reaches TERN from — use");
+                    println!("whichever address the zone can actually see.");
+                    println!();
+                }
+                None => {}
+            }
+
+            // Two commands, because there are two situations and only one of
+            // them used to be answered. A machine in an isolated zone cannot
+            // fetch anything from TERN — including the installer — so the
+            // relay serves it, and this is where that becomes findable.
+            println!("On a machine in this zone, with nothing installed on it yet:");
+            println!("  curl -fsSL {origin}/install.sh | sh -s -- --server {origin} --pin {pin}");
+            println!();
+            println!("Or, if tern-agent is already on it:");
+            println!("  tern-agent pair --server {origin} --pin {pin}");
             println!();
             println!("(pending PINs are in {})", file.display());
             Ok(())

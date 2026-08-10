@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process'
 import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { __testables } from './download.js'
 
 const { shellScript, powershellScript } = __testables
@@ -109,6 +109,16 @@ describe('the shell installer', () => {
     expect(script).toContain('--no-service')
   })
 
+  it('can be pointed at a relay instead of the instance that served it', () => {
+    // The one flag that makes an isolated machine installable at all: it has no
+    // route to TERN, so both halves — where the binary comes from and what the
+    // config ends up saying — have to move together. They do, because every
+    // step downstream reads $SERVER.
+    expect(script).toMatch(/--server\) SERVER=/)
+    expect(script).toContain('curl -fsSL "$SERVER/api/v1/agent/bin/$BIN-$target"')
+    expect(script).toContain('$JOIN --server "$SERVER" --pin "$PIN"')
+  })
+
   it('does not promise a user service starts at boot until lingering is verified', () => {
     // Measured on Arch: `loginctl enable-linger` failed — polkit refuses it
     // without a password there, where Ubuntu grants it to an active session —
@@ -169,7 +179,7 @@ describe('the PowerShell installer', () => {
 })
 
 /**
- * The installers generated for an instance that has no TLS in front of it.
+ * The plain-HTTP allowance.
  *
  * The agent refuses plain HTTP unless told otherwise, because the API key it
  * receives at pairing crosses the network in clear and does so again on every
@@ -179,59 +189,68 @@ describe('the PowerShell installer', () => {
  * agent rejected. Found on a LAN install with no TLS anywhere, which is the
  * ordinary shape of a first deployment.
  *
- * The address decides, so these load the module again under a different one.
- * The default in `config.ts` is a localhost URL, which is exactly the case that
- * must *not* carry the allowance.
+ * It used to be decided here, at generation, from `PUBLIC_BASE_URL`. It cannot
+ * be any more: `--server` points an install at a relay whose address this
+ * instance has never heard of, and the answer for TERN's address is not the
+ * answer for the relay's. So the script decides, and these run the script's own
+ * decision rather than looking for a constant in it.
  */
-describe('an instance reached over plain HTTP', () => {
-  async function scriptsFor(url: string) {
-    vi.resetModules()
-    const previous = process.env.PUBLIC_BASE_URL
-    process.env.PUBLIC_BASE_URL = url
-    try {
-      const module = await import('./download.js')
-      return {
-        sh: module.__testables.shellScript(),
-        ps1: module.__testables.powershellScript(),
-      }
-    } finally {
-      if (previous === undefined) delete process.env.PUBLIC_BASE_URL
-      else process.env.PUBLIC_BASE_URL = previous
-      vi.resetModules()
-    }
+describe('the plain-HTTP allowance', () => {
+  /** Runs the shipped decision, for one address. */
+  function allowedFor(server: string): boolean {
+    const decision = shellScript().match(/PLAIN=0\n(?:.|\n)*?\nesac/)
+    expect(decision, 'the decision should be findable in the script').not.toBeNull()
+
+    const out = execFileSync('sh', ['-c', `SERVER="${server}"\n${decision?.[0]}\necho $PLAIN`], {
+      encoding: 'utf8',
+    })
+    return out.trim() === '1'
   }
 
-  it('lets the agent pair, and keeps letting it report', async () => {
-    const { sh, ps1 } = await scriptsFor('http://192.168.1.30:8080')
+  it('is granted in the clear, and refused where it would be noise', () => {
+    // A LAN address and a relay by name: both need it, and the second is the
+    // case that could not exist before --server did.
+    expect(allowedFor('http://192.168.1.30:8080')).toBe(true)
+    expect(allowedFor('http://relay.lan:8787')).toBe(true)
+
+    // An allowance written where it is not needed teaches the habit of writing
+    // it where it is.
+    expect(allowedFor('https://status.example.com')).toBe(false)
+    expect(allowedFor('http://localhost:5173')).toBe(false)
+    expect(allowedFor('http://127.0.0.1:8787')).toBe(false)
+  })
+
+  it('reaches the service as well as the pairing', () => {
+    const script = shellScript()
 
     // Pairing is the visible half. The service is the half that matters: an
     // agent that pairs once and then fails on every report is the failure a
     // monitoring tool can least afford, because the server shows it as quiet.
-    expect(sh).toContain('export TERN_ALLOW_PLAIN_HTTP=1')
-    expect(sh).toContain('Environment=TERN_ALLOW_PLAIN_HTTP=1')
-    expect(sh).toContain('<key>TERN_ALLOW_PLAIN_HTTP</key>')
+    // All three supervisors take it from the same decision, so none of them can
+    // disagree with the pairing that just succeeded.
+    expect(script).toContain('UNIT_ENV="Environment=TERN_ALLOW_PLAIN_HTTP=1"')
+    expect(script).toContain('<key>TERN_ALLOW_PLAIN_HTTP</key>')
+    expect(script).toContain('RC_ENV="export TERN_ALLOW_PLAIN_HTTP=1"')
 
-    // Windows carries no environment into a scheduled task, so it has to be
-    // persisted rather than exported.
+    const gates = script.match(/\[ "\$PLAIN" = 1 \]/g) ?? []
+    expect(gates.length, 'the export and the three supervisors').toBeGreaterThanOrEqual(4)
+  })
+
+  it('decides the same way on Windows, where a task carries no environment', () => {
+    const ps1 = powershellScript()
+    expect(ps1).toContain('[string]$Server = ""')
+    expect(ps1).toMatch(/\$plain = \$server\.StartsWith\("http:\/\/"\)/)
+    expect(ps1).toContain('if ($plain) {')
+
+    // Persisted, not merely exported: a scheduled task starts with none of it.
     expect(ps1).toContain('$env:TERN_ALLOW_PLAIN_HTTP = "1"')
     expect(ps1).toContain('SetEnvironmentVariable("TERN_ALLOW_PLAIN_HTTP"')
   })
 
-  it('still parses as POSIX sh with the allowance in it', async () => {
-    const { sh } = await scriptsFor('http://192.168.1.30:8080')
+  it('still parses as POSIX sh, decision and all', () => {
     const dir = mkdtempSync(join(tmpdir(), 'tern-install-http-'))
     const path = join(dir, 'install.sh')
-    writeFileSync(path, sh)
+    writeFileSync(path, shellScript())
     expect(() => execFileSync('sh', ['-n', path], { stdio: 'pipe' })).not.toThrow()
-  })
-
-  it('says nothing of the kind when there is TLS, or when it is localhost', async () => {
-    for (const url of ['https://status.example.com', 'http://localhost:5173']) {
-      const { sh, ps1 } = await scriptsFor(url)
-      // An allowance written into a script that does not need one teaches the
-      // habit of writing it into scripts that do.
-      expect(sh).not.toContain('TERN_ALLOW_PLAIN_HTTP')
-      expect(ps1).not.toContain('TERN_ALLOW_PLAIN_HTTP')
-    }
   })
 })

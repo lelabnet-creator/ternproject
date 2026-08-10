@@ -106,21 +106,15 @@ function base(): string {
   return config.PUBLIC_BASE_URL.replace(/\/$/, '')
 }
 
-/**
- * Is this instance reached over plain HTTP, somewhere the agent will refuse by
- * default?
- *
- * Localhost is not: the agent exempts it already, and an allowance written into
- * a script that does not need one teaches the wrong habit. Everything else that
- * is not `https://` is — a LAN address, a hostname on an internal network, a
- * public address someone has not put TLS in front of yet. All three are real,
- * and the first is the ordinary shape of a first deployment.
+/*
+ * Whether the address is plain HTTP used to be decided here, and written into
+ * the script as a constant. It is now decided by the script itself, at run
+ * time, because `--server` lets an install point at a relay whose address this
+ * instance has never heard of — and a permission granted for the wrong address
+ * is either a refusal at the far end of an install, or an allowance nobody
+ * asked for. The rule the scripts apply is the agent's own, in `transport.rs`:
+ * https is fine, loopback is exempt, anything else in the clear is a decision.
  */
-function plainHttp(): boolean {
-  const url = base()
-  if (url.startsWith('https://')) return false
-  return !url.startsWith('http://localhost') && !url.startsWith('http://127.0.0.1')
-}
 
 /**
  * The installer, generated with this instance's address baked in.
@@ -143,23 +137,16 @@ function shellScript(): string {
 # picks the binary for this machine, downloads it from the TERN instance above,
 # pairs with it if you passed --pin, and registers it to start at boot.
 #
-#   --pin <PIN>    pair straight away
-#   --dir <path>   where to put the binary
-#   --no-service   install and pair, but do not register for boot
-#   --proxy        install tern-proxy instead
+#   --pin <PIN>     pair straight away
+#   --server <url>  install against this address instead of the one above —
+#                   a relay, for a machine with no route to TERN itself
+#   --dir <path>    where to put the binary
+#   --no-service    install and pair, but do not register for boot
+#   --proxy         install tern-proxy instead
 set -eu
 
 SERVER="${base()}"
-# This instance's own address is plain HTTP, so the agent has to be told that
-# is acceptable — it refuses by default, because the API key it receives at
-# pairing crosses the network in clear and then does so on every report.
-#
-# Written here rather than left to whoever runs this: the address in SERVER is
-# the one this instance was configured with, so the choice was already made,
-# and an installer that generates a command its own binary rejects is an
-# installer that is wrong. Give the instance an https:// address and this line
-# disappears from the script.
-${plainHttp() ? 'export TERN_ALLOW_PLAIN_HTTP=1\n' : ''}PIN=""
+PIN=""
 DEST="\${TERN_INSTALL_DIR:-}"
 BIN="tern-agent"
 SERVICE=1
@@ -167,12 +154,38 @@ SERVICE=1
 while [ $# -gt 0 ]; do
   case "$1" in
     --pin) PIN="\${2:-}"; shift 2 ;;
+    # Everything downstream reads SERVER: the binary is fetched from it, the
+    # config is written pointing at it, and the unit documents it. So one flag
+    # moves the whole install onto a relay — which is the only way to install on
+    # a machine that cannot reach TERN at all.
+    --server) SERVER="\${2:-}"; shift 2 ;;
     --dir) DEST="\${2:-}"; shift 2 ;;
     --proxy) BIN="tern-proxy"; shift ;;
     --no-service) SERVICE=0; shift ;;
     *) echo "Unknown option: $1" >&2; exit 2 ;;
   esac
 done
+
+SERVER="\${SERVER%/}"
+
+# Plain HTTP has to be accepted on purpose: the API key crosses the network in
+# clear at pairing and again on every report, so the agent refuses by default.
+#
+# Decided here, at run time, rather than baked in when this script was generated
+# — because --server can point the install at a relay whose address this
+# instance knows nothing about. An allowance chosen for the wrong address is
+# either a refusal at the far end of an install, or a permission granted where
+# nobody asked for one. Same rule as the agent applies to itself: https is fine,
+# loopback is exempt, anything else in the clear is a decision.
+PLAIN=0
+case "$SERVER" in
+  https://*) ;;
+  http://localhost*|http://127.0.0.1*) ;;
+  http://*) PLAIN=1 ;;
+esac
+if [ "$PLAIN" = 1 ]; then
+  export TERN_ALLOW_PLAIN_HTTP=1
+fi
 
 os=$(uname -s)
 arch=$(uname -m)
@@ -280,6 +293,16 @@ if [ "$os" = "Darwin" ]; then
     mkdir -p "$HOME/Library/LaunchAgents"
   fi
 
+  # The same allowance the pairing needed. Without it in the service too, the
+  # agent pairs once and then fails on every report — the shape of failure a
+  # monitoring tool can least afford, because the server just shows it as quiet.
+  PLIST_ENV=""
+  if [ "$PLAIN" = 1 ]; then
+    PLIST_ENV='
+  <key>EnvironmentVariables</key>
+  <dict><key>TERN_ALLOW_PLAIN_HTTP</key><string>1</string></dict>'
+  fi
+
   cat > "$PLIST" <<PLIST_EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -294,13 +317,7 @@ if [ "$os" = "Darwin" ]; then
     <string>--queue</string><string>$QUEUE</string>
   </array>
   <key>RunAtLoad</key><true/>
-  <key>KeepAlive</key><true/>${
-    plainHttp()
-      ? `
-  <key>EnvironmentVariables</key>
-  <dict><key>TERN_ALLOW_PLAIN_HTTP</key><string>1</string></dict>`
-      : ''
-  }
+  <key>KeepAlive</key><true/>$PLIST_ENV
 </dict>
 </plist>
 PLIST_EOF
@@ -325,6 +342,13 @@ elif [ -d /run/systemd/system ]; then
     mkdir -p "$(dirname "$UNIT")"
   fi
 
+  UNIT_ENV=""
+  if [ "$PLAIN" = 1 ]; then
+    # Same allowance, same reason as at pairing: without it the agent starts,
+    # measures, and fails every send — and looks merely quiet from the server.
+    UNIT_ENV="Environment=TERN_ALLOW_PLAIN_HTTP=1"
+  fi
+
   cat > "$UNIT" <<UNIT_EOF
 [Unit]
 Description=$DESC
@@ -335,7 +359,8 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
-${plainHttp() ? '# The same allowance the pairing needed. Without it here, the agent pairs\n# once and then fails on every report — the shape of failure a monitoring\n# tool can least afford, because the server just shows it as quiet.\nEnvironment=TERN_ALLOW_PLAIN_HTTP=1\n' : ''}ExecStart=$DEST/$BIN run --config $CONF --queue $QUEUE
+$UNIT_ENV
+ExecStart=$DEST/$BIN run --config $CONF --queue $QUEUE
 Restart=always
 RestartSec=5
 # The agent buffers to disk while the server is unreachable, so a restart loop
@@ -401,11 +426,17 @@ description="__DESC__"
 command=__BIN__
 command_args="run --config __CONF__ --queue __QUEUE__"
 command_background=true
-${plainHttp() ? 'export TERN_ALLOW_PLAIN_HTTP=1\n' : ''}
+__PLAINENV__
 pidfile="/run/__BIN__.pid"
 depend() { need net; }
 RC_EOF
-    sed -i "s|__BIN__|$DEST/$BIN|; s|__CONF__|$CONF|; s|__QUEUE__|$QUEUE|; s|__DESC__|$DESC|" "/etc/init.d/$BIN"
+    # A placeholder and not a variable: this heredoc is quoted, which is what
+    # keeps the shell inside it from being run here instead of at boot.
+    RC_ENV=""
+    if [ "$PLAIN" = 1 ]; then
+      RC_ENV="export TERN_ALLOW_PLAIN_HTTP=1"
+    fi
+    sed -i "s|__PLAINENV__|$RC_ENV|; s|__BIN__|$DEST/$BIN|; s|__CONF__|$CONF|; s|__QUEUE__|$QUEUE|; s|__DESC__|$DESC|" "/etc/init.d/$BIN"
     sed -i "s|/run/$DEST/$BIN.pid|/run/$BIN.pid|" "/etc/init.d/$BIN"
     chmod +x "/etc/init.d/$BIN"
     rc-update add "$BIN" default
@@ -454,15 +485,29 @@ function powershellScript(): string {
 # instance above, pair with it if -Pin was given, and register it to start at
 # boot. An agent that has to be started by hand stops at the first restart, and
 # stops quietly.
+#
+# -Server <url> installs against that address instead — a relay, for a machine
+# with no route to TERN itself.
 param(
   [string]$Pin = "",
+  # Everything downstream reads $server: the download, the config that gets
+  # written, and the task. One parameter therefore moves the whole install onto
+  # a relay, which is the only way onto a machine that cannot reach TERN.
+  [string]$Server = "",
   [string]$Dir = "",
   [switch]$Proxy,
   [switch]$NoService
 )
 
 $ErrorActionPreference = "Stop"
-$server = "${base()}"
+$server = if ($Server -ne "") { $Server.TrimEnd("/") } else { "${base()}" }
+
+# Decided at run time rather than baked in when this script was generated: with
+# -Server the address is one this instance knows nothing about, and an allowance
+# chosen for the wrong address is either a refusal at the far end of an install
+# or a permission nobody asked for. Same rule the agent applies to itself.
+$plain = $server.StartsWith("http://") -and
+         -not ($server.StartsWith("http://localhost") -or $server.StartsWith("http://127.0.0.1"))
 $bin = if ($Proxy) { "tern-proxy" } else { "tern-agent" }
 $target = "x86_64-pc-windows-msvc"
 
@@ -507,21 +552,19 @@ if ($env:Path -notlike "*$Dir*") { Write-Host "Note: $Dir is not on your PATH." 
 # The relay used to stop here, on "it takes no config and no pairing" — which
 # was never true. It pairs and writes a config, so it walks the same path.
 
-${
-  plainHttp()
-    ? `# This instance's address is plain HTTP, which the agent refuses unless told
-# otherwise — the API key crosses the network in clear at pairing and on every
-# report after it. Set for this process so the pairing below works, and
-# persisted so the scheduled task inherits it: a scheduled task carries no
-# environment of its own, and pairing once then failing on every report is the
-# failure a monitoring tool can least afford.
-$env:TERN_ALLOW_PLAIN_HTTP = "1"
-[Environment]::SetEnvironmentVariable("TERN_ALLOW_PLAIN_HTTP", "1",
-  $(if ($admin) { "Machine" } else { "User" }))
+if ($plain) {
+  # The address is plain HTTP, which the agent refuses unless told otherwise —
+  # the API key crosses the network in clear at pairing and on every report
+  # after it. Set for this process so the pairing below works, and persisted so
+  # the scheduled task inherits it: a scheduled task carries no environment of
+  # its own, and pairing once then failing on every report is the failure a
+  # monitoring tool can least afford.
+  $env:TERN_ALLOW_PLAIN_HTTP = "1"
+  [Environment]::SetEnvironmentVariable("TERN_ALLOW_PLAIN_HTTP", "1",
+    $(if ($admin) { "Machine" } else { "User" }))
+}
 
-`
-    : ''
-}if ($Pin -ne "") {
+if ($Pin -ne "") {
   & $exe $join --server $server --pin $Pin --config $conf
 } else {
   Write-Host "Next: $exe $join --server $server --pin <PIN> --config $conf"

@@ -146,11 +146,12 @@ export function FleetScreen({ slug, canWrite }: { slug: string; canWrite: boolea
           </div>
 
           <div style={{ display: 'grid', gap: 'var(--space-2)' }}>
-            {agents.data.map((agent) => (
+            {rootsOf(agents.data).map((agent) => (
               <AgentRow
                 key={agent.id}
                 slug={slug}
                 agent={agent}
+                zone={zonesOf(agents.data).get(agent.id) ?? []}
                 canWrite={canWrite}
                 selected={agent.id === selected}
                 onSelect={() => setSelected(agent.id)}
@@ -164,6 +165,41 @@ export function FleetScreen({ slug, canWrite }: { slug: string; canWrite: boolea
       )}
     </section>
   )
+}
+
+/**
+ * The agents each relay stands in front of, by relay id.
+ *
+ * The server already says this — an agent the relay declared carries the
+ * relay's id — and nothing in the admin read it. "Which machines are behind
+ * this proxy" was therefore a question the fleet could not answer, even though
+ * the diagram beside it had been drawing the answer for a release.
+ */
+export function zonesOf(agents: Agent[]): Map<string, Agent[]> {
+  const zones = new Map<string, Agent[]>()
+  for (const agent of agents) {
+    if (!agent.parentAgentId) continue
+    const behind = zones.get(agent.parentAgentId) ?? []
+    behind.push(agent)
+    zones.set(agent.parentAgentId, behind)
+  }
+  return zones
+}
+
+/**
+ * The agents that are nobody's zone.
+ *
+ * Shown once, inside their relay, rather than twice: a zone agent listed at the
+ * top level as well would make the fleet look bigger than it is, and would put
+ * a row next to Rename and Revoke that neither verb can act on.
+ *
+ * A relay this server has never seen would orphan its agents — so an agent
+ * whose parent is not in the list stays at the top level rather than vanishing.
+ * Nothing should be able to make a machine disappear from the fleet screen.
+ */
+export function rootsOf(agents: Agent[]): Agent[] {
+  const present = new Set(agents.map((agent) => agent.id))
+  return agents.filter((agent) => !agent.parentAgentId || !present.has(agent.parentAgentId))
 }
 
 /**
@@ -469,9 +505,17 @@ function Vantage({ mode }: { mode: string }) {
   )
 }
 
-function AgentRow({
+/**
+ * One machine in the fleet — and, for a relay, the machines behind it.
+ *
+ * Exported for the same reason `PairCommands` is: it can then be rendered
+ * without a mutation, a click or a server, which is the only way to hold the
+ * zone list to what it claims.
+ */
+export function AgentRow({
   slug,
   agent,
+  zone = [],
   canWrite,
   selected,
   onSelect,
@@ -481,6 +525,7 @@ function AgentRow({
 }: {
   slug: string
   agent: Agent
+  zone?: Agent[]
   canWrite: boolean
   selected: boolean
   onSelect: () => void
@@ -513,8 +558,16 @@ function AgentRow({
 
   const [confirming, setConfirming] = useState(false)
   const [open, setOpen] = useState(false)
+  // Open, unlike the probe list below it, and open even when the zone is empty.
+  // Both things it holds are the reason a relay card is worth looking at: which
+  // machines are behind this one, and how another is added. The second is
+  // needed most precisely when the answer to the first is none — which is the
+  // state this product shipped in, with nothing anywhere saying what to do
+  // next. It still collapses, for whoever runs several.
+  const [zoneOpen, setZoneOpen] = useState(true)
   const freshness = freshnessOf(agent, now)
   const revoked = agent.status === 'revoked'
+  const relay = agent.role === 'proxy'
 
   return (
     <Card
@@ -635,6 +688,17 @@ function AgentRow({
               ? 'No probes'
               : `${open ? '▾' : '▸'} ${agent.jobCount} probe${agent.jobCount === 1 ? '' : 's'}`}
           </Button>
+          {/* Never disabled, even at zero: an empty zone is the moment somebody
+              needs to be told how one is joined, and a dead button says
+              nothing. */}
+          {relay && (
+            <Button
+              ariaLabel={`${zoneOpen ? 'Hide' : 'Show'} the agents behind ${agent.name}`}
+              onClick={() => setZoneOpen((v) => !v)}
+            >
+              {zoneOpen ? '▾' : '▸'} {zone.length === 0 ? 'Empty zone' : `${zone.length} in zone`}
+            </Button>
+          )}
           {canWrite && !revoked && (
             <>
               <Button onClick={() => setEditing((v) => !v)}>{editing ? 'Cancel' : 'Rename'}</Button>
@@ -682,6 +746,96 @@ function AgentRow({
             </li>
           ))}
         </ul>
+      )}
+
+      {relay && zoneOpen && (
+        <div
+          style={{
+            marginTop: 'var(--space-3)',
+            paddingTop: 'var(--space-3)',
+            borderTop: '1px solid var(--color-border)',
+            display: 'grid',
+            gap: 'var(--space-3)',
+          }}
+        >
+          {zone.length > 0 && (
+            <ul
+              style={{
+                listStyle: 'none',
+                margin: 0,
+                padding: 0,
+                display: 'grid',
+                gap: 'var(--space-2)',
+              }}
+            >
+              {zone.map((behind) => {
+                const state = freshnessOf(behind, now)
+                return (
+                  <li
+                    key={behind.id}
+                    style={{
+                      display: 'flex',
+                      gap: 'var(--space-3)',
+                      alignItems: 'center',
+                      fontSize: 'var(--text-sm)',
+                    }}
+                  >
+                    <span
+                      aria-hidden="true"
+                      style={{
+                        width: 8,
+                        height: 8,
+                        borderRadius: '50%',
+                        flexShrink: 0,
+                        background:
+                          state === 'fresh'
+                            ? 'var(--status-operational)'
+                            : state === 'stale'
+                              ? 'var(--status-degraded)'
+                              : 'var(--status-down)',
+                      }}
+                    />
+                    <span style={{ fontWeight: 600, minWidth: 0 }}>{behind.name}</span>
+                    <span
+                      className="tabular"
+                      style={{ fontSize: 'var(--text-xs)', color: 'var(--color-fg-subtle)' }}
+                    >
+                      {behind.jobCount === 0
+                        ? 'no probes'
+                        : `${behind.jobCount} probe${behind.jobCount === 1 ? '' : 's'}`}{' '}
+                      · {lastSeen(behind, now)}
+                    </span>
+                  </li>
+                )
+              })}
+            </ul>
+          )}
+
+          {/* Said once, here, rather than left to be discovered: these rows
+              carry no Rename and no Revoke, and the reason is the same reason
+              the zone is safe. */}
+          <p
+            style={{
+              margin: 0,
+              fontSize: 'var(--text-xs)',
+              color: 'var(--color-fg-subtle)',
+              lineHeight: 1.6,
+            }}
+          >
+            {zone.length > 0 && (
+              <>
+                This server never paired these, so it holds no key for them and cannot rename or
+                revoke them — the relay does, and rewrites this list every time it reports.{' '}
+              </>
+            )}
+            TERN cannot mint a PIN for a zone. The relay issues its own, on its own machine, which
+            is what keeps a compromised host in the zone from ever holding a credential for this
+            server. To add an agent behind this relay, run there:
+          </p>
+          <CodeBlock label={`On ${agent.name}`}>
+            tern-proxy pin --config /etc/tern/proxy.toml
+          </CodeBlock>
+        </div>
       )}
 
       {error && (

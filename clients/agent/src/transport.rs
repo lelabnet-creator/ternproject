@@ -236,6 +236,48 @@ impl Client {
         response.json().await.context("unexpected jobs response")
     }
 
+    /// Fetches one of the server's public files, verbatim.
+    ///
+    /// For the relay, and for one purpose: a machine inside a zone has no route
+    /// to TERN, so the installer script and the prebuilt binaries can only
+    /// reach it through the relay — which does have one. Without this, an
+    /// isolated host cannot be installed at all without somebody copying a
+    /// binary onto it by hand.
+    ///
+    /// `path` is chosen by the caller from a fixed set and never taken from a
+    /// request. A relay that forwards whatever path it is handed is an open
+    /// proxy into whatever the relay itself can reach, which on a machine
+    /// chosen for having a route out is the worst place to put one.
+    ///
+    /// No credentials: these routes are public on the server, and sending the
+    /// relay's key would let a zone agent borrow it by asking for a file.
+    pub async fn fetch_public(&self, path: &str) -> Result<(String, Vec<u8>)> {
+        let response = self
+            .http
+            .get(format!("{}{path}", self.base_url))
+            .send()
+            .await
+            .context("could not reach the server")?;
+
+        if !response.status().is_success() {
+            bail!("the server refused {path} ({})", response.status());
+        }
+
+        let content_type = response
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or("application/octet-stream")
+            .to_string();
+
+        let body = response
+            .bytes()
+            .await
+            .with_context(|| format!("could not read {path} from the server"))?;
+
+        Ok((content_type, body.to_vec()))
+    }
+
     /// "I am here", and nothing else.
     ///
     /// An agent that is measuring says so with every push, and one that is

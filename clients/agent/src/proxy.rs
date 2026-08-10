@@ -27,9 +27,9 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
-use axum::extract::{ConnectInfo, State};
+use axum::extract::{ConnectInfo, Path as AxumPath, State};
 use axum::http::{HeaderMap, StatusCode};
-use axum::response::IntoResponse;
+use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
@@ -236,6 +236,13 @@ pub async fn run(
         .route("/api/v1/ingest", post(ingest))
         .route("/api/v1/agent/jobs", get(jobs_route))
         .route("/api/v1/agent/heartbeat", post(heartbeat))
+        // The installation of the zone, relayed. Without these four, a machine
+        // with no route to TERN can be paired but not installed, and the one
+        // command an operator wants to run does not exist.
+        .route("/install.sh", get(install_sh))
+        .route("/install.ps1", get(install_ps1))
+        .route("/api/v1/agent/releases", get(releases))
+        .route("/api/v1/agent/bin/{file}", get(binary))
         .route("/health", get(health))
         .with_state(state.clone());
 
@@ -382,6 +389,79 @@ fn spawn_flush(state: AppState, every_s: u64) {
 
 async fn health() -> impl IntoResponse {
     Json(json!({ "status": "ok", "role": "proxy" }))
+}
+
+/// Is this the name of a binary the server publishes, and nothing else?
+///
+/// A whitelist by shape rather than a copy of the server's list, which would
+/// have to be edited here every time a target is added and would be wrong in
+/// between. What it has to exclude is the whole point: anything with a slash or
+/// a dot-dot turns this route into a way of reading the upstream through the
+/// relay, and the relay was chosen for the job because it can reach things the
+/// zone cannot.
+fn is_publishable_binary(name: &str) -> bool {
+    if name == "SHA256SUMS" {
+        return true;
+    }
+
+    let known_prefix = ["tern-agent-", "tern-proxy-", "tern-setup-"]
+        .iter()
+        .any(|prefix| name.starts_with(prefix));
+
+    known_prefix
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.')
+        && !name.contains("..")
+}
+
+/// The installer and the binaries, relayed from upstream.
+///
+/// The reason this exists at all: a machine in the zone has no route to TERN,
+/// so `curl … /install.sh` and the binary download both have to come from
+/// somewhere it *can* reach. Passed through rather than rewritten — it is the
+/// installer's own `--server` flag that points the install back here, so the
+/// script needs no editing on its way past.
+///
+/// Not cached, on purpose. An install is rare, a cache is an invalidation to
+/// keep right, and a stale binary served by a relay is precisely the failure
+/// this product spent a release learning about.
+async fn relay_file(state: &AppState, path: &str) -> Response {
+    match state.client.fetch_public(path).await {
+        Ok((content_type, body)) => {
+            ([(axum::http::header::CONTENT_TYPE, content_type)], body).into_response()
+        }
+        Err(error) => {
+            // 502 and not 404: the file is not missing here, the relay could not
+            // get it. Said plainly, because the machine reading this message is
+            // the one that cannot check for itself.
+            warn!(%error, path, "could not relay a file from upstream");
+            (
+                StatusCode::BAD_GATEWAY,
+                format!("The relay could not fetch {path} from TERN: {error}\n"),
+            )
+                .into_response()
+        }
+    }
+}
+
+async fn install_sh(State(state): State<AppState>) -> Response {
+    relay_file(&state, "/install.sh").await
+}
+
+async fn install_ps1(State(state): State<AppState>) -> Response {
+    relay_file(&state, "/install.ps1").await
+}
+
+async fn releases(State(state): State<AppState>) -> Response {
+    relay_file(&state, "/api/v1/agent/releases").await
+}
+
+async fn binary(State(state): State<AppState>, AxumPath(file): AxumPath<String>) -> Response {
+    if !is_publishable_binary(&file) {
+        return (StatusCode::NOT_FOUND, "Unknown binary\n").into_response();
+    }
+    relay_file(&state, &format!("/api/v1/agent/bin/{file}")).await
 }
 
 #[derive(Deserialize)]
@@ -628,6 +708,81 @@ pub fn issue_pin(config_path: &Path, ttl_minutes: u64) -> Result<(String, PathBu
 
     write_private(&path, &serde_json::to_string(&pending)?)?;
     Ok((pin, path))
+}
+
+/// How a machine in the zone should address this relay — and what is uncertain
+/// about that answer.
+///
+/// `listen` answers "what do I bind to", which is a different question from
+/// "what should an agent be told to connect to", and the default answers the
+/// second one wrongly on purpose: binding loopback is the right default, and
+/// `127.0.0.1` is the one address that cannot work in a command meant to be run
+/// on another machine. Printing it without a word would hand somebody a command
+/// that fails with a connection refused and no explanation of why.
+#[derive(Debug, PartialEq, Eq)]
+pub struct ZoneAddress {
+    /// The `host:port` to print in the commands.
+    pub authority: String,
+    pub caveat: Option<ZoneCaveat>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum ZoneCaveat {
+    /// Bound to loopback: nothing off this machine can reach it at all.
+    LoopbackOnly,
+    /// Bound to every interface, so no single address is *the* address. What is
+    /// offered is the one this machine uses to reach TERN, which is a guess
+    /// about the zone and has to be named as one.
+    Guessed,
+}
+
+pub fn zone_address(listen: &str, outbound: Option<std::net::IpAddr>) -> ZoneAddress {
+    let (host, port) = match listen.rsplit_once(':') {
+        Some((host, port)) => (host.trim_matches(['[', ']']), port),
+        // Not a host:port at all: say back exactly what was configured rather
+        // than invent something that looks authoritative.
+        None => {
+            return ZoneAddress {
+                authority: listen.to_string(),
+                caveat: None,
+            }
+        }
+    };
+
+    match host {
+        "0.0.0.0" | "::" | "" => ZoneAddress {
+            authority: match outbound {
+                Some(ip) => format!("{ip}:{port}"),
+                None => format!("<this-machine>:{port}"),
+            },
+            caveat: Some(ZoneCaveat::Guessed),
+        },
+        "127.0.0.1" | "localhost" | "::1" => ZoneAddress {
+            authority: listen.to_string(),
+            caveat: Some(ZoneCaveat::LoopbackOnly),
+        },
+        _ => ZoneAddress {
+            authority: listen.to_string(),
+            caveat: None,
+        },
+    }
+}
+
+/// Which of this machine's addresses faces the upstream server.
+///
+/// A connected UDP socket sends nothing; it only asks the routing table which
+/// interface would be used to reach that destination. That is exactly the
+/// question — and it needs no privileges, no probing, and no network round
+/// trip. Best guess only: the interface that reaches TERN is not necessarily
+/// the one the zone arrives on, which is why the caller says so.
+pub fn outbound_address(upstream: &str) -> Option<std::net::IpAddr> {
+    let url = reqwest::Url::parse(upstream).ok()?;
+    let host = url.host_str()?;
+    let port = url.port_or_known_default().unwrap_or(443);
+
+    let socket = std::net::UdpSocket::bind("0.0.0.0:0").ok()?;
+    socket.connect((host, port)).ok()?;
+    socket.local_addr().ok().map(|address| address.ip())
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -921,5 +1076,115 @@ mod tests {
 
         assert_eq!(inner.pins.len(), 1);
         assert_eq!(inner.pins[0].hash, "fresh");
+    }
+
+    /// The guard on the one route that takes a name from the request.
+    ///
+    /// The relay is put where it is *because* it can reach things the zone
+    /// cannot, so a route that forwards whatever path it is handed would be an
+    /// open door into exactly the network worth protecting.
+    #[test]
+    fn only_the_published_binaries_are_relayed() {
+        for name in [
+            "tern-agent-x86_64-unknown-linux-musl",
+            "tern-proxy-aarch64-apple-darwin",
+            "tern-agent-x86_64-pc-windows-msvc.exe",
+            "tern-setup-x86_64-unknown-linux-musl",
+            "SHA256SUMS",
+        ] {
+            assert!(is_publishable_binary(name), "{name} should be served");
+        }
+
+        for name in [
+            "../../etc/passwd",
+            "tern-agent-../../../etc/shadow",
+            "tern-agent-x/../../secret",
+            "internal/metrics",
+            "curl-x86_64",
+            "",
+            // The one that carries a right-looking prefix and no slash, so it
+            // passes every check but the last. Without it this test went on
+            // passing with the dot-dot guard deleted, which is the only reason
+            // it is written out here rather than assumed.
+            "tern-agent-..",
+        ] {
+            assert!(!is_publishable_binary(name), "{name} should be refused");
+        }
+    }
+
+    /// What an agent is told to connect to, which is not what the relay binds.
+    ///
+    /// The default binds loopback, and that is the right default — but a
+    /// command built from it works only on the relay itself, and the machine it
+    /// is meant for is by definition a different one. Printing `127.0.0.1:8787`
+    /// without a word hands somebody a connection refused and no reason for it.
+    #[test]
+    fn the_printed_address_says_when_it_cannot_work() {
+        let loopback = zone_address("127.0.0.1:8787", None);
+        assert_eq!(loopback.authority, "127.0.0.1:8787");
+        assert_eq!(loopback.caveat, Some(ZoneCaveat::LoopbackOnly));
+        assert_eq!(
+            zone_address("localhost:8787", None).caveat,
+            Some(ZoneCaveat::LoopbackOnly)
+        );
+
+        // Bound to everything: no single address is the address, so the one
+        // offered is a guess and has to be marked as one.
+        let every = zone_address("0.0.0.0:8787", Some("192.168.1.112".parse().unwrap()));
+        assert_eq!(every.authority, "192.168.1.112:8787");
+        assert_eq!(every.caveat, Some(ZoneCaveat::Guessed));
+
+        // Nothing to guess from: better a placeholder that cannot be mistaken
+        // for an address than an address that is wrong.
+        let unknown = zone_address("0.0.0.0:9000", None);
+        assert_eq!(unknown.authority, "<this-machine>:9000");
+        assert_eq!(unknown.caveat, Some(ZoneCaveat::Guessed));
+
+        // Configured deliberately: use it as written, say nothing.
+        let chosen = zone_address("192.168.64.1:8787", None);
+        assert_eq!(chosen.authority, "192.168.64.1:8787");
+        assert_eq!(chosen.caveat, None);
+    }
+
+    /// The passthrough, against a server that actually answers.
+    ///
+    /// Worth the machinery: what this proves is that the bytes and the content
+    /// type arrive unchanged, and the installer is a shell script piped into a
+    /// shell — a body that is subtly rewritten on the way through would be
+    /// found by whoever runs it, on the machine nobody here can look at.
+    #[tokio::test]
+    async fn a_file_is_relayed_from_upstream_unchanged() {
+        const SCRIPT: &str = "#!/bin/sh\necho installer\n";
+
+        let app = Router::new().route(
+            "/install.sh",
+            get(|| async {
+                (
+                    [(
+                        axum::http::header::CONTENT_TYPE,
+                        "text/x-shellscript; charset=utf-8",
+                    )],
+                    SCRIPT,
+                )
+            }),
+        );
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, app).await });
+
+        let client = crate::transport::Client::new(&format!("http://{address}")).unwrap();
+
+        let (content_type, body) = client.fetch_public("/install.sh").await.unwrap();
+        assert_eq!(body, SCRIPT.as_bytes());
+        assert!(content_type.starts_with("text/x-shellscript"));
+
+        // A refusal upstream must not be reported as an empty file: the machine
+        // reading it has no way of checking for itself.
+        let missing = client.fetch_public("/install.ps1").await;
+        assert!(
+            missing.is_err(),
+            "a 404 upstream should surface as an error"
+        );
     }
 }
