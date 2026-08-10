@@ -70,6 +70,16 @@ export function StatusPage({ slug }: { slug: string }) {
    * previous render" before it drew anything.
    */
   const compact = useCompact()
+  /*
+   * "Only what is not working", for the moment somebody opens this page during
+   * an outage and wants the answer without reading the whole estate.
+   *
+   * Off by default and never sticky: a filtered page that looks like a healthy
+   * one is the worst thing this could produce, and a preference remembered
+   * across visits would do exactly that on the next visit — a green page,
+   * because everything red had been hidden and nobody remembered asking.
+   */
+  const [onlyProblems, setOnlyProblems] = useState(false)
 
   const branding = summary.data?.tenant.branding as Record<string, unknown> | undefined
 
@@ -293,7 +303,13 @@ export function StatusPage({ slug }: { slug: string }) {
           `useCompact` for the whole of that reasoning.
         */}
         {compact ? (
-          <CompactHeader name={data.tenant.name} slug={slug} logoUrl={logoUrl} />
+          <CompactHeader
+            name={data.tenant.name}
+            slug={slug}
+            logoUrl={logoUrl}
+            onlyProblems={onlyProblems}
+            onOnlyProblems={setOnlyProblems}
+          />
         ) : (
           <Header name={data.tenant.name} slug={slug} logoUrl={logoUrl} controls />
         )}
@@ -346,25 +362,39 @@ export function StatusPage({ slug }: { slug: string }) {
                     },
                   ]
                 : []),
-              ...groupTree(data, preview.order).map(({ group, components }) => ({
-                id: group?.id ?? 'ungrouped',
-                name: group?.name ?? 'Components',
-                statuses: components.map((component) => component.status),
-                content: (
-                  <div style={layoutStyle(layout)}>
-                    {components.map((component) => (
-                      <ComponentCard
-                        key={component.id}
-                        component={component}
-                        days={daysFor(component)}
-                        locale={locale}
-                        timeZone={timeZone}
-                        layout={layout}
-                      />
-                    ))}
-                  </div>
-                ),
-              })),
+              ...groupTree(data, preview.order)
+                .map(({ group, components }) => ({
+                  group,
+                  components: onlyProblems
+                    ? components.filter(
+                        (component) =>
+                          component.status !== 'operational' && component.status !== 'unknown',
+                      )
+                    : components,
+                }))
+                // A group with nothing wrong in it is not an empty pane, it is
+                // no pane: a dot leading to a blank screen would be the filter
+                // failing at the one thing it was asked to do.
+                .filter(({ components }) => components.length > 0)
+                .map(({ group, components }) => ({
+                  id: group?.id ?? 'ungrouped',
+                  name: group?.name ?? 'Components',
+                  statuses: components.map((component) => component.status),
+                  content: (
+                    <div style={layoutStyle(layout)}>
+                      {components.map((component) => (
+                        <ComponentCard
+                          key={component.id}
+                          component={component}
+                          days={daysFor(component)}
+                          locale={locale}
+                          timeZone={timeZone}
+                          layout={layout}
+                        />
+                      ))}
+                    </div>
+                  ),
+                })),
             ]}
           />
         ) : (
@@ -1064,10 +1094,14 @@ function CompactHeader({
   name,
   slug,
   logoUrl,
+  onlyProblems,
+  onOnlyProblems,
 }: {
   name: string
   slug?: string
   logoUrl: string | null
+  onlyProblems: boolean
+  onOnlyProblems: (value: boolean) => void
 }) {
   const { t } = useTranslation()
   const [open, setOpen] = useState(false)
@@ -1165,6 +1199,29 @@ function CompactHeader({
               boxShadow: 'var(--shadow-card)',
             }}
           >
+            {/*
+              First in the menu, because it is the only entry here that changes
+              what the page says rather than how it looks. The others are the
+              reader's preferences; this one is the reader's question.
+            */}
+            <label
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 'var(--space-2)',
+                minHeight: 44,
+                fontSize: 'var(--text-sm)',
+                cursor: 'pointer',
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={onlyProblems}
+                onChange={(event) => onOnlyProblems(event.target.checked)}
+              />
+              Only what is not working
+            </label>
+
             <ThemePicker compact />
             {slug && <AdminLink slug={slug} />}
             <SponsorButton />

@@ -218,9 +218,12 @@ export function GroupPanes({ groups }: { groups: PaneGroup[] }) {
             >
               <span
                 aria-hidden="true"
+                className={ailing ? 'pane-dot-alert' : undefined}
                 style={{
-                  width: selected ? 9 : 7,
-                  height: selected ? 9 : 7,
+                  // An ailing dot is never the small one: its size must not
+                  // depend on which pane happens to be in front.
+                  width: ailing || selected ? 9 : 7,
+                  height: ailing || selected ? 9 : 7,
                   borderRadius: '50%',
                   /*
                    * A group with a problem keeps its colour whichever pane is

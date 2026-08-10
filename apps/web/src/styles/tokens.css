@@ -1279,3 +1279,38 @@ a.tern-target {
     height: clamp(16rem, 62dvh, 40rem);
   }
 }
+
+/*
+ * The dot of a pane that holds something broken, breathing.
+ *
+ * Motion here is doing a job, not decorating: a red dot among grey ones is a
+ * difference the eye can miss on a glance at arm's length, and this is the one
+ * signal on the page that must not be missed. It is the only thing on the
+ * public page that moves on its own, which is what keeps it meaning something.
+ *
+ * Opacity and transform only — both composited, so a phone animates this
+ * without touching layout. And it stops entirely under reduced motion: a
+ * pulsing mark is exactly what that setting exists to turn off, and the colour
+ * still carries the meaning without it.
+ */
+@keyframes tern-breathe {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.45;
+    transform: scale(0.82);
+  }
+}
+
+.pane-dot-alert {
+  animation: tern-breathe 2.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pane-dot-alert {
+    animation: none;
+  }
+}
