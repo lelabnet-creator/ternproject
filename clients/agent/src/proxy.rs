@@ -27,9 +27,9 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
-use axum::extract::{ConnectInfo, State};
+use axum::extract::{ConnectInfo, Path as AxumPath, State};
 use axum::http::{HeaderMap, StatusCode};
-use axum::response::IntoResponse;
+use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
@@ -236,6 +236,13 @@ pub async fn run(
         .route("/api/v1/ingest", post(ingest))
         .route("/api/v1/agent/jobs", get(jobs_route))
         .route("/api/v1/agent/heartbeat", post(heartbeat))
+        // The installation of the zone, relayed. Without these four, a machine
+        // with no route to TERN can be paired but not installed, and the one
+        // command an operator wants to run does not exist.
+        .route("/install.sh", get(install_sh))
+        .route("/install.ps1", get(install_ps1))
+        .route("/api/v1/agent/releases", get(releases))
+        .route("/api/v1/agent/bin/{file}", get(binary))
         .route("/health", get(health))
         .with_state(state.clone());
 
@@ -382,6 +389,79 @@ fn spawn_flush(state: AppState, every_s: u64) {
 
 async fn health() -> impl IntoResponse {
     Json(json!({ "status": "ok", "role": "proxy" }))
+}
+
+/// Is this the name of a binary the server publishes, and nothing else?
+///
+/// A whitelist by shape rather than a copy of the server's list, which would
+/// have to be edited here every time a target is added and would be wrong in
+/// between. What it has to exclude is the whole point: anything with a slash or
+/// a dot-dot turns this route into a way of reading the upstream through the
+/// relay, and the relay was chosen for the job because it can reach things the
+/// zone cannot.
+fn is_publishable_binary(name: &str) -> bool {
+    if name == "SHA256SUMS" {
+        return true;
+    }
+
+    let known_prefix = ["tern-agent-", "tern-proxy-", "tern-setup-"]
+        .iter()
+        .any(|prefix| name.starts_with(prefix));
+
+    known_prefix
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.')
+        && !name.contains("..")
+}
+
+/// The installer and the binaries, relayed from upstream.
+///
+/// The reason this exists at all: a machine in the zone has no route to TERN,
+/// so `curl … /install.sh` and the binary download both have to come from
+/// somewhere it *can* reach. Passed through rather than rewritten — it is the
+/// installer's own `--server` flag that points the install back here, so the
+/// script needs no editing on its way past.
+///
+/// Not cached, on purpose. An install is rare, a cache is an invalidation to
+/// keep right, and a stale binary served by a relay is precisely the failure
+/// this product spent a release learning about.
+async fn relay_file(state: &AppState, path: &str) -> Response {
+    match state.client.fetch_public(path).await {
+        Ok((content_type, body)) => {
+            ([(axum::http::header::CONTENT_TYPE, content_type)], body).into_response()
+        }
+        Err(error) => {
+            // 502 and not 404: the file is not missing here, the relay could not
+            // get it. Said plainly, because the machine reading this message is
+            // the one that cannot check for itself.
+            warn!(%error, path, "could not relay a file from upstream");
+            (
+                StatusCode::BAD_GATEWAY,
+                format!("The relay could not fetch {path} from TERN: {error}\n"),
+            )
+                .into_response()
+        }
+    }
+}
+
+async fn install_sh(State(state): State<AppState>) -> Response {
+    relay_file(&state, "/install.sh").await
+}
+
+async fn install_ps1(State(state): State<AppState>) -> Response {
+    relay_file(&state, "/install.ps1").await
+}
+
+async fn releases(State(state): State<AppState>) -> Response {
+    relay_file(&state, "/api/v1/agent/releases").await
+}
+
+async fn binary(State(state): State<AppState>, AxumPath(file): AxumPath<String>) -> Response {
+    if !is_publishable_binary(&file) {
+        return (StatusCode::NOT_FOUND, "Unknown binary\n").into_response();
+    }
+    relay_file(&state, &format!("/api/v1/agent/bin/{file}")).await
 }
 
 #[derive(Deserialize)]
@@ -921,5 +1001,81 @@ mod tests {
 
         assert_eq!(inner.pins.len(), 1);
         assert_eq!(inner.pins[0].hash, "fresh");
+    }
+
+    /// The guard on the one route that takes a name from the request.
+    ///
+    /// The relay is put where it is *because* it can reach things the zone
+    /// cannot, so a route that forwards whatever path it is handed would be an
+    /// open door into exactly the network worth protecting.
+    #[test]
+    fn only_the_published_binaries_are_relayed() {
+        for name in [
+            "tern-agent-x86_64-unknown-linux-musl",
+            "tern-proxy-aarch64-apple-darwin",
+            "tern-agent-x86_64-pc-windows-msvc.exe",
+            "tern-setup-x86_64-unknown-linux-musl",
+            "SHA256SUMS",
+        ] {
+            assert!(is_publishable_binary(name), "{name} should be served");
+        }
+
+        for name in [
+            "../../etc/passwd",
+            "tern-agent-../../../etc/shadow",
+            "tern-agent-x/../../secret",
+            "internal/metrics",
+            "curl-x86_64",
+            "",
+            // The one that carries a right-looking prefix and no slash, so it
+            // passes every check but the last. Without it this test went on
+            // passing with the dot-dot guard deleted, which is the only reason
+            // it is written out here rather than assumed.
+            "tern-agent-..",
+        ] {
+            assert!(!is_publishable_binary(name), "{name} should be refused");
+        }
+    }
+
+    /// The passthrough, against a server that actually answers.
+    ///
+    /// Worth the machinery: what this proves is that the bytes and the content
+    /// type arrive unchanged, and the installer is a shell script piped into a
+    /// shell — a body that is subtly rewritten on the way through would be
+    /// found by whoever runs it, on the machine nobody here can look at.
+    #[tokio::test]
+    async fn a_file_is_relayed_from_upstream_unchanged() {
+        const SCRIPT: &str = "#!/bin/sh\necho installer\n";
+
+        let app = Router::new().route(
+            "/install.sh",
+            get(|| async {
+                (
+                    [(
+                        axum::http::header::CONTENT_TYPE,
+                        "text/x-shellscript; charset=utf-8",
+                    )],
+                    SCRIPT,
+                )
+            }),
+        );
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, app).await });
+
+        let client = crate::transport::Client::new(&format!("http://{address}")).unwrap();
+
+        let (content_type, body) = client.fetch_public("/install.sh").await.unwrap();
+        assert_eq!(body, SCRIPT.as_bytes());
+        assert!(content_type.starts_with("text/x-shellscript"));
+
+        // A refusal upstream must not be reported as an empty file: the machine
+        // reading it has no way of checking for itself.
+        let missing = client.fetch_public("/install.ps1").await;
+        assert!(
+            missing.is_err(),
+            "a 404 upstream should surface as an error"
+        );
     }
 }
