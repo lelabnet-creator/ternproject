@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { adminApi, ApiError, type Agent } from '../../lib/adminApi'
 import { AgentGalaxy, freshnessOf } from '../../charts/AgentGalaxy'
@@ -410,6 +410,7 @@ export function PairCommands({
    * on a line already long enough to be pasted wrong.
    */
   port?: string
+  /** Which relay this code is for, when the panel knows. */
   /**
    * The relay a zone machine goes through, when it cannot reach this server.
    *
@@ -444,8 +445,95 @@ export function PairCommands({
   )
 }
 
+/**
+ * How long this PIN has left, as a ring that empties.
+ *
+ * A timestamp — "expires at 11:45:27 PM" — is a number the reader has to
+ * subtract from a clock they cannot see, on a screen they opened to copy one
+ * line. A ring that empties says the same thing without arithmetic, and says it
+ * peripherally: it can be understood without being read.
+ *
+ * It renews itself at zero rather than leaving a dead code on screen. An
+ * expired PIN that still looks like a PIN is the failure this replaces —
+ * somebody pastes it, the far machine says "invalid or expired", and nothing on
+ * either screen explains that the number simply got old.
+ *
+ * The text stays beside the ring. Colour and shape alone would leave a reader
+ * who cannot see it with no way through, and `color-not-only` is a rule, not a
+ * preference.
+ */
+export function PinCountdown({
+  expiresAt,
+  onExpired,
+}: {
+  expiresAt: string
+  onExpired: () => void
+}) {
+  const total = 5 * 60_000
+  const [left, setLeft] = useState(() => Math.max(0, Date.parse(expiresAt) - Date.now()))
+
+  useEffect(() => {
+    // A second, not a frame: this is a number somebody glances at, and sixty
+    // renders a second to animate a ring is a phone getting warm for nothing.
+    const tick = () => {
+      const remaining = Math.max(0, Date.parse(expiresAt) - Date.now())
+      setLeft(remaining)
+      if (remaining === 0) onExpired()
+    }
+    tick()
+    const timer = setInterval(tick, 1000)
+    return () => clearInterval(timer)
+  }, [expiresAt, onExpired])
+
+  const share = Math.min(1, Math.max(0, left / total))
+  const seconds = Math.ceil(left / 1000)
+  const label = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`
+  // Under a minute it stops being "plenty" and starts being a deadline.
+  const urgent = left > 0 && left < 60_000
+
+  return (
+    <span
+      style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--space-2)' }}
+      // Polite, not assertive: this updates every second, and an assertive
+      // region would interrupt a screen reader with the time remaining while
+      // they are still being read the command.
+      aria-live="polite"
+    >
+      <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
+        <circle cx="9" cy="9" r="7.5" fill="none" stroke="var(--color-border)" strokeWidth="2" />
+        <circle
+          cx="9"
+          cy="9"
+          r="7.5"
+          fill="none"
+          stroke={urgent ? 'var(--status-down)' : 'var(--color-accent)'}
+          strokeWidth="2"
+          strokeLinecap="round"
+          // Drawn from twelve o'clock, anticlockwise as it empties — the
+          // direction every timer a reader has already seen goes.
+          strokeDasharray={`${2 * Math.PI * 7.5}`}
+          strokeDashoffset={`${2 * Math.PI * 7.5 * (1 - share)}`}
+          transform="rotate(-90 9 9)"
+        />
+      </svg>
+      <span className="tabular">
+        {left > 0 ? `Valid for ${label}` : 'Expired — getting another'}
+      </span>
+    </span>
+  )
+}
+
 export function PairPanel({ slug, onDone }: { slug: string; onDone: () => void }) {
-  const pair = useMutation({ mutationFn: () => adminApi.createPairingCode(slug) })
+  /*
+   * Five minutes for a zone code, fifteen for the rest.
+   *
+   * A zone PIN is read off this screen and typed into a terminal on another
+   * machine that is standing right there — the whole span between minting and
+   * using it is the time it takes to walk to the keyboard. Fifteen minutes of
+   * validity for a thirty-second job is credential left lying about, and the
+   * countdown below only means something if the number it counts is short
+   * enough to watch.
+   */
   // This instance's own address: the installer is served by the same origin the
   // browser is already talking to.
   const origin = window.location.origin
@@ -462,6 +550,18 @@ export function PairPanel({ slug, onDone }: { slug: string; onDone: () => void }
   const [role, setRole] = useState<'agent' | 'proxy' | 'zone'>('agent')
   const relay = role === 'proxy'
   const zone = role === 'zone'
+
+  /*
+   * Five minutes for a zone code, fifteen for the rest.
+   *
+   * A zone PIN is read off this screen and typed into a terminal on a machine
+   * standing right there — the whole span between minting and using it is the
+   * walk to the keyboard. Fifteen minutes of validity for a thirty-second job
+   * is credential left lying about, and the countdown only means something if
+   * the number it counts is short enough to watch.
+   */
+  const ttl = zone ? 5 : 15
+  const pair = useMutation({ mutationFn: () => adminApi.createPairingCode(slug, ttl) })
 
   /*
    * The relays this server knows, for the third case.
@@ -697,7 +797,16 @@ export function PairPanel({ slug, onDone }: { slug: string; onDone: () => void }
               color: 'var(--color-fg-subtle)',
             }}
           >
-            Single use, expires at {new Date(pair.data.expiresAt).toLocaleTimeString()}.
+            Single use.{' '}
+            <PinCountdown
+              expiresAt={pair.data.expiresAt}
+              // Minted again rather than left dead on screen. `mutate` is the
+              // same call the button makes, so the panel cannot drift into two
+              // ways of asking for a code.
+              onExpired={() => {
+                if (!pair.isPending) pair.mutate()
+              }}
+            />
           </p>
           <div style={{ display: 'flex', gap: 'var(--space-2)', marginTop: 'var(--space-3)' }}>
             <Button onClick={() => pair.mutate()}>Another PIN</Button>

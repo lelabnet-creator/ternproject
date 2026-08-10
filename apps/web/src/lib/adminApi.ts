@@ -615,13 +615,13 @@ export const adminApi = {
    * shows whichever the operator is adding — changing their mind costs a click,
    * not another PIN.
    */
-  createPairingCode: (slug: string) =>
+  createPairingCode: (slug: string, ttlMinutes?: number) =>
     request<{
       pin: string
       expiresAt: string
       pairCommand: string
       proxyPairCommand: string
-    }>('POST', `/api/v1/${slug}/pairing-codes`, {}),
+    }>('POST', `/api/v1/${slug}/pairing-codes`, ttlMinutes ? { ttlMinutes } : {}),
 
   updateLayout: (
     slug: string,

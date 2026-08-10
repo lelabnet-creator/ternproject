@@ -1144,12 +1144,52 @@ pub async fn init(server: &str, pin: &str, config_path: &Path, setup: ZoneSetup)
         "http://{}",
         zone_address(&config.listen, outbound_address(server)).authority
     );
-    println!("To add an agent on a machine in this zone, with nothing on it yet:");
-    println!("  curl -fsSL {origin}/install.sh | sh -s -- --server {origin} --pin <PIN>");
+    /*
+     * A frame, a green command, and the placeholder said out loud.
+     *
+     * This printed the line with a literal `<PIN>` in it, under the heading
+     * "To add an agent" — which reads as a command that is ready, and is not.
+     * Somebody pastes it and the far machine answers "invalid or expired",
+     * about a PIN that was never a PIN. So the two halves are now separated:
+     * the frame holds the shape of the command, the placeholder is coloured
+     * like the missing thing it is, and where to get it comes first.
+     *
+     * Colour only on a terminal, for the reason the `pin` command already
+     * carries: a line captured into a file must not arrive wrapped in bytes
+     * the reader then has to strip.
+     */
+    let tty = std::io::IsTerminal::is_terminal(&std::io::stdout());
+    let (green, red, dim, reset) = if tty {
+        ("\x1b[32m", "\x1b[31m", "\x1b[2m", "\x1b[0m")
+    } else {
+        ("", "", "", "")
+    };
+
     println!();
-    println!("  <PIN> comes from the admin, under Agents. If this relay cannot reach");
-    println!("  TERN at that moment, mint one here instead:");
-    println!("      {me} pin --config {}", config_path.display());
+    println!("{dim}┌─ To add an agent on a machine in this zone ─────────────{reset}");
+    println!("{dim}│{reset}");
+    println!(
+        "{dim}│{reset}  1. Open the admin, go to {red}Agents → Add an agent{reset}, and choose"
+    );
+    println!(
+        "{dim}│{reset}     {red}An agent behind a relay{reset}. It shows a PIN, good for five"
+    );
+    println!("{dim}│{reset}     minutes, and renews it on its own when it runs out.");
+    println!("{dim}│{reset}");
+    println!("{dim}│{reset}  2. Run this on the isolated machine, with that PIN in place");
+    println!("{dim}│{reset}     of {red}PIN{reset}:");
+    println!("{dim}│{reset}");
+    println!("{dim}│{reset}     {green}curl -fsSL {origin}/install.sh | sh -s -- \\{reset}");
+    println!("{dim}│{reset}       {green}--server {origin} --pin {reset}{red}PIN{reset}");
+    println!("{dim}│{reset}");
+    println!("{dim}└────────────────────────────────────────────────────────{reset}");
+    println!();
+    println!("If this relay cannot reach TERN at that moment, the admin cannot mint");
+    println!("one either — the code is redeemed through this relay. Mint it here:");
+    println!(
+        "      {green}{me} pin --config {}{reset}",
+        config_path.display()
+    );
     Ok(())
 }
 
