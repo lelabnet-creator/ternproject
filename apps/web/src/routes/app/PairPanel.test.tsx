@@ -93,3 +93,57 @@ describe('the one-liners', () => {
     expect(relay.match(/-Proxy/g)).toHaveLength(1)
   })
 })
+
+/**
+ * The command for a machine that cannot reach this server at all.
+ *
+ * The one that could not exist until a code minted here could be redeemed by
+ * the relay: its only missing value was the one this screen had no way to know.
+ */
+describe('a machine behind a relay', () => {
+  const html = renderToStaticMarkup(
+    <PairCommands
+      origin="https://status.example.com"
+      pin="4K7Q-92XB"
+      relay={false}
+      via="http://192.168.10.4:8787"
+    />,
+  )
+
+  it('takes everything from the relay, not from here', () => {
+    // All three at once, and that is the point: the script, the binary behind
+    // it, and the address written into the config. A command that moved only
+    // one of them would fail at whichever step it forgot, on a machine nobody
+    // is standing in front of.
+    expect(html).toContain('curl -fsSL http://192.168.10.4:8787/install.sh')
+    expect(html).toContain('--server http://192.168.10.4:8787')
+    expect(html).not.toContain('status.example.com')
+  })
+
+  it('carries the PIN this server minted', () => {
+    // The whole change in one line: the code comes from here, the key will come
+    // from the relay.
+    expect(html).toContain('4K7Q-92XB')
+  })
+
+  it('installs an agent, never a relay', () => {
+    // `--proxy` here would put a second relay inside the zone, which is a
+    // mistake found at the far end of an install.
+    expect(html).not.toContain('--proxy')
+    expect(html).not.toContain('-Proxy')
+  })
+
+  it('does the same on Windows', () => {
+    expect(html).toContain('irm http://192.168.10.4:8787/install.ps1')
+    expect(html).toContain('-Server http://192.168.10.4:8787')
+  })
+
+  it('leaves the direct command untouched', () => {
+    // No `via`, no `--server`: an ordinary agent is told nothing about relays.
+    const direct = renderToStaticMarkup(
+      <PairCommands origin="https://status.example.com" pin="4K7Q-92XB" relay={false} />,
+    )
+    expect(direct).not.toContain('--server')
+    expect(direct).toContain('curl -fsSL https://status.example.com/install.sh')
+  })
+})

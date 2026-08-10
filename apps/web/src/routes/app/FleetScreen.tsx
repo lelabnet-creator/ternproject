@@ -222,15 +222,30 @@ export function PairCommands({
   origin,
   pin,
   relay,
+  via,
 }: {
   origin: string
   pin: string
   relay: boolean
+  /**
+   * The relay a zone machine goes through, when it cannot reach this server.
+   *
+   * Everything moves together when it is set: the script is fetched from the
+   * relay, the binary behind it comes from the relay, and the config written
+   * names the relay. A machine with no route out cannot get any of those from
+   * here — that is what makes it a zone — so a command that changed only one of
+   * the three would fail at whichever step it forgot.
+   */
+  via?: string
 }) {
+  const from = via ?? origin
+  const server = via ? ` --server ${via}` : ''
+  const serverPs = via ? ` -Server ${via}` : ''
+
   return (
     <>
       <CodeBlock label="Linux or macOS">
-        {`curl -fsSL ${origin}/install.sh | sh -s --${relay ? ' --proxy' : ''} --pin ${pin}`}
+        {`curl -fsSL ${from}/install.sh | sh -s --${relay ? ' --proxy' : ''}${server} --pin ${pin}`}
       </CodeBlock>
 
       <div style={{ height: 'var(--space-2)' }} />
@@ -238,7 +253,7 @@ export function PairCommands({
       <CodeBlock label="Windows, in PowerShell">
         {/* A param script, so it is invoked as a script block — `| iex` would
             run it with no arguments and never see the PIN. */}
-        {`& ([scriptblock]::Create((irm ${origin}/install.ps1)))${relay ? ' -Proxy' : ''} -Pin ${pin}`}
+        {`& ([scriptblock]::Create((irm ${from}/install.ps1)))${relay ? ' -Proxy' : ''}${serverPs} -Pin ${pin}`}
       </CodeBlock>
     </>
   )
@@ -259,8 +274,31 @@ export function PairPanel({ slug, onDone }: { slug: string; onDone: () => void }
    * still works — which is why the selector stays visible below, instead of
    * disappearing once one is minted.
    */
-  const [role, setRole] = useState<'agent' | 'proxy'>('agent')
+  const [role, setRole] = useState<'agent' | 'proxy' | 'zone'>('agent')
   const relay = role === 'proxy'
+  const zone = role === 'zone'
+
+  /*
+   * The relays this server knows, for the third case.
+   *
+   * A machine with no route out fetches everything through one of them, so the
+   * command needs its address — and the address this server has is the one the
+   * relay paired from, not the one it listens on. Since 0.1.16 a relay binds
+   * the interface it reaches TERN from, so the two agree on an ordinary
+   * single-homed machine and differ on one with two cards. Offered as a filled
+   * field rather than a fact: it is right often enough to save the typing and
+   * wrong often enough that it has to stay editable.
+   */
+  const fleet = useQuery({
+    queryKey: ['agents', slug],
+    queryFn: () => adminApi.agents(slug),
+    enabled: zone,
+  })
+  const relays = (fleet.data ?? []).filter((a) => a.role === 'proxy' && a.status !== 'revoked')
+
+  const [via, setVia] = useState<string | null>(null)
+  const suggested = relays.find((r) => r.pairedIp)?.pairedIp
+  const zoneOrigin = via ?? (suggested ? `http://${suggested}:8787` : '')
 
   return (
     <Card>
@@ -277,6 +315,7 @@ export function PairPanel({ slug, onDone }: { slug: string; onDone: () => void }
           [
             ['agent', 'An agent'],
             ['proxy', 'A relay'],
+            ['zone', 'An agent behind a relay'],
           ] as const
         ).map(([value, label]) => (
           <Button
@@ -303,8 +342,35 @@ export function PairPanel({ slug, onDone }: { slug: string; onDone: () => void }
       >
         {relay
           ? 'A relay serves the agents of a network with no route out, and forwards what they measure.'
-          : 'An agent measures from the machine it runs on, and reports here directly.'}
+          : zone
+            ? 'A machine with no route to this server. Everything it needs comes through a relay you have already placed.'
+            : 'An agent measures from the machine it runs on, and reports here directly.'}
       </p>
+
+      {/* The relay to go through, asked before the PIN: it is part of the
+          command, and a code minted while the field is empty would produce a
+          line nobody can run. */}
+      {zone && (
+        <div style={{ marginBottom: 'var(--space-3)' }}>
+          {relays.length === 0 ? (
+            <Banner tone="maintenance">
+              No relay has paired with this server yet. Add one first — choose “A relay” above and
+              run its command on the machine that <em>can</em> reach here.
+            </Banner>
+          ) : (
+            <Field
+              label="Through this relay"
+              hint="The address the isolated machine can reach it on. Filled in from where it paired; change it if the relay serves the zone on another card."
+            >
+              <Input
+                value={zoneOrigin}
+                placeholder="http://192.168.10.4:8787"
+                onChange={(e) => setVia(e.target.value)}
+              />
+            </Field>
+          )}
+        </div>
+      )}
 
       {pair.data ? (
         <>
@@ -321,6 +387,12 @@ export function PairPanel({ slug, onDone }: { slug: string; onDone: () => void }
                 Run this on the machine with a route out — the one the isolated network can reach.
                 It fetches the relay from this instance, installs it, pairs, and starts serving.
               </>
+            ) : zone ? (
+              <>
+                Run this on the isolated machine. Nothing in it touches this server: the script, the
+                binary and the pairing all go through the relay, which is the only thing that
+                machine can reach.
+              </>
             ) : (
               <>
                 Run this on the machine to monitor. It fetches the agent from this instance,
@@ -330,7 +402,12 @@ export function PairPanel({ slug, onDone }: { slug: string; onDone: () => void }
             )}
           </p>
 
-          <PairCommands origin={origin} pin={pair.data.pin} relay={relay} />
+          <PairCommands
+            origin={origin}
+            pin={pair.data.pin}
+            relay={relay}
+            via={zone ? zoneOrigin || undefined : undefined}
+          />
 
           {relay && (
             <p
@@ -342,17 +419,20 @@ export function PairPanel({ slug, onDone }: { slug: string; onDone: () => void }
               }}
             >
               {/*
-                Said here rather than discovered later. Adding an agent behind
-                the relay is not something this screen can do, and the reason is
-                the feature rather than a gap: the relay issues its own PINs and
-                its own keys, so nothing inside the isolated network ever holds a
-                credential for this server. A limit with its reason attached is
-                remembered; the same limit met in silence is reported as a bug.
+                This paragraph used to say the opposite — that only the relay
+                could mint a code for its own network, and that this server
+                could not. That was true, and it made the third option above
+                impossible: the one value the command needed was the one value
+                this screen could not know.
+
+                The relay now redeems a code from here against this server, over
+                its own connection. What the zone machine ends up holding is
+                unchanged, and that is the part that mattered: a key minted by
+                the relay, worth nothing here.
               */}
-              Once it is running, add agents behind it from <em>the relay itself</em>:{' '}
-              <code>tern-proxy pin</code> mints a code for its own network. This server cannot — and
-              that is the point, since it means nothing inside that network ever holds a key to
-              here.
+              Once it is running, add machines behind it with{' '}
+              <strong>An agent behind a relay</strong> above. They still never hold a key to this
+              server — the relay redeems the code and issues one of its own.
             </p>
           )}
 
