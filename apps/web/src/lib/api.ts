@@ -80,6 +80,15 @@ export interface StatusSummary {
 
 export interface UptimeResponse {
   period: string
+  /**
+   * Which continuous aggregate answered.
+   *
+   * An hourly bucket cannot say where inside the hour an outage fell, so a
+   * figure read at `checks_1h` is exact to the hour and one read at
+   * `checks_1m` to the minute. Carried so a caller comparing two windows can
+   * tell which is sharper rather than assuming both are the same.
+   */
+  resolution: 'checks_1m' | 'checks_5m' | 'checks_1h'
   days: {
     controlId: string
     day: string

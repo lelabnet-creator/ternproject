@@ -29,7 +29,7 @@
     "manage": "Administrer cette page"
   },
   "chart": {
-    "uptimeRibbon": "Disponibilité quotidienne sur les {{days}} derniers jours",
+    "uptimeRibbon": "Disponibilité quotidienne sur les {{days}} derniers jours \u00b7 pondérée par la durée, pas par le nombre de checks",
     "latency": "Temps de réponse",
     "p50": "médiane",
     "p95": "95e centile",

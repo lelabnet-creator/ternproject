@@ -30,6 +30,30 @@ const MIN_BAR_WIDTH = 2
 const GAP = 2
 
 /**
+ * The headline figure, weighted by how much of each day was measured.
+ *
+ * Exported so it can be tested: it is arithmetic, and the rest of this file is
+ * a chart. It was a plain mean of the daily percentages, which quietly undid
+ * the thing those percentages had just been fixed to do — a day the agent only
+ * reported for two hours counted exactly as much as a fully observed one, so
+ * the first partial day after an agent came back (a short day, and often a bad
+ * one) moved the headline as much as a whole quiet week.
+ *
+ * `samples` is the weight because it is what the endpoint carries, and for a
+ * single control it is proportional to the time actually observed: one control,
+ * one interval, so twice the samples is twice the day covered.
+ */
+export function weightedUptime(
+  days: readonly { uptimePct: number | null; samples: number }[],
+): number | null {
+  const measured = days.filter((d) => d.uptimePct !== null && d.samples > 0)
+  const weight = measured.reduce((sum, d) => sum + d.samples, 0)
+  if (weight === 0) return null
+
+  return measured.reduce((sum, d) => sum + (d.uptimePct ?? 0) * d.samples, 0) / weight
+}
+
+/**
  * Daily uptime over a window — the signature mark of a status page.
  *
  * One bar per day, coloured by that day's *worst* moment rather than its
@@ -84,13 +108,9 @@ export function UptimeRibbon({ days, windowDays, locale, timeZone, label }: Upti
    * At 375px only about 77 of 90 bars fit, and the caption says so. Quoting a
    * 90-day figure beside a "77-day uptime" label would be a number that does not
    * describe the chart it sits under — on a page whose entire job is reporting
-   * accurate availability.
+   * accurate availability. Weighted by coverage — see `weightedUptime`.
    */
-  const overallUptime = useMemo(() => {
-    const withData = visible.filter((d) => d.uptimePct !== null)
-    if (withData.length === 0) return null
-    return withData.reduce((sum, d) => sum + (d.uptimePct ?? 0), 0) / withData.length
-  }, [visible])
+  const overallUptime = useMemo(() => weightedUptime(visible), [visible])
 
   const summary = t('chart.uptimeRibbon', { days: visible.length })
 

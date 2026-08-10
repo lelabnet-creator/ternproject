@@ -29,7 +29,7 @@
     "manage": "Manage this page"
   },
   "chart": {
-    "uptimeRibbon": "Daily uptime over the last {{days}} days",
+    "uptimeRibbon": "Daily uptime over the last {{days}} days \u00b7 weighted by time, not by check count",
     "latency": "Response time",
     "p50": "median",
     "p95": "95th percentile",
