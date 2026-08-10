@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
+  AVAILABILITY_TIERS,
+  availabilityTier,
   computeAvailability,
   DEFAULT_DEBOUNCE,
   publishedUptime,
@@ -373,6 +375,40 @@ describe('the figure as it is published', () => {
 
   it('says nothing rather than 100 when nothing was observed', () => {
     expect(publishedUptime(result(0, 0), 0)).toBeNull()
+  })
+})
+
+describe('the nines', () => {
+  it('answers the highest tier the figure actually reached', () => {
+    expect(availabilityTier(99.9995)).toBe(99.999)
+    expect(availabilityTier(99.995)).toBe(99.99)
+    expect(availabilityTier(99.96)).toBe(99.95)
+    expect(availabilityTier(99.92)).toBe(99.9)
+    expect(availabilityTier(99.5)).toBe(99)
+  })
+
+  it('keeps 99.95, which is not a whole number of nines', () => {
+    /*
+     * It is in the list because it is the figure a great many contracts name.
+     * Without it, 99.96% would be reported as "99.9%" and lose the distinction
+     * the reader cares about most.
+     */
+    expect(AVAILABILITY_TIERS).toContain(99.95)
+    expect(availabilityTier(99.96)).not.toBe(99.9)
+  })
+
+  it('says nothing below the lowest tier rather than inventing one', () => {
+    // There is no conventional name for it, and "one nine" would dress a bad
+    // month up as a category.
+    expect(availabilityTier(98.9)).toBeNull()
+    expect(availabilityTier(0)).toBeNull()
+    expect(availabilityTier(null)).toBeNull()
+  })
+
+  it('is exact at the boundary rather than a hair under it', () => {
+    // A figure that is exactly the tier has met it. Anything else would make
+    // the one number people quote the one number that fails.
+    for (const tier of AVAILABILITY_TIERS) expect(availabilityTier(tier)).toBe(tier)
   })
 })
 

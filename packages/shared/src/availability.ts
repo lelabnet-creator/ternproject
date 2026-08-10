@@ -250,6 +250,36 @@ export function publishedUptime(
 }
 
 /**
+ * The tiers people mean when they say "three nines".
+ *
+ * Highest first, so the first one met is the answer. `99.95` is in the list and
+ * is not a whole number of nines: it is the figure a great many contracts
+ * actually name, and leaving it out would round somebody's 99.96% down to
+ * "99.9%" and lose the distinction they care about most.
+ */
+export const AVAILABILITY_TIERS = [99.999, 99.99, 99.95, 99.9, 99] as const
+
+/**
+ * The highest tier a measured figure reached, or `null` below the lowest.
+ *
+ * ── A label, not a promise ────────────────────────────────────────────────
+ * This says what was measured over the window asked for. It is not an SLA, it
+ * does not become one by being displayed, and nothing here should be phrased as
+ * a commitment: TERN has a `slaTarget` column for the number somebody actually
+ * agreed to, which is a different thing that a tenant sets deliberately. A
+ * status page that turned an observation into an implied guarantee would be
+ * making a promise on its operator's behalf.
+ *
+ * Below 99 the answer is `null` rather than a tier of `0`. There is no
+ * conventional name for it, and inventing one — "one nine" — would dress a bad
+ * month up as a category.
+ */
+export function availabilityTier(uptimePct: number | null): number | null {
+  if (uptimePct === null) return null
+  return AVAILABILITY_TIERS.find((tier) => uptimePct >= tier) ?? null
+}
+
+/**
  * `degraded` counts as available, and this is a change.
  *
  * The aggregates count only `operational` as `ok_samples`, so a service that

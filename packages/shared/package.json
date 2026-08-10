@@ -7,6 +7,7 @@
   "main": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
+    "./availability": "./src/availability.ts",
     "./mock": "./src/mock.ts",
     "./status": "./src/status.ts",
     "./badges": "./src/badges.ts",

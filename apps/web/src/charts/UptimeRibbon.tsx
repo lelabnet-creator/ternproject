@@ -1,5 +1,6 @@
 import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
+import { availabilityTier } from '@tern/shared/availability'
 import type { CheckStatusValue } from '@tern/shared/status'
 import { statusColor } from '../lib/status'
 import { ChartTooltip, useActiveMark } from './primitives/Tooltip'
@@ -185,6 +186,20 @@ export function UptimeRibbon({ days, windowDays, locale, timeZone, label }: Upti
         {overallUptime !== null && (
           <span className="tabular" style={{ color: 'var(--color-fg-muted)' }}>
             {overallUptime.toFixed(2)}%
+            {/*
+              The tier this figure reached, when it reached one.
+
+              Written in numbers rather than in words — "≥ 99.9%" needs no
+              translation, and every phrasing that would ("three nines",
+              "meets 99.9%") edges towards sounding like a commitment. This
+              states what was measured. The number somebody actually agreed to
+              is `slaTarget`, which a tenant sets deliberately and which this is
+              not; a status page that turned an observation into an implied
+              guarantee would be making a promise on its operator's behalf.
+            */}
+            {availabilityTier(overallUptime) !== null && (
+              <span style={{ opacity: 0.7 }}> · ≥ {availabilityTier(overallUptime)}%</span>
+            )}
           </span>
         )}
         <span>{t('chart.today')}</span>
