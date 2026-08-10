@@ -992,10 +992,35 @@ pub async fn init(
     println!();
     println!("Next:");
     println!("  tern-proxy run   --config {}", config_path.display());
-    println!(
-        "  tern-proxy pin   --config {}   # then pair an agent against this proxy",
-        config_path.display()
+    println!();
+
+    /*
+     * The command for the *other* machine, spelled out here.
+     *
+     * What used to be printed was `tern-proxy pin --config <path>` under "add
+     * agents to this zone from this machine" — two things wrong at once for
+     * anybody reading it while looking at the machine they wanted to monitor:
+     * that path exists only here, and the binary to put over there is
+     * `tern-agent`, not this one. It described the first of two steps as though
+     * it were the whole thing.
+     *
+     * A PIN from the admin now works in a zone — the relay redeems it upstream
+     * — so the whole thing really is one line, and it can be printed with the
+     * PIN left as the only blank.
+     */
+    // The outbound address is passed so that a relay deliberately bound to
+    // every interface prints a usable address rather than a placeholder: the
+    // command is the point, and `<this-machine>:8787` cannot be pasted.
+    let origin = format!(
+        "http://{}",
+        zone_address(&config.listen, outbound_address(server)).authority
     );
+    println!("To add an agent on a machine in this zone, with nothing on it yet:");
+    println!("  curl -fsSL {origin}/install.sh | sh -s -- --server {origin} --pin <PIN>");
+    println!();
+    println!("  <PIN> comes from the admin, under Agents. If this relay cannot reach");
+    println!("  TERN at that moment, mint one here instead:");
+    println!("      tern-proxy pin --config {}", config_path.display());
     Ok(())
 }
 

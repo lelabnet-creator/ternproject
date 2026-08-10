@@ -481,9 +481,15 @@ if [ "$BIN" = "tern-proxy" ]; then
   # doctor is the agent's word; the relay reports on itself with status.
   echo "Check it: $DEST/$BIN status --config $CONF"
   echo
-  # The one thing this installer cannot do from here, said where it is needed.
-  echo "Add agents to this zone from this machine:"
-  echo "  $DEST/$BIN pin --config $CONF"
+  # What used to be here was "add agents to this zone from this machine",
+  # followed by a pin command naming this machine's own config path. Both halves
+  # misled whoever was looking at the machine they wanted to monitor: that path
+  # exists only on the relay, and the binary to put over there is tern-agent. It
+  # also described the first of two steps as if it were the whole thing.
+  #
+  # The init step above prints the real one-liner, with the relay's own address
+  # in it, so this points at what it just said rather than repeating it wrongly.
+  echo "The command to run on a machine in this zone was printed above."
 else
   echo "Check it end to end: $DEST/$BIN doctor --config $CONF"
 fi

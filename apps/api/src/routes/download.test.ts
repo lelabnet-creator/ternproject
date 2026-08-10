@@ -99,10 +99,24 @@ describe('the shell installer', () => {
     expect(script).toContain('setcap cap_net_raw+ep')
   })
 
-  it('tells a relay how its own zone is joined', () => {
-    // The one thing this installer cannot do: TERN issues no zone PIN, the
-    // relay issues its own. Said on the machine where it has to be run.
-    expect(script).toContain('pin --config')
+  it('does not send a relay operator to a path that exists only on the relay', () => {
+    /*
+     * This assertion used to read `toContain('pin --config')`, on the reasoning
+     * that TERN could issue no zone PIN so the relay had to mint its own. That
+     * reasoning is no longer true — a PIN from the admin is now redeemed by the
+     * relay upstream — and the line it pinned was misleading even when it was.
+     *
+     * "Add agents to this zone from this machine", followed by a pin command
+     * naming this machine's config file, is read while looking at the machine
+     * you actually want to monitor. That path is not there, the binary to
+     * install over there is tern-agent, and the first of two steps was being
+     * presented as the whole thing.
+     *
+     * The one-liner is printed by `tern-proxy init`, which is the only place
+     * that knows the relay's own address. This script points at it.
+     */
+    expect(script).not.toContain('Add agents to this zone from this machine')
+    expect(script).toContain('The command to run on a machine in this zone was printed above')
   })
 
   it('can be told not to touch the boot configuration', () => {
