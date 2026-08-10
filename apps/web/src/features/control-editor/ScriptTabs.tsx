@@ -12,6 +12,13 @@ const AGENT_TAB = 'agent'
  * All ten languages arrive together and are shown as tabs. Someone who works in
  * Perl should not have to discover that Perl is on offer, and generating on
  * demand would make switching tabs feel like waiting.
+ *
+ * The agent opens first, and is first in the row. A pushed script is a fine
+ * answer for a batch job or a CI step, but the product's answer for "watch this
+ * thing" is an agent: it runs the probes, it carries the schedule, it survives a
+ * reboot, and it needs no key pasted into a file. Opening on Python made the
+ * scripting path look like the intended one and the agent like a footnote at
+ * the end of a row of pills.
  */
 export function ScriptTabs({
   slug,
@@ -28,12 +35,17 @@ export function ScriptTabs({
     queryFn: () => adminApi.scripts(slug, controlId, apiKey),
   })
 
-  const [active, setActive] = useState<string>('python')
+  const [active, setActive] = useState<string>(AGENT_TAB)
 
   if (bundle.isPending) return <p style={{ color: 'var(--color-fg-subtle)' }}>Loading scripts…</p>
   if (bundle.isError || !bundle.data) {
     return <Banner tone="down">Could not generate the scripts.</Banner>
   }
+
+  const tabs = [
+    { id: AGENT_TAB, label: 'Agent (Rust)', extension: 'toml', syntax: 'toml' },
+    ...bundle.data.languages,
+  ]
 
   const script = bundle.data.scripts[active] ?? ''
   const language = bundle.data.languages.find((l) => l.id === active)
@@ -49,31 +61,75 @@ export function ScriptTabs({
         </Banner>
       )}
 
+      {/*
+        A tab strip rather than a row of pills.
+
+        `role="tablist"` was already here and the keyboard contract that goes
+        with it was not: every tab was reachable with Tab, which is exactly what
+        a tablist is meant to avoid. One stop for the whole strip, arrows to
+        move within it — roving `tabIndex` below — is what the role promises,
+        and what a screen reader announces.
+      */}
       <div
         role="tablist"
         aria-label="Script language"
-        style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--space-2)' }}
+        onKeyDown={(event) => {
+          const step =
+            event.key === 'ArrowRight'
+              ? 1
+              : event.key === 'ArrowLeft'
+                ? -1
+                : event.key === 'Home'
+                  ? 'first'
+                  : event.key === 'End'
+                    ? 'last'
+                    : null
+          if (step === null) return
+          event.preventDefault()
+          const index = tabs.findIndex((tab) => tab.id === active)
+          const next =
+            step === 'first'
+              ? 0
+              : step === 'last'
+                ? tabs.length - 1
+                : // Wrapping, because a strip this long otherwise ends in a
+                  // dead key press at each edge.
+                  (index + step + tabs.length) % tabs.length
+          const target = tabs[next]
+          if (!target) return
+          setActive(target.id)
+          document.getElementById(`script-tab-${target.id}`)?.focus()
+        }}
+        style={{
+          display: 'flex',
+          flexWrap: 'wrap',
+          gap: 'var(--space-1)',
+          borderBottom: '1px solid var(--color-border)',
+        }}
       >
-        {[
-          ...bundle.data.languages,
-          { id: AGENT_TAB, label: 'Agent (Rust)', extension: 'toml', syntax: 'toml' },
-        ].map((lang) => {
+        {tabs.map((lang) => {
           const selected = lang.id === active
           return (
             <button
               key={lang.id}
+              id={`script-tab-${lang.id}`}
               role="tab"
               aria-selected={selected}
+              tabIndex={selected ? 0 : -1}
               onClick={() => setActive(lang.id)}
               style={{
-                background: selected ? 'var(--color-accent)' : 'transparent',
-                color: selected ? 'var(--color-accent-fg)' : 'var(--color-fg-muted)',
-                border: `1px solid ${selected ? 'transparent' : 'var(--color-border)'}`,
-                borderRadius: 'var(--radius-full)',
+                background: 'transparent',
+                color: selected ? 'var(--color-fg)' : 'var(--color-fg-muted)',
+                border: 'none',
+                // The underline carries the selection, and sits on top of the
+                // strip's own border so the two do not stack into a thick line.
+                borderBottom: `2px solid ${selected ? 'var(--color-accent)' : 'transparent'}`,
+                marginBottom: -1,
+                borderRadius: 0,
                 padding: '0 var(--space-3)',
-                minHeight: 36,
+                minHeight: 40,
                 fontSize: 'var(--text-sm)',
-                fontWeight: 600,
+                fontWeight: selected ? 600 : 500,
                 fontFamily: 'inherit',
                 cursor: 'pointer',
               }}
