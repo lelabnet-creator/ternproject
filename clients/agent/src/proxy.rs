@@ -747,12 +747,34 @@ async fn pair(State(state): State<AppState>, Json(body): Json<PairBody>) -> impl
 
     let jobs = inner.jobs.clone();
     let slug = inner.tenant_slug.clone();
+    let agent_id = format!("proxy-local-{}", inner.config.local_keys.len());
+    let upstream = inner.config.api_key.clone();
+
+    /*
+     * Tell the server about the new member now, rather than at the next tick.
+     *
+     * The zone was only ever declared on the refresh loop, which defaults to
+     * five minutes. So an agent installed behind a relay paired successfully,
+     * printed its success, and then did not appear in the admin for up to five
+     * minutes — during which the relay's card said "Empty zone" and the only
+     * reasonable conclusion was that the install had failed. Watching that
+     * happen is how it was found; nothing was broken, and everything looked
+     * broken.
+     *
+     * The lock is dropped first and the call is spawned, so the agent waiting
+     * on this response is not made to wait for a round trip to TERN — and so a
+     * relay whose upstream is down still finishes pairing, which is the entire
+     * reason a zone exists.
+     */
+    drop(inner);
+    let announce = state.clone();
+    tokio::spawn(async move { declare_zone(&announce, &upstream).await });
 
     (
         StatusCode::OK,
         Json(json!({
             "apiKey": key,
-            "agentId": format!("proxy-local-{}", inner.config.local_keys.len()),
+            "agentId": agent_id,
             "agentName": name,
             "tenantSlug": slug,
             "jobs": jobs,

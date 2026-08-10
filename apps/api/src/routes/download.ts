@@ -506,7 +506,19 @@ UNIT_EOF
     # just wrote", and an agent paired against it was refused by a relay still
     # holding yesterday's inventory.
     systemctl enable "$BIN.service"
-    systemctl restart "$BIN.service"
+    # --no-block, and that is the difference between four seconds and four
+    # minutes.
+    #
+    # \`systemctl restart\` waits for the job to finish, and starting this unit
+    # pulls in network-online.target. On a machine with an interface that never
+    # reports online — a second NIC with no carrier, a VM host-only adapter —
+    # NetworkManager-wait-online blocks for its full two-minute timeout, and the
+    # installer sits at "Registering to start at boot" the whole time. Nothing
+    # is wrong, nothing is being waited *for*, and the person watching has no
+    # way to know either. Queuing the job is all this step ever needed to do;
+    # whether the agent then comes up is what \`doctor\` and the fleet screen are
+    # for.
+    systemctl restart --no-block "$BIN.service"
     echo "✓ Registered with systemd — starts at boot."
     echo "  Status: systemctl status $BIN"
     echo "  Logs:   journalctl -u $BIN -f"
@@ -514,7 +526,9 @@ UNIT_EOF
     systemctl --user daemon-reload
     # See the note above: restart, so a second install actually takes effect.
     systemctl --user enable "$BIN.service"
-    systemctl --user restart "$BIN.service"
+    # See the note above --no-block: waiting here is what made this step take
+    # minutes on a machine whose network target never settles.
+    systemctl --user restart --no-block "$BIN.service"
 
     # Without lingering, a user unit stops when the last session closes and
     # does not come back until somebody logs in — which on a server is never.
@@ -616,7 +630,18 @@ if [ "$BIN" = "tern-proxy" ]; then
   # in it, so this points at what it just said rather than repeating it wrongly.
   echo "The command to run on a machine in this zone was printed above."
 else
-  echo "Check it end to end: $DEST/$BIN doctor --config $CONF"
+  # The allowance travels with the command, because the service already has it.
+  #
+  # Without it this printed a line that fails — "Refusing to use plain HTTP" —
+  # next to a service that is running perfectly well with
+  # Environment=TERN_ALLOW_PLAIN_HTTP=1 in its unit. Somebody following the
+  # instruction the installer just gave them reads a [FAIL] about their own
+  # setup and starts debugging a problem that does not exist.
+  if [ "$PLAIN" = 1 ]; then
+    echo "Check it end to end: TERN_ALLOW_PLAIN_HTTP=1 $DEST/$BIN doctor --config $CONF"
+  else
+    echo "Check it end to end: $DEST/$BIN doctor --config $CONF"
+  fi
 fi
 `
 }

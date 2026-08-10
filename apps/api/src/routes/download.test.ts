@@ -130,12 +130,44 @@ describe('the shell installer', () => {
      * OpenRC and launchd already restarted; systemd was the odd one out, and
      * the common one.
      */
-    expect(script).toContain('systemctl restart "$BIN.service"')
-    expect(script).toContain('systemctl --user restart "$BIN.service"')
+    expect(script).toContain('systemctl restart --no-block "$BIN.service"')
+    expect(script).toContain('systemctl --user restart --no-block "$BIN.service"')
     // The command, not the prose: the comment above it in the script names the
     // flag it stopped using, and a test that forbade the words would forbid
     // explaining the decision.
     expect(script).not.toMatch(/systemctl (--user )?enable --now/)
+  })
+
+  it('queues the restart instead of waiting for it', () => {
+    /*
+     * `systemctl restart` waits for the job, and starting this unit pulls in
+     * network-online.target. On a machine with an interface that never reports
+     * online — a second NIC with no carrier, a VM host-only adapter —
+     * NetworkManager-wait-online blocks for its full two-minute timeout, and
+     * the installer sits at "Registering to start at boot" the whole time with
+     * nothing wrong and no way to tell.
+     *
+     * Measured on an Ubuntu VM: minutes, then success.
+     */
+    // Anchored to the start of a line, so the comment that *names* the command
+    // in order to explain it is not mistaken for the command.
+    const restarts = script.match(/^\s*systemctl (--user )?restart[^\n]*/gm) ?? []
+    expect(restarts.length).toBeGreaterThan(0)
+    for (const line of restarts) expect(line).toContain('--no-block')
+  })
+
+  it('carries the plain-http allowance into the doctor command it prints', () => {
+    /*
+     * The unit already gets `Environment=TERN_ALLOW_PLAIN_HTTP=1`, so a relay
+     * reached over http runs perfectly well. The line the installer printed to
+     * verify it did not, so it failed — "Refusing to use plain HTTP" — and
+     * somebody following the installer's own instruction read a [FAIL] about
+     * their own setup and went debugging a problem that did not exist.
+     */
+    expect(script).toContain('TERN_ALLOW_PLAIN_HTTP=1 $DEST/$BIN doctor')
+    // And not unconditionally: over https the variable would be noise, and
+    // worse, a suggestion that plain http is expected here.
+    expect(script).toContain('echo "Check it end to end: $DEST/$BIN doctor --config $CONF"')
   })
 
   it('can be told not to touch the boot configuration', () => {
