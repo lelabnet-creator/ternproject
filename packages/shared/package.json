@@ -18,7 +18,8 @@
     "./password": "./src/password.ts",
     "./blocks": "./src/blocks.ts",
     "./control-import": "./src/control-import.ts",
-    "./yaml-schema": "./src/yaml-schema.ts"
+    "./yaml-schema": "./src/yaml-schema.ts",
+    "./custom-document": "./src/custom-document.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   DndContext,
@@ -18,6 +18,7 @@ import {
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { blocksSchema, type Block } from '@tern/shared/blocks'
+import { starterDocument } from '@tern/shared/custom-document'
 import { adminApi, ApiError, type Control } from '../../lib/adminApi'
 import { BlockCanvas } from '../../features/layout-builder/BlockCanvas'
 import { api } from '../../lib/api'
@@ -86,6 +87,28 @@ export function LayoutScreen({ slug, canWrite }: { slug: string; canWrite: boole
       setCustom(summary.data.tenant.custom ?? { html: '', css: '', js: '' })
     }
   }, [summary.data, custom])
+
+  /*
+   * An empty document is where this mode used to leave everybody.
+   *
+   * `custom` hands the page over — TERN draws none of its own widgets — so
+   * three empty boxes produced a public page that said nothing had been written
+   * yet, and the only way forward was to invent a dashboard, a stylesheet and a
+   * data bridge from nothing. Nobody does that to find out whether the mode is
+   * worth using. So arriving here with nothing written fills the draft with the
+   * example the demo runs, which is a thing to modify.
+   *
+   * Once, guarded by a ref rather than by the emptiness itself: an operator who
+   * deliberately clears all three fields must not have them written back under
+   * their hands on the next render. Nothing is saved until they save.
+   */
+  const seeded = useRef(false)
+  useEffect(() => {
+    if (seeded.current || !summary.data || custom === null || density !== 'custom') return
+    seeded.current = true
+    if (custom.html.trim() || custom.css.trim() || custom.js.trim()) return
+    setCustom(starterDocument(summary.data.tenant.name))
+  }, [summary.data, custom, density])
 
   // Parsed rather than trusted: the column is JSON, and a page arranged by an
   // older version should degrade to an empty canvas rather than crash the
@@ -253,7 +276,11 @@ export function LayoutScreen({ slug, canWrite }: { slug: string; canWrite: boole
           </div>
         )}
         {view === 'document' && custom && (
-          <CustomDocumentEditor value={custom} onChange={setCustom} />
+          <CustomDocumentEditor
+            value={custom}
+            pageName={summary.data?.tenant.name ?? 'Status'}
+            onChange={setCustom}
+          />
         )}
         {view === 'preview' && <LayoutPreview slug={slug} density={density} order={order} />}
         {view === 'order' && (
@@ -615,12 +642,15 @@ function SortableRow({
  */
 function CustomDocumentEditor({
   value,
+  pageName,
   onChange,
 }: {
   value: { html: string; css: string; js: string }
+  pageName: string
   onChange: (next: { html: string; css: string; js: string }) => void
 }) {
   const set = (key: 'html' | 'css' | 'js') => (next: string) => onChange({ ...value, [key]: next })
+  const empty = !value.html.trim() && !value.css.trim() && !value.js.trim()
 
   return (
     <div style={{ display: 'grid', gap: 'var(--space-4)' }}>
@@ -630,6 +660,27 @@ function CustomDocumentEditor({
         and cannot fetch anything, which is what makes running your script here safe rather than
         reckless. It arranges pixels; it cannot reach anything else.
       </Banner>
+
+      {/* The way back to something that works — for whoever cleared the boxes,
+          or edited themselves into a page that no longer draws. It is the same
+          text the demo runs, so what it produces is already known. Nothing is
+          written until Save, here as everywhere on this screen. */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 'var(--space-3)',
+          flexWrap: 'wrap',
+        }}
+      >
+        <Button onClick={() => onChange(starterDocument(pageName))}>
+          {empty ? 'Start from the example' : 'Replace with the example'}
+        </Button>
+        <span style={{ fontSize: 'var(--text-xs)', color: 'var(--color-fg-subtle)' }}>
+          The dashboard the demo runs — a tile per component, incidents underneath. Overwrites all
+          three fields.
+        </span>
+      </div>
 
       <Field
         label="HTML"

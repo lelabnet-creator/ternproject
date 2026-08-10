@@ -1,3 +1,4 @@
+import { starterDocument } from '@tern/shared/custom-document'
 import { eq, inArray } from 'drizzle-orm'
 import { generateMockSeries, generateToken, hashPassword, hashToken } from '@tern/shared'
 import { createDatabase } from './client.js'
@@ -83,80 +84,7 @@ const GROUPS = [
  * leave it here and this does. The demo ships on `custom` because that is the
  * mode nothing else demonstrates.
  */
-const DASHBOARD = {
-  html: `<div class="wall">
-  <header>
-    <h1>Acme Corp</h1>
-    <p id="summary">…</p>
-  </header>
-  <section id="tiles" class="tiles"></section>
-  <section id="notes" class="notes"></section>
-</div>`,
-
-  css: `:root { color-scheme: dark }
-* { box-sizing: border-box }
-body {
-  margin: 0;
-  padding: 24px;
-  background: #0d1117;
-  color: #e6edf3;
-  font: 14px/1.5 system-ui, sans-serif;
-}
-.wall { display: grid; gap: 20px }
-header h1 { margin: 0; font-size: 20px; letter-spacing: -0.01em }
-header p { margin: 4px 0 0; color: #9198a1 }
-
-/* Four across on a wall, and however many fit anywhere else. No breakpoint to
-   keep in sync with anything — the minimum decides. */
-.tiles { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)) }
-.tile {
-  padding: 14px;
-  border: 1px solid #30363d;
-  border-radius: 10px;
-  background: #161b22;
-  border-left-width: 3px;
-}
-.tile b { display: block; font-size: 12px; color: #9198a1; font-weight: 500 }
-.tile .state { font-size: 15px; font-weight: 600; text-transform: capitalize }
-.tile .metric { margin-top: 6px; font-size: 12px; color: #9198a1; font-variant-numeric: tabular-nums }
-
-/* State is a word first. The rule on the edge is a second channel, never the
-   only one — the same rule the rest of this product follows. */
-.operational { border-left-color: #22a15c }
-.degraded    { border-left-color: #eab308 }
-.partial     { border-left-color: #ea580c }
-.down        { border-left-color: #be123c }
-.maintenance { border-left-color: #0369a1 }
-.unknown     { border-left-color: #6b7280 }
-
-.notes { display: grid; gap: 10px }
-.note { padding: 12px 14px; border: 1px solid #30363d; border-left: 3px solid #eab308; border-radius: 8px }
-.note h2 { margin: 0 0 4px; font-size: 14px }
-.note p { margin: 0; color: #9198a1; font-size: 13px }`,
-
-  js: `tern.onUpdate(function (data) {
-  var operational = data.components.filter(function (c) { return c.status === 'operational' }).length
-  document.getElementById('summary').textContent =
-    operational + ' of ' + data.components.length + ' components operational'
-
-  document.getElementById('tiles').innerHTML = data.components.map(function (c) {
-    var metric = c.value != null
-      ? c.value.toFixed(0) + ' ' + (c.valueUnit || '')
-      : c.latencyMs != null ? c.latencyMs + ' ms' : ''
-    return '<div class="tile ' + c.status + '">' +
-      '<b>' + c.name + '</b>' +
-      '<span class="state">' + c.status + '</span>' +
-      (metric ? '<div class="metric">' + metric + '</div>' : '') +
-    '</div>'
-  }).join('')
-
-  var notes = data.incidents.concat(data.maintenances)
-  document.getElementById('notes').innerHTML = notes.map(function (n) {
-    var body = n.latestUpdate ? n.latestUpdate.body : (n.body || '')
-    return '<div class="note"><h2>' + n.title + '</h2><p>' + body + '</p></div>'
-  }).join('')
-})`,
-}
+const DASHBOARD = starterDocument('Acme Corp')
 
 const CONTROLS: ControlSpec[] = [
   {
