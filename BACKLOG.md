@@ -48,12 +48,20 @@ précision qu'il n'a pas.
 
 ## À faire
 
-- [ ] **1. La fonction de calcul, isolée et testée.** Un module pur qui prend une
+- [x] **1. La fonction de calcul, isolée et testée.** Un module pur qui prend une
       série de points (`ts`, `status`, `agentId`) et une liste de fenêtres
       d'exclusion, et rend une durée disponible / durée totale. Il porte les
       quatre règles : time-weighting, debounce à 2 échecs consécutifs avec
       antidatage au **premier** échec de la série, OR entre agents, exclusion des
       maintenances. Aucun accès base ici — c'est ce qui le rend testable.
+
+      Fait : `packages/shared/src/availability.ts`, 17 tests. Vérifié avec
+              l'index seul. Deux décisions écrites en chemin — `degraded` compte comme
+              disponible (les agrégats ne comptaient que `operational`, donc un service
+              lent baissait l'uptime publié), et le temps que personne n'a observé quitte
+              le dénominateur au lieu d'être deviné dans un sens ou dans l'autre.
+              Le sous-chemin `@tern/shared/availability` reste à ajouter au point 4 :
+              `packages/shared/package.json` porte un travail en cours non commité.
 
 - [ ] **2. Le cas `push`.** Pas d'échec au sens classique : l'indisponibilité
       commence à `expectedIntervalS` + grâce après le dernier battement reçu, et
