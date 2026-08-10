@@ -39,15 +39,18 @@ Two halves, and they are separated on purpose:
 
 ## Targets
 
-| Type        | Fields                                                             | Notes                                                                                                   |
-| ----------- | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------- |
-| `http`      | `url`, `method`, `headers`, `body`, `followRedirects`, `tlsVerify` | The body is read before the clock stops: a server that sends headers fast then stalls is slow           |
-| `tcp`       | `host`, `port`                                                     | Connect only                                                                                            |
-| `ping`      | `host`, `count`                                                    | Real ICMP in the agent; a TCP connect to port 7 on the server                                           |
-| `dns`       | `name`, `recordType`, `resolver`                                   | Uses the host's own resolver, so it measures what an application beside it would experience             |
-| `cert`      | `host`, `port`                                                     | Completes a real handshake against the trust store, then reads the expiry                               |
-| `websocket` | `url` (`ws://`/`wss://`), `subprotocol`, `headers`                 | The opening handshake only. A `101` is success, so `status_code` and `latency` assert on it unchanged   |
-| `docker`    | `container`, `requireHealthcheck`                                  | **Agent only.** Reads `GET /containers/<name>/json`; the JSON is the body, so `json_path` asserts on it |
+| Type        | Fields                                                             | Notes                                                                                                                       |
+| ----------- | ------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------- |
+| `http`      | `url`, `method`, `headers`, `body`, `followRedirects`, `tlsVerify` | The body is read before the clock stops: a server that sends headers fast then stalls is slow                               |
+| `tcp`       | `host`, `port`                                                     | Connect only                                                                                                                |
+| `ping`      | `host`, `count`                                                    | Real ICMP in the agent; a TCP connect to port 7 on the server                                                               |
+| `dns`       | `name`, `recordType`, `resolver`                                   | Uses the host's own resolver, so it measures what an application beside it would experience                                 |
+| `cert`      | `host`, `port`                                                     | Completes a real handshake against the trust store, then reads the expiry                                                   |
+| `websocket` | `url` (`ws://`/`wss://`), `subprotocol`, `headers`                 | The opening handshake only. A `101` is success, so `status_code` and `latency` assert on it unchanged                       |
+| `docker`    | `container`, `requireHealthcheck`                                  | **Agent only.** Reads `GET /containers/<name>/json`; the JSON is the body, so `json_path` asserts on it                     |
+| `file`      | `path`, `mustExist`                                                | **Agent only.** Is a path there. Body: `exists`, `kind`, `sizeBytes`, `modifiedSecondsAgo`                                  |
+| `directory` | `path`, `contains`, `maxQuietSeconds`                              | **Agent only.** Is a directory still being written to. Body: `exists`, `entries`, `bytes`, `newestSecondsAgo`, `newestName` |
+| `uptime`    | `of` (`machine`/`process`), `process`, `minSeconds`                | **Agent only, Linux only.** Body: `of`, `uptimeSeconds`, `restarted`, `process`, `pid`                                      |
 
 All carry `timeoutMs` (default 10 000) and `assertions`.
 
@@ -67,6 +70,68 @@ socket read-only. The observation is the container's own JSON, so
 `$.State.Health.Status == "healthy"` is an ordinary `json_path` assertion rather
 than a special case in the engine; a container that is not running fails as
 unreachable, because an absent service is not a slow one.
+
+### The three host targets
+
+`file`, `directory` and `uptime` observe the machine the agent runs on rather
+than something on the network. They exist because a service can answer on its
+port and still be broken in a way no network target can see: the export was
+never written, the spool stopped draining, the machine rebooted and came back in
+twenty seconds with an empty cache and an unbroken green line.
+
+**They are agent-only for the same reason `docker` is, and a sharper one.** The
+server refuses all three by name. A control is editable by anyone with write
+access to a tenant, and the API process runs as the instance — so a `file`
+target the server executed would answer "does `/root/.ssh/id_ed25519` exist, and
+how many bytes is it" from a web form, and `directory` on `/home` would list the
+accounts. That is a filesystem oracle, not a monitoring feature. The Docker
+socket at least has to be mounted before it can be abused; the filesystem is
+simply there. On an agent the same capability is ordinary — the operator
+installed the binary and chose the user it runs as.
+
+Each returns JSON as the observation body, so `json_path` asserts on it exactly
+as it does on an HTTP response. That is the whole reason no new assertion type
+came with them.
+
+```yaml
+# The export must exist and must not be empty.
+kind: file
+config:
+  path: /srv/exports/customers.csv
+  mustExist: true
+  assertions:
+    - { type: json_path, path: $.sizeBytes, comparator: gt, value: 0, as: number }
+    - { type: json_path, path: $.modifiedSecondsAgo, comparator: lt, value: 86400, as: number }
+```
+
+```yaml
+# The dead-letter folder must stay empty; the backup drop must keep receiving.
+kind: directory
+config:
+  path: /var/backups
+  contains: .sql.gz
+  maxQuietSeconds: 86400
+```
+
+```yaml
+# One failed check per restart, instead of a reboot vanishing between two points.
+kind: uptime
+config: { of: process, process: postgres, minSeconds: 300 }
+```
+
+`mustExist` and `maxQuietSeconds` and `minSeconds` are one-field forms of the
+common case, so the usual control needs no assertion written at all. Left unset,
+the target only observes and the assertions decide — which is how the opposite
+expectation is written: a lock file that must be **gone** is `mustExist: false`,
+and a folder that must stay empty is `$.entries eq 0`.
+
+**`uptime` is Linux-only and says so.** Both figures come from `/proc`. macOS
+and Windows expose them by other means, and neither is reachable without adding
+a platform crate to a binary built for size. On those hosts the target fails
+with a message naming the limitation rather than reporting nothing — the rule
+`docker` set. Process uptime takes the **oldest** process with that command
+name, because a service is usually a master and its workers and the workers are
+recycled while the service stays up.
 
 **Why ping differs between the two implementations.** A web process must not
 hold a raw socket, so the server approximates reachability with a TCP connect.
@@ -89,6 +154,23 @@ Each carries a `severity` of `degraded` or `down`, defaulting to `down`.
 | `json_search`     | Find a value anywhere in the document                                                                       |
 | `cert_expires_in` | Days remaining                                                                                              |
 | `dns_record`      | A record present, absent, or matching                                                                       |
+
+### Absent is not zero
+
+An ordering comparison — `lt`, `lte`, `gt`, `gte` — **fails** when either side
+is missing or `null`, rather than treating it as zero.
+
+This is worth stating because it was wrong until it was written down. The
+TypeScript engine read `null` as `0` (`Number(null)` is `0`, not `NaN`, so it
+slipped past the finite check), while the Rust agent already failed; the two
+disagreed for as long as both existed and no fixture asked. The consequence was
+that half the comparators passed on nothing at all: `$.queue.depth lt 100` over
+a response that omitted the field reported an empty queue, and
+`$.modifiedSecondsAgo lt 86400` over a file that was not there reported it
+freshly written. `009-absent-is-not-zero.json` pins it.
+
+Use `exists` or `absent` to assert about presence, and an ordering comparator
+only to assert about a value that is there.
 
 ### Severity per assertion is the point
 

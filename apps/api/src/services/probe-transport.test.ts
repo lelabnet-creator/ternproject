@@ -57,6 +57,49 @@ describe('docker, on the server', () => {
   })
 })
 
+describe('the host targets, on the server', () => {
+  /*
+   * The same property as `docker`, for a sharper reason.
+   *
+   * These three read the filesystem and the process table of the machine that
+   * runs them. On an agent that machine belongs to the operator. Here it is the
+   * instance, and a control is editable by anyone with write access to a
+   * tenant — so running them would turn the control form into a filesystem
+   * oracle over the TERN host. The Docker socket at least has to be mounted
+   * first; the filesystem is simply there.
+   *
+   * Each case names a path that would answer something worth stealing, so the
+   * test reads as the attack it forecloses rather than as a coverage entry.
+   */
+  const cases = [
+    {
+      label: 'file, over a private key',
+      probe: { type: 'file' as const, path: '/root/.ssh/id_ed25519', mustExist: true },
+    },
+    {
+      label: 'directory, over the accounts on the host',
+      probe: { type: 'directory' as const, path: '/home' },
+    },
+    {
+      label: 'uptime, over the instance itself',
+      probe: { type: 'uptime' as const, of: 'machine' as const },
+    },
+  ]
+
+  for (const { label, probe } of cases) {
+    it(`is refused — ${label}`, async () => {
+      const result = await runProbe({ ...probe, timeoutMs: 1000, assertions: [] })
+
+      expect(result.status).toBe('down')
+      expect(result.message).toMatch(/must be run by an agent/i)
+      // Refused by kind, before any syscall. A message about the path itself
+      // would mean the server had gone and looked.
+      expect(result.message).not.toContain('path' in probe ? probe.path : '/does-not-appear-anyway')
+      expect(result.message).not.toMatch(/no such file|permission denied|enoent/i)
+    })
+  }
+})
+
 describe('websocket, on the server', () => {
   it('reports the upgrade it was granted', async () => {
     const port = await handshakeServer('HTTP/1.1 101 Switching Protocols')

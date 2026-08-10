@@ -127,28 +127,58 @@ A control is one thing you watch. One service, one endpoint, one nightly job.
 Everything else in TERN hangs off a control: a component on the page, a line in
 an incident's blast radius, a probe an agent runs, a badge in a README.
 
-### The six kinds
+### The kinds
 
-The kind decides who does the checking.
+The kind decides who does the checking, and what is being checked.
 
-| Kind                | What it does                                    |
-| ------------------- | ----------------------------------------------- |
-| **Push**            | Your script or CI sends the measurement to TERN |
-| **HTTP**            | Request a URL and read the response             |
-| **TCP**             | Open a socket to a host and port                |
-| **Ping**            | ICMP echo to a host                             |
-| **DNS**             | Resolve a name and check the answer             |
-| **TLS certificate** | Read the certificate and its expiry             |
+| Kind                       | What it does                                          |
+| -------------------------- | ----------------------------------------------------- |
+| **Push**                   | Your script or CI sends the measurement to TERN       |
+| **HTTP**                   | Request a URL and read the response                   |
+| **TCP**                    | Open a socket to a host and port                      |
+| **Ping**                   | ICMP echo to a host                                   |
+| **DNS**                    | Resolve a name and check the answer                   |
+| **TLS certificate**        | Read the certificate and its expiry                   |
+| **WebSocket**              | Open the handshake to a `ws://` or `wss://` endpoint  |
+| **Docker container**       | A container on an agent's host                        |
+| **File present or absent** | Whether a path exists on an agent's machine           |
+| **Directory activity**     | Whether a directory is still being written to         |
+| **Uptime / restart**       | How long a machine, or one process on it, has been up |
 
 Push is the one that inverts the direction. TERN waits to be told, which is what
 you want for anything it cannot reach — a batch job, a device on a customer
-site, an existing monitoring system that already knows the answer. The other
-five are probes, and something has to run them: this server by default, or an
-agent you have paired.
+site, an existing monitoring system that already knows the answer. The rest are
+probes, and something has to run them: this server by default, or an agent you
+have paired.
 
 Ping is worth one caveat. The server approximates it with a TCP connect, because
 a web process should not hold a raw socket. A paired agent does real ICMP where
 it is permitted to, and says so when it is not.
+
+**The last four need an agent, and the form says so.** Docker needs the Docker
+socket; file, directory and uptime read the machine they run on. This server
+refuses to run any of them — not because it cannot, but because it should not:
+a control is editable by anyone with write access here, and a server that
+answered "does `/root/.ssh/id_ed25519` exist" from this form would be a way to
+read its own disk one question at a time. On a machine you installed an agent
+on, the same question is ordinary. Uptime additionally needs a Linux agent,
+since both figures come from `/proc`.
+
+These four are what catch the failures a network check cannot see:
+
+- The service answers on its port, and the nightly export was never written.
+  → **File**, on the export, with a freshness check.
+- The spool directory stopped draining two days ago and nothing said anything.
+  → **Directory**, with _fail after this many seconds with no change_.
+- The machine rebooted at 03:12 and was back in twenty seconds. Availability
+  never dipped; the in-memory queue, the warm cache and every session went with
+  it. → **Uptime**, with _fail below_ set a little above the check interval, so
+  the restart costs exactly one failed check instead of disappearing between two
+  green points.
+
+For file and directory, the healthy answer can be either direction: a
+certificate must be **there**, a stale lock file must be **gone**, a backup drop
+must keep **receiving**, a dead-letter folder must stay **empty**.
 
 ### Creating one
 
@@ -466,6 +496,42 @@ you pick is what is drawn.
 The ribbon is the default. Widgets needing history are unavailable on a page in
 live mode, and the live stream is unavailable on one keeping history — the
 gallery says which, rather than hiding them.
+
+### Live mode, and which widgets suit it
+
+**Retention mode** is set in **Options**, and it is one choice with three
+consequences. It answers a question about your page rather than about your
+storage: does a reader come here to find out **what is happening right now**, or
+**whether you have been reliable**?
+
+|                       | `historical` (the default)                                              | `live`                                                   |
+| --------------------- | ----------------------------------------------------------------------- | -------------------------------------------------------- |
+| Raw checks kept       | The longer of _raw retention_ and _retention days_ — 90 days by default | _Raw retention_ alone — 7 days by default                |
+| The public page shows | The last 90 days                                                        | The last 24 hours                                        |
+| Widgets available     | Everything except the live stream                                       | The live stream, single number, and value against limits |
+
+In `live`, **retention days is ignored entirely**. That is the setting people
+change first and the one that does nothing here: a live page keeps what _raw
+retention_ says and no more, so lengthening the history window on a live page
+changes nothing at all until the mode changes with it.
+
+The four history widgets — uptime ribbon, status timeline, availability
+calendar, response time band — need days of aggregated history to say anything.
+On a live page they are offered greyed out with the reason, because a 30-day
+ribbon over 24 hours of data is not a smaller ribbon, it is a misleading one.
+
+What works well in live mode is the opposite family:
+
+- **Live stream** — the only widget that _requires_ live. A dense recent series,
+  read as a shape rather than as a history.
+- **Single number** and **Value against limits** — a current reading, and how
+  close it is to the line that matters.
+
+So live suits a wall display, an event, a lab, a rig — something probed often,
+watched while it runs, and not asked about last month. Historical suits the page
+somebody links in a contract. If you are unsure, stay historical: it is the
+default, it keeps everything live mode would have kept, and switching to live
+later is a decision to stop keeping history rather than to start.
 
 One limit worth naming. Components are grouped under headings on the public page,
 and the groups come from the database, but this edition has no screen for

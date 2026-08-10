@@ -274,6 +274,156 @@ export const dockerProbeSchema = z.object({
   ...baseProbe,
 })
 
+/*
+ * ── The three host targets below ────────────────────────────────────────────
+ *
+ * They observe the filesystem and the process table of the machine the agent
+ * runs on, which puts them in the same category as `docker`: agent only, and
+ * refused by the server rather than merely unimplemented there.
+ *
+ * The reason is the same one, and it is worth stating once for all three. The
+ * API process runs as the instance; a control is editable by anyone with write
+ * access to the tenant. A `file` target the server executed would turn that
+ * into "read any path on the TERN host, one existence bit and one size at a
+ * time" — `/etc/shadow` exists, `/root/.ssh/id_ed25519` is 411 bytes — and a
+ * `directory` target would list it. That is a filesystem oracle reachable from
+ * a web form, which is not a monitoring feature. `probe-transport.ts` refuses
+ * all three by name and says why.
+ *
+ * On an agent the same capability is ordinary: the operator installed the
+ * binary, chose the user it runs as, and can read those paths already. The
+ * boundary is the machine, and the agent is on the right side of it.
+ */
+
+/**
+ * Whether a path is there, and what state it is in.
+ *
+ * The plainest question in operations and the one nothing else here could ask:
+ * a lock file that should be gone, a certificate that should be present, a
+ * `/var/run` pidfile, an export that should have been written overnight.
+ *
+ * ── What it observes ──────────────────────────────────────────────────────
+ * `{ exists, kind, sizeBytes, modifiedSecondsAgo }`, as JSON, so `json_path`
+ * asserts on it exactly as it does on an HTTP body: `$.sizeBytes gt 0` catches
+ * the file that was created but never written, `$.modifiedSecondsAgo lt 86400`
+ * catches the export that stopped being refreshed. `sizeBytes` and
+ * `modifiedSecondsAgo` are null when the path is absent, and an assertion
+ * against null fails rather than passing quietly.
+ */
+export const fileProbeSchema = z.object({
+  type: z.literal('file'),
+  /** Absolute path on the agent's machine. */
+  path: z.string().min(1),
+  /**
+   * Which answer is the healthy one.
+   *
+   * Both directions are wanted often enough that neither can be the only one:
+   * a certificate must exist, a maintenance flag or a stale lock must not. This
+   * decides the verdict when the control carries no assertions at all, which is
+   * how most of these will be written.
+   */
+  mustExist: z.boolean().default(true),
+  ...baseProbe,
+})
+
+/**
+ * Whether a directory is still being written to.
+ *
+ * The question behind "is the backup still running" and "is the spool
+ * draining", neither of which any network target can answer: the service
+ * answers on its port, and has been writing nothing for two days.
+ *
+ * ── What it observes ──────────────────────────────────────────────────────
+ * `{ exists, entries, bytes, newestSecondsAgo, newestName }`, as JSON. One
+ * level, not a recursive walk — a deep tree would make the cost of a check
+ * depend on something the operator did not choose, and the timeout would be the
+ * first thing to notice.
+ *
+ * `newestSecondsAgo` is the age of the most recently modified entry, and null
+ * when the directory is empty. Both readings of "activity" are then ordinary
+ * assertions: `$.newestSecondsAgo lt 3600` for a drop folder that must keep
+ * receiving, `$.entries eq 0` for a dead-letter folder that must stay empty.
+ */
+export const directoryProbeSchema = z.object({
+  type: z.literal('directory'),
+  /** Absolute path on the agent's machine. */
+  path: z.string().min(1),
+  /**
+   * Only count entries whose name contains this, when given.
+   *
+   * A substring rather than a glob, deliberately: a glob is a small language,
+   * and it would have to mean the same thing in Rust and in TypeScript for the
+   * conformance suite to hold. `.sql.gz` is the case people actually have.
+   */
+  contains: z.string().min(1).optional(),
+  /**
+   * Fail when nothing in the directory has changed for this long.
+   *
+   * The one-field form of the common case, so a backup drop needs no assertion
+   * written. Left unset, the target only observes and the assertions decide —
+   * which is how the opposite expectation is written.
+   */
+  maxQuietSeconds: z.number().int().positive().optional(),
+  ...baseProbe,
+})
+
+/**
+ * How long the machine, or one process on it, has been up.
+ *
+ * A restart is invisible to every other target here: the machine reboots, the
+ * service comes back in twenty seconds, and a one-minute interval sees an
+ * unbroken green line. What was lost was not availability, it was continuity —
+ * the in-memory queue, the warmed cache, the session table. This is the target
+ * that notices.
+ *
+ * ── What it observes ──────────────────────────────────────────────────────
+ * `{ of, uptimeSeconds, restarted, process, pid }`, as JSON. `restarted` is
+ * only a claim when `minSeconds` is set — it is `uptimeSeconds < minSeconds`,
+ * and null otherwise, because "has this restarted" has no answer without
+ * saying since when.
+ *
+ * ── Linux only, and it says so ────────────────────────────────────────────
+ * Process start time and machine uptime come from `/proc`. macOS and Windows
+ * expose both, by different means, and neither is reachable without adding a
+ * platform crate to a binary built for size. On those hosts the target fails
+ * with a message naming the limitation, following `docker`: a control that is
+ * not being run has to say so, or "nothing happened" becomes the way somebody
+ * finds out.
+ */
+export const uptimeProbeSchema = z
+  .object({
+    type: z.literal('uptime'),
+    of: z.enum(['machine', 'process']).default('machine'),
+    /**
+     * Process name as `/proc/<pid>/comm` reports it — `nginx`, `postgres`.
+     *
+     * Matched against the command name, not the full command line: the full line
+     * carries arguments that change between restarts, which is the one thing this
+     * target must not be sensitive to. When several match, the oldest wins, since
+     * the question is when the service started and workers come and go.
+     */
+    process: z.string().min(1).optional(),
+    /**
+     * Below this many seconds of uptime, the control fails.
+     *
+     * Set it a little above the check interval and the control goes down for
+     * exactly one check after a restart, which is what makes a reboot show up as
+     * an incident instead of disappearing between two green points.
+     */
+    minSeconds: z.number().int().positive().optional(),
+    ...baseProbe,
+  })
+  /*
+   * Caught here rather than at probe time, because it is a definition error and
+   * not an observation: `of: process` with nothing named cannot be measured on
+   * any host, so an import that says it should be told at import, and the form
+   * should not be able to save it.
+   */
+  .refine(
+    (probe) => probe.of !== 'process' || Boolean(probe.process),
+    'A process uptime control must name the process',
+  )
+
 export const probeSchema = z.discriminatedUnion('type', [
   pingProbeSchema,
   tcpProbeSchema,
@@ -282,6 +432,9 @@ export const probeSchema = z.discriminatedUnion('type', [
   certProbeSchema,
   websocketProbeSchema,
   dockerProbeSchema,
+  fileProbeSchema,
+  directoryProbeSchema,
+  uptimeProbeSchema,
 ])
 export type Probe = z.infer<typeof probeSchema>
 

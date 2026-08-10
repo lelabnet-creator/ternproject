@@ -40,7 +40,7 @@ async function observe(probe: Probe): Promise<ProbeObservation> {
       return observeWebsocket(probe)
     case 'docker':
       /*
-       * The one target the server refuses.
+       * The first of the four targets the server refuses.
        *
        * Running it would mean handing this process a Docker socket, and the
        * Docker socket is root on the host: an HTTP service able to create a
@@ -56,6 +56,31 @@ async function observe(probe: Probe): Promise<ProbeObservation> {
         error:
           'A docker control must be run by an agent on the host. The server has no ' +
           'Docker socket and is not given one — see `docker` in the probe specification.',
+      }
+    case 'file':
+    case 'directory':
+    case 'uptime':
+      /*
+       * The other three, refused for one reason.
+       *
+       * They read the filesystem and the process table of whatever machine runs
+       * them. On an agent that machine belongs to the operator, who installed
+       * the binary and chose its user. Here it is the instance — and a control
+       * is editable by anyone with write access to a tenant. Executing them
+       * server-side would turn that form into a filesystem oracle: `file` on
+       * `/root/.ssh/id_ed25519` reports whether it is there and how many bytes
+       * it is, `directory` on `/home` lists the accounts, `uptime` reports how
+       * long the instance has been up. None of that is the tenant's to ask.
+       *
+       * Refused by name in the same breath as `docker`, and for the sharper
+       * reason: the Docker socket at least has to be mounted before it can be
+       * abused, whereas the filesystem is simply there.
+       */
+      return {
+        error:
+          `A ${probe.type} control observes the machine it runs on, so it must be run by an ` +
+          'agent. The server refuses it rather than reading its own filesystem on behalf of ' +
+          'a tenant — see `file`, `directory` and `uptime` in the probe specification.',
       }
   }
 }

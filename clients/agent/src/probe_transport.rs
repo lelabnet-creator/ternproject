@@ -91,6 +91,45 @@ pub enum Probe {
         #[serde(default = "default_timeout")]
         timeout_ms: u64,
     },
+    /// Whether a path is there. Agent-only: see the block comment above
+    /// `fileProbeSchema` in `packages/shared/src/probe.ts` for why the server
+    /// refuses this and the two below.
+    File {
+        path: String,
+        #[serde(default = "default_true")]
+        must_exist: bool,
+        #[serde(default = "default_timeout")]
+        timeout_ms: u64,
+    },
+    /// Whether a directory is still being written to.
+    Directory {
+        path: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        contains: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        max_quiet_seconds: Option<u64>,
+        #[serde(default = "default_timeout")]
+        timeout_ms: u64,
+    },
+    /// How long the machine, or one process on it, has been up.
+    Uptime {
+        #[serde(default)]
+        of: UptimeOf,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        process: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        min_seconds: Option<u64>,
+        #[serde(default = "default_timeout")]
+        timeout_ms: u64,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum UptimeOf {
+    #[default]
+    Machine,
+    Process,
 }
 
 fn default_count() -> u8 {
@@ -119,6 +158,9 @@ impl Probe {
             Probe::Cert { .. } => "cert",
             Probe::Websocket { .. } => "websocket",
             Probe::Docker { .. } => "docker",
+            Probe::File { .. } => "file",
+            Probe::Directory { .. } => "directory",
+            Probe::Uptime { .. } => "uptime",
         }
     }
 }
@@ -174,6 +216,23 @@ pub async fn observe(probe: &Probe) -> Observation {
             require_healthcheck,
             timeout_ms,
         } => observe_docker(container, *require_healthcheck, *timeout_ms).await,
+        Probe::File {
+            path,
+            must_exist,
+            timeout_ms,
+        } => observe_file(path, *must_exist, *timeout_ms).await,
+        Probe::Directory {
+            path,
+            contains,
+            max_quiet_seconds,
+            timeout_ms,
+        } => observe_directory(path, contains.as_deref(), *max_quiet_seconds, *timeout_ms).await,
+        Probe::Uptime {
+            of,
+            process,
+            min_seconds,
+            timeout_ms,
+        } => observe_uptime(*of, process.as_deref(), *min_seconds, *timeout_ms).await,
     }
 }
 
@@ -475,6 +534,350 @@ async fn observe_docker(
     failed(format!(
         "docker controls need a Unix socket, which this build has none of — \
          assign {container} to an agent on a Unix host"
+    ))
+}
+
+/// Age in whole seconds of a filesystem timestamp, floored at zero.
+///
+/// `SystemTime::elapsed` fails when the stamp is in the future, which happens
+/// for real on an NFS mount or after an NTP step, and is not the operator's
+/// problem. Reporting zero — "just now" — is the reading that misleads least;
+/// returning nothing would make a `maxQuietSeconds` control fail for a reason
+/// that has nothing to do with the directory.
+fn age_seconds(stamp: std::time::SystemTime) -> i64 {
+    stamp
+        .elapsed()
+        .map(|since| since.as_secs() as i64)
+        .unwrap_or(0)
+}
+
+/// Whether a path is there, and what state it is in.
+///
+/// The observation body is JSON for the same reason `docker`'s is: `json_path`
+/// then works on it unchanged, so `$.sizeBytes gt 0` needs nothing new in the
+/// assertion engine.
+async fn observe_file(path: &str, must_exist: bool, timeout_ms: u64) -> Observation {
+    let started = Instant::now();
+
+    /*
+     * Absent and unreadable are not the same answer, and conflating them is how
+     * this target would lie.
+     *
+     * `metadata` fails for both. If every failure meant "absent", a control
+     * written as `mustExist: false` over a directory the agent's user cannot
+     * traverse would report healthy forever — the strongest possible statement
+     * about a path nobody can see. Only `NotFound` is absence; anything else is
+     * a failure to observe, and says so.
+     */
+    let lookup = tokio::time::timeout(
+        Duration::from_millis(timeout_ms),
+        tokio::fs::metadata(path.to_string()),
+    )
+    .await;
+
+    let found = match lookup {
+        Err(_) => return failed(format!("timed out after {timeout_ms} ms stat-ing {path}")),
+        Ok(Ok(meta)) => Some(meta),
+        Ok(Err(error)) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Ok(Err(error)) => return failed(format!("could not read {path}: {error}")),
+    };
+
+    let body = match &found {
+        Some(meta) => {
+            let kind = if meta.is_dir() {
+                "directory"
+            } else if meta.is_file() {
+                "file"
+            } else {
+                "other"
+            };
+            serde_json::json!({
+                "exists": true,
+                "kind": kind,
+                "sizeBytes": meta.len() as i64,
+                "modifiedSecondsAgo": meta.modified().ok().map(age_seconds),
+            })
+        }
+        None => serde_json::json!({
+            "exists": false,
+            "kind": null,
+            "sizeBytes": null,
+            "modifiedSecondsAgo": null,
+        }),
+    };
+
+    if found.is_some() != must_exist {
+        return failed(if must_exist {
+            format!("{path} is not there, and this control requires it")
+        } else {
+            format!("{path} is there, and this control requires it gone")
+        });
+    }
+
+    let mut observation = blank();
+    observation.latency_ms = Some(started.elapsed().as_millis() as i64);
+    observation.body = Some(body.to_string());
+    observation
+}
+
+/// Whether a directory is still being written to.
+///
+/// One level, not a recursive walk: the cost of a check should depend on what
+/// the operator pointed at and not on how deep it happens to be, and a tree
+/// that grows a level would otherwise start timing out on its own.
+///
+/// A missing directory fails outright, unlike `file`, where absence is one of
+/// the two answers being asked for. Here the question is about the contents, and
+/// a path that is not there has no contents to be quiet or busy — reporting
+/// "nothing has changed recently" would be true and completely misleading.
+async fn observe_directory(
+    path: &str,
+    contains: Option<&str>,
+    max_quiet_seconds: Option<u64>,
+    timeout_ms: u64,
+) -> Observation {
+    let started = Instant::now();
+
+    let walk = async {
+        let mut reader = tokio::fs::read_dir(path)
+            .await
+            .map_err(|error| anyhow::anyhow!("could not read {path}: {error}"))?;
+
+        let mut entries = 0i64;
+        let mut bytes = 0i64;
+        let mut newest: Option<(i64, String)> = None;
+
+        while let Some(entry) = reader.next_entry().await? {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if let Some(needle) = contains {
+                if !name.contains(needle) {
+                    continue;
+                }
+            }
+            entries += 1;
+
+            /*
+             * An entry that vanishes between the listing and the stat is not an
+             * error. A spool directory is exactly the place where that happens,
+             * and the whole point of watching one is that things leave it.
+             */
+            let Ok(meta) = entry.metadata().await else {
+                continue;
+            };
+            bytes += meta.len() as i64;
+
+            if let Ok(modified) = meta.modified() {
+                let age = age_seconds(modified);
+                if newest.as_ref().is_none_or(|(known, _)| age < *known) {
+                    newest = Some((age, name));
+                }
+            }
+        }
+
+        Ok::<_, anyhow::Error>((entries, bytes, newest))
+    };
+
+    let (entries, bytes, newest) =
+        match tokio::time::timeout(Duration::from_millis(timeout_ms), walk).await {
+            Ok(Ok(counted)) => counted,
+            Ok(Err(error)) => return failed(error),
+            Err(_) => return failed(format!("timed out after {timeout_ms} ms listing {path}")),
+        };
+
+    let body = serde_json::json!({
+        "exists": true,
+        "entries": entries,
+        "bytes": bytes,
+        "newestSecondsAgo": newest.as_ref().map(|(age, _)| *age),
+        "newestName": newest.as_ref().map(|(_, name)| name.clone()),
+    });
+
+    if let Some(limit) = max_quiet_seconds {
+        match &newest {
+            /*
+             * Empty counts as quiet. A drop folder whose writer died looks
+             * identical to one that was drained and never refilled, and the
+             * control is there to catch the first — so the ambiguous case is
+             * resolved towards noticing.
+             */
+            None => {
+                return failed(format!(
+                    "nothing in {path} to have changed{}, and this control expects activity \
+                     within {limit} s",
+                    contains.map_or(String::new(), |needle| format!(" matching {needle}"))
+                ))
+            }
+            Some((age, name)) if *age as u64 > limit => {
+                return failed(format!(
+                    "nothing has changed in {path} for {age} s — the newest is {name}, and this \
+                     control expects activity within {limit} s"
+                ))
+            }
+            Some(_) => {}
+        }
+    }
+
+    let mut observation = blank();
+    observation.latency_ms = Some(started.elapsed().as_millis() as i64);
+    observation.body = Some(body.to_string());
+    observation
+}
+
+/// How long the machine, or one process on it, has been up.
+///
+/// ── `/proc`, and therefore Linux ──────────────────────────────────────────
+/// macOS answers both questions through `sysctl`, Windows through
+/// `GetTickCount64` and the process API, and neither is reachable without adding
+/// a platform crate to a binary built with `opt-level = "z"` for a target nobody
+/// has asked for yet. Elsewhere this fails with a message naming the
+/// limitation — the rule `docker` set: a control that is not being run says so.
+#[cfg(target_os = "linux")]
+async fn observe_uptime(
+    of: UptimeOf,
+    process: Option<&str>,
+    min_seconds: Option<u64>,
+    timeout_ms: u64,
+) -> Observation {
+    let started = Instant::now();
+
+    let measure = async {
+        // `/proc/uptime`: seconds since boot, then seconds spent idle.
+        let raw = tokio::fs::read_to_string("/proc/uptime").await?;
+        let machine = raw
+            .split_whitespace()
+            .next()
+            .and_then(|field| field.parse::<f64>().ok())
+            .ok_or_else(|| anyhow::anyhow!("/proc/uptime did not parse"))?;
+
+        match of {
+            UptimeOf::Machine => Ok::<_, anyhow::Error>((machine as i64, None)),
+            UptimeOf::Process => {
+                let name = process
+                    .ok_or_else(|| anyhow::anyhow!("this control names no process to look for"))?;
+                let (pid, since_boot) = oldest_process(name).await?;
+                Ok(((machine - since_boot) as i64, Some((pid, name.to_string()))))
+            }
+        }
+    };
+
+    let (uptime, found) =
+        match tokio::time::timeout(Duration::from_millis(timeout_ms), measure).await {
+            Ok(Ok(measured)) => measured,
+            Ok(Err(error)) => return failed(error),
+            Err(_) => return failed(format!("timed out after {timeout_ms} ms reading /proc")),
+        };
+
+    // Clamped: a process that started in the same tick as the reading gives a
+    // very small negative, and a negative uptime is nonsense to assert against.
+    let uptime = uptime.max(0);
+    let restarted = min_seconds.map(|floor| (uptime as u64) < floor);
+
+    let body = serde_json::json!({
+        "of": match of { UptimeOf::Machine => "machine", UptimeOf::Process => "process" },
+        "uptimeSeconds": uptime,
+        "restarted": restarted,
+        "process": found.as_ref().map(|(_, name)| name.clone()),
+        "pid": found.as_ref().map(|(pid, _)| *pid),
+    });
+
+    if restarted == Some(true) {
+        let floor = min_seconds.unwrap_or_default();
+        return failed(match &found {
+            Some((_, name)) => format!(
+                "{name} has been up {uptime} s, less than the {floor} s this control expects — \
+                 it restarted"
+            ),
+            None => format!(
+                "this machine has been up {uptime} s, less than the {floor} s this control \
+                 expects — it rebooted"
+            ),
+        });
+    }
+
+    let mut observation = blank();
+    observation.latency_ms = Some(started.elapsed().as_millis() as i64);
+    observation.body = Some(body.to_string());
+    observation
+}
+
+/// The oldest process with this command name, and the boot-relative second it
+/// started at.
+///
+/// Oldest rather than first found, because a service is usually several
+/// processes: a master and its workers, and the workers are recycled while the
+/// service stays up. Taking any of them would make the control report a restart
+/// every time a worker turned over.
+#[cfg(target_os = "linux")]
+async fn oldest_process(name: &str) -> anyhow::Result<(i64, f64)> {
+    let mut entries = tokio::fs::read_dir("/proc").await?;
+    let mut oldest: Option<(i64, f64)> = None;
+
+    while let Some(entry) = entries.next_entry().await? {
+        let file = entry.file_name();
+        let Some(pid) = file.to_str().and_then(|name| name.parse::<i64>().ok()) else {
+            continue;
+        };
+
+        // Both reads race process exit, which is ordinary on a busy machine and
+        // not a failure of the check: skip and carry on.
+        let Ok(comm) = tokio::fs::read_to_string(format!("/proc/{pid}/comm")).await else {
+            continue;
+        };
+        if comm.trim() != name {
+            continue;
+        }
+        let Ok(stat) = tokio::fs::read_to_string(format!("/proc/{pid}/stat")).await else {
+            continue;
+        };
+
+        /*
+         * Field 22 of `/proc/<pid>/stat`, in USER_HZ since boot.
+         *
+         * Split after the *last* `)` rather than by whitespace from the start:
+         * field 2 is the command name in parentheses, and it can contain both
+         * spaces and parentheses — a process can name itself `foo) bar (baz`,
+         * and any parser that counts tokens from the left reads garbage for
+         * every field after it. What follows the last `)` begins at field 3, so
+         * field 22 is index 19 there.
+         *
+         * USER_HZ is 100 and is not `CONFIG_HZ`: the kernel fixes it for this
+         * interface precisely so that reading it needs no `sysconf`.
+         */
+        let Some(after_comm) = stat.rsplit_once(')').map(|(_, rest)| rest) else {
+            continue;
+        };
+        let Some(ticks) = after_comm
+            .split_whitespace()
+            .nth(19)
+            .and_then(|field| field.parse::<f64>().ok())
+        else {
+            continue;
+        };
+
+        let since_boot = ticks / 100.0;
+        if oldest.as_ref().is_none_or(|(_, known)| since_boot < *known) {
+            oldest = Some((pid, since_boot));
+        }
+    }
+
+    oldest.ok_or_else(|| anyhow::anyhow!("no process named {name} is running"))
+}
+
+/// The same target where there is no `/proc` to read.
+#[cfg(not(target_os = "linux"))]
+async fn observe_uptime(
+    of: UptimeOf,
+    _process: Option<&str>,
+    _min_seconds: Option<u64>,
+    _timeout_ms: u64,
+) -> Observation {
+    let subject = match of {
+        UptimeOf::Machine => "machine",
+        UptimeOf::Process => "process",
+    };
+    failed(format!(
+        "{subject} uptime is read from /proc, which this build has none of — assign this \
+         control to an agent on a Linux host"
     ))
 }
 
@@ -1339,5 +1742,298 @@ mod tests {
         )
         .unwrap();
         assert_eq!(probe.kind(), "http");
+    }
+
+    // ── The host targets ────────────────────────────────────────────────────
+    //
+    // These need no listener. They need a directory this test owns, which is
+    // built under the process's own temp dir and removed at the end — the agent
+    // has no `tempfile` dependency and one target is not worth adding it for.
+
+    struct Scratch(std::path::PathBuf);
+
+    impl Scratch {
+        fn new(label: &str) -> Self {
+            let path =
+                std::env::temp_dir().join(format!("tern-probe-{label}-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&path);
+            std::fs::create_dir_all(&path).unwrap();
+            Scratch(path)
+        }
+
+        fn file(&self, name: &str, contents: &str) -> String {
+            let path = self.0.join(name);
+            std::fs::write(&path, contents).unwrap();
+            path.to_string_lossy().into_owned()
+        }
+
+        fn path(&self) -> String {
+            self.0.to_string_lossy().into_owned()
+        }
+    }
+
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn body_of(observation: &Observation) -> serde_json::Value {
+        serde_json::from_str(observation.body.as_deref().unwrap()).unwrap()
+    }
+
+    #[tokio::test]
+    async fn file_reports_a_present_file_and_its_size() {
+        let scratch = Scratch::new("present");
+        let path = scratch.file("report.txt", "seven!!");
+
+        let observation = observe_file(&path, true, 5_000).await;
+
+        assert!(observation.error.is_none());
+        let body = body_of(&observation);
+        assert_eq!(body["exists"], true);
+        assert_eq!(body["kind"], "file");
+        assert_eq!(body["sizeBytes"], 7);
+        // Written a moment ago, so the age is readable and small — the field
+        // that makes `$.modifiedSecondsAgo lt N` mean anything.
+        assert!(body["modifiedSecondsAgo"].as_i64().unwrap() < 60);
+    }
+
+    #[tokio::test]
+    async fn file_fails_when_a_required_path_is_missing() {
+        let scratch = Scratch::new("missing");
+        let observation = observe_file(&format!("{}/nope", scratch.path()), true, 5_000).await;
+        assert!(observation.error.unwrap().contains("is not there"));
+    }
+
+    #[tokio::test]
+    async fn file_inverts_cleanly_for_a_path_that_must_be_gone() {
+        let scratch = Scratch::new("gone");
+        let absent = format!("{}/lock", scratch.path());
+
+        // Absent and required gone: healthy, and it still reports the answer.
+        let observation = observe_file(&absent, false, 5_000).await;
+        assert!(observation.error.is_none());
+        assert_eq!(body_of(&observation)["exists"], false);
+
+        // Present and required gone: the stale lock this is written to catch.
+        let present = scratch.file("lock", "");
+        let observation = observe_file(&present, false, 5_000).await;
+        assert!(observation.error.unwrap().contains("requires it gone"));
+    }
+
+    /// The distinction the target would be worthless without.
+    ///
+    /// A directory the agent cannot traverse makes `metadata` fail exactly as a
+    /// missing path does. If that were read as absence, `mustExist: false` would
+    /// report healthy over a path nobody can see.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn file_does_not_call_unreadable_absent() {
+        use std::os::unix::fs::PermissionsExt;
+
+        // Root traverses regardless of the mode bits, so this proves nothing
+        // there and says so rather than passing hollowly.
+        if effective_uid() == 0 {
+            return;
+        }
+
+        let scratch = Scratch::new("denied");
+        let closed = scratch.0.join("closed");
+        std::fs::create_dir(&closed).unwrap();
+        std::fs::write(closed.join("secret"), "x").unwrap();
+        std::fs::set_permissions(&closed, std::fs::Permissions::from_mode(0o000)).unwrap();
+
+        let observation = observe_file(
+            &format!("{}/secret", closed.to_string_lossy()),
+            false,
+            5_000,
+        )
+        .await;
+
+        // Restored before the assertion, so a failure here still cleans up.
+        std::fs::set_permissions(&closed, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        let error = observation
+            .error
+            .expect("an unreadable path is not an absent one");
+        assert!(error.contains("could not read"), "{error}");
+    }
+
+    /// Read rather than linked: the agent has no `libc` dependency, and the
+    /// question here is only "would the mode bits be ignored". Anything that
+    /// cannot answer returns a non-root id, so the test runs and can fail —
+    /// guessing root would turn it into a permanent skip.
+    #[cfg(unix)]
+    fn effective_uid() -> u32 {
+        std::fs::read_to_string("/proc/self/status")
+            .ok()
+            .and_then(|status| {
+                status
+                    .lines()
+                    .find(|line| line.starts_with("Uid:"))
+                    .and_then(|line| line.split_whitespace().nth(2))
+                    .and_then(|euid| euid.parse().ok())
+            })
+            .unwrap_or(1)
+    }
+
+    #[tokio::test]
+    async fn directory_counts_filters_and_finds_the_newest() {
+        let scratch = Scratch::new("dir");
+        scratch.file("dump-1.sql.gz", "aaaa");
+        scratch.file("dump-2.sql.gz", "bb");
+        scratch.file("notes.md", "ignored");
+
+        let all = observe_directory(&scratch.path(), None, None, 5_000).await;
+        assert_eq!(body_of(&all)["entries"], 3);
+        assert_eq!(body_of(&all)["bytes"], 13);
+
+        let filtered = observe_directory(&scratch.path(), Some(".sql.gz"), None, 5_000).await;
+        let body = body_of(&filtered);
+        assert_eq!(body["entries"], 2);
+        assert_eq!(body["bytes"], 6);
+        assert!(
+            body["newestName"].as_str().unwrap().ends_with(".sql.gz"),
+            "the filter must also decide which entry counts as the newest: {body}"
+        );
+        assert!(body["newestSecondsAgo"].as_i64().unwrap() < 60);
+    }
+
+    #[tokio::test]
+    async fn directory_fails_when_nothing_has_changed_recently() {
+        let scratch = Scratch::new("quiet");
+        scratch.file("old.txt", "x");
+
+        // Everything here was written seconds ago, so a zero-tolerance window is
+        // the only one that can fail on a fresh directory. `maxQuietSeconds: 0`
+        // is not expressible in the schema — it is `positive()` — so the guard
+        // is exercised through the empty case, which is the same branch.
+        let empty = Scratch::new("empty");
+        let observation = observe_directory(&empty.path(), None, Some(3_600), 5_000).await;
+        let error = observation
+            .error
+            .expect("an empty directory counts as quiet");
+        assert!(error.contains("expects activity"), "{error}");
+
+        // And the populated one passes the same window.
+        let observation = observe_directory(&scratch.path(), None, Some(3_600), 5_000).await;
+        assert!(observation.error.is_none());
+    }
+
+    #[tokio::test]
+    async fn directory_fails_when_the_path_is_not_there() {
+        let observation =
+            observe_directory("/tern-does-not-exist/anywhere", None, None, 5_000).await;
+        assert!(observation.error.unwrap().contains("could not read"));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    async fn uptime_reads_the_machine_and_agrees_with_proc() {
+        let observation = observe_uptime(UptimeOf::Machine, None, None, 5_000).await;
+        assert!(observation.error.is_none());
+
+        let body = body_of(&observation);
+        assert_eq!(body["of"], "machine");
+        assert_eq!(body["restarted"], serde_json::Value::Null);
+
+        // Checked against the source rather than merely asserted positive: a
+        // parser that read the wrong field would still return a large number.
+        let raw: f64 = std::fs::read_to_string("/proc/uptime")
+            .unwrap()
+            .split_whitespace()
+            .next()
+            .unwrap()
+            .parse()
+            .unwrap();
+        let reported = body["uptimeSeconds"].as_i64().unwrap();
+        assert!(
+            (reported - raw as i64).abs() <= 2,
+            "reported {reported}, /proc says {raw}"
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    async fn uptime_finds_this_process_and_calls_it_young() {
+        // The test binary is the one process certain to be running, and its own
+        // name is what `/proc/<pid>/comm` truncates to 15 characters.
+        let me = std::fs::read_to_string("/proc/self/comm").unwrap();
+        let me = me.trim();
+
+        let observation = observe_uptime(UptimeOf::Process, Some(me), None, 5_000).await;
+        assert!(observation.error.is_none(), "{:?}", observation.error);
+
+        let body = body_of(&observation);
+        assert_eq!(body["of"], "process");
+        assert_eq!(body["process"], me);
+        assert!(body["pid"].as_i64().unwrap() > 0);
+
+        // A test binary has been up seconds, not days. This is the assertion
+        // that would catch reading a boot-relative tick count as an uptime.
+        let reported = body["uptimeSeconds"].as_i64().unwrap();
+        assert!((0..3_600).contains(&reported), "reported {reported} s");
+    }
+
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    async fn uptime_calls_a_recent_start_a_restart() {
+        let me = std::fs::read_to_string("/proc/self/comm").unwrap();
+
+        // A floor far above this process's age: the reboot case, on demand.
+        let observation =
+            observe_uptime(UptimeOf::Process, Some(me.trim()), Some(86_400), 5_000).await;
+        let error = observation
+            .error
+            .expect("a young process is a restarted one");
+        assert!(error.contains("it restarted"), "{error}");
+    }
+
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    async fn uptime_says_so_when_the_process_is_not_running() {
+        let observation =
+            observe_uptime(UptimeOf::Process, Some("tern-not-a-process"), None, 5_000).await;
+        assert!(observation.error.unwrap().contains("no process named"));
+    }
+
+    #[test]
+    fn host_probes_parse_from_toml() {
+        let file: Probe = toml::from_str(
+            r#"
+            type = "file"
+            path = "/var/run/tern.pid"
+            must_exist = false
+            "#,
+        )
+        .unwrap();
+        assert_eq!(file.kind(), "file");
+
+        let directory: Probe = toml::from_str(
+            r#"
+            type = "directory"
+            path = "/var/backups"
+            contains = ".sql.gz"
+            max_quiet_seconds = 86400
+            "#,
+        )
+        .unwrap();
+        assert_eq!(directory.kind(), "directory");
+
+        let uptime: Probe = toml::from_str(
+            r#"
+            type = "uptime"
+            of = "process"
+            process = "postgres"
+            min_seconds = 300
+            "#,
+        )
+        .unwrap();
+        assert_eq!(uptime.kind(), "uptime");
+        // Round-trips, because the editor writes this file from the server's
+        // copy and the agent must read back what it wrote.
+        let written = toml::to_string(&uptime).unwrap();
+        assert!(written.contains("min_seconds = 300"), "{written}");
     }
 }

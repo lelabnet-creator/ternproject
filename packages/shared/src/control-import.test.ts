@@ -110,6 +110,35 @@ controls:
       container: api
       requireHealthcheck: true
 
+  - key: exporter.pid
+    name: Exporter pidfile
+    kind: file
+    config:
+      path: /var/run/exporter.pid
+      mustExist: true
+      assertions:
+        - type: json_path
+          path: $.sizeBytes
+          comparator: gt
+          value: 0
+          as: number
+
+  - key: backups.fresh
+    name: Backups still landing
+    kind: directory
+    config:
+      path: /var/backups
+      contains: .sql.gz
+      maxQuietSeconds: 86400
+
+  - key: db.continuity
+    name: Postgres has not restarted
+    kind: uptime
+    config:
+      of: process
+      process: postgres
+      minSeconds: 300
+
   - key: nightly-backup
     name: Nightly backup
     expectedIntervalS: 86400
@@ -130,6 +159,9 @@ controls:
       'tls',
       'socket',
       'api.container',
+      'exporter.pid',
+      'backups.fresh',
+      'db.continuity',
       'nightly-backup',
     ])
     expect(result.controls.map((c) => c.kind)).toEqual([
@@ -140,6 +172,9 @@ controls:
       'cert',
       'websocket',
       'docker',
+      'file',
+      'directory',
+      'uptime',
       undefined,
     ])
 
@@ -290,7 +325,9 @@ describe('unknown kinds and types', () => {
     expect(issue.expected).toBe(CONTROL_KINDS.join(', '))
     // Spelt out once, so a reordering of the enum is caught here rather than
     // only in whatever reads the message.
-    expect(issue.expected).toBe('push, http, tcp, ping, dns, cert, websocket, docker')
+    expect(issue.expected).toBe(
+      'push, http, tcp, ping, dns, cert, websocket, docker, file, directory, uptime',
+    )
     expect(formatImportIssue(issue)).toContain('expected push, http, tcp, ping, dns, cert')
   })
 

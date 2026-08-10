@@ -1,0 +1,20 @@
+{
+  "name": "an absent field fails every ordering comparison, rather than reading as zero",
+  "why": "The two implementations disagreed here and nothing caught it. `Number(null)` is 0 in JavaScript — not NaN — so a missing field slipped past the finite check and was ordered as if it had been measured at zero, passing `lt` and `lte` on nothing at all. Rust already returned false, because its coercion drops nulls. The case matters because absent is now ordinary: `file` reports `sizeBytes: null` and `modifiedSecondsAgo: null` for a path that is not there, so a freshness threshold would have called a missing file freshly written. It was never specific to those targets — `$.queue.depth lt 100` over a response that omitted the field has always read as an empty queue.",
+  "assertions": [
+    {
+      "type": "json_path",
+      "severity": "down",
+      "path": "$.modifiedSecondsAgo",
+      "comparator": "lt",
+      "value": 86400,
+      "as": "number",
+      "capture": false
+    }
+  ],
+  "observation": {
+    "statusCode": 200,
+    "body": "{\"exists\":false,\"kind\":null,\"sizeBytes\":null,\"modifiedSecondsAgo\":null}"
+  },
+  "expect": { "status": "down", "value": null, "failing": ["json_path"] }
+}

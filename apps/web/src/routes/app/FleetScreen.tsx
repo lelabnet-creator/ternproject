@@ -23,16 +23,25 @@ import {
  * something a screen reader or a keyboard can work through.
  */
 export function FleetScreen({ slug, canWrite }: { slug: string; canWrite: boolean }) {
+  const [selected, setSelected] = useState<string | null>(null)
+  const [pairing, setPairing] = useState(false)
+
   const agents = useQuery({
     queryKey: ['agents', slug],
     queryFn: () => adminApi.agents(slug),
-    // A fleet screen left open should not go stale: the whole point is seeing
-    // an agent go quiet.
-    refetchInterval: 30_000,
+    /*
+     * A fleet screen left open should not go stale: the whole point is seeing
+     * an agent go quiet.
+     *
+     * While the pairing panel is open the wait is a different one — an install
+     * is running on another machine right now, and the row appears the moment
+     * it pairs. Thirty seconds of nothing there reads as a failed install, and
+     * the reflex it produces is the reload key. So the list is asked often
+     * enough to answer within the span of attention it is being given, and only
+     * while it is being given: the fast interval dies with the panel.
+     */
+    refetchInterval: pairing ? 3_000 : 30_000,
   })
-
-  const [selected, setSelected] = useState<string | null>(null)
-  const [pairing, setPairing] = useState(false)
   const [picked, setPicked] = useState<Set<string>>(new Set())
   const [confirmBulk, setConfirmBulk] = useState<'revoke' | 'delete' | null>(null)
 
@@ -89,7 +98,17 @@ export function FleetScreen({ slug, canWrite }: { slug: string; canWrite: boolea
         )}
       </div>
 
-      {pairing && <PairPanel slug={slug} onDone={() => setPairing(false)} />}
+      {pairing && (
+        <PairPanel
+          slug={slug}
+          onDone={() => {
+            setPairing(false)
+            // Closing the panel is the one moment the answer is certainly
+            // wanted, and it is also the moment the fast interval stops.
+            void queryClient.invalidateQueries({ queryKey: ['agents', slug] })
+          }}
+        />
+      )}
 
       {/* A bar rather than a per-row menu: the whole point of selecting several
           is to act on them once. */}

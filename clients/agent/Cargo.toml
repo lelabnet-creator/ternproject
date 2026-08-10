@@ -29,7 +29,10 @@ reqwest = { version = "0.12", default-features = false, features = [
   "charset",
   "http2",
 ] }
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "time", "net", "signal"] }
+# `fs` for the file, directory and uptime targets. It is a wrapper over the
+# blocking pool rather than new machinery, and it is what keeps a stat on a hung
+# NFS mount from stalling every other check on the runtime thread.
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time", "net", "signal", "fs"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 clap = { version = "4", features = ["derive", "env"] }

@@ -5,8 +5,10 @@ import {
   certExpiryAssertionSchema,
   certProbeSchema,
   dnsAssertionSchema,
+  directoryProbeSchema,
   dnsProbeSchema,
   dockerProbeSchema,
+  fileProbeSchema,
   headerAssertionSchema,
   httpProbeSchema,
   jsonPathAssertionSchema,
@@ -15,6 +17,7 @@ import {
   pingProbeSchema,
   statusCodeAssertionSchema,
   tcpProbeSchema,
+  uptimeProbeSchema,
   websocketProbeSchema,
 } from './probe.js'
 
@@ -95,6 +98,18 @@ const strictProbeSchema = z.discriminatedUnion('type', [
   certProbeSchema.strict().extend(strictAssertions),
   websocketProbeSchema.strict().extend(strictAssertions),
   dockerProbeSchema.strict().extend(strictAssertions),
+  fileProbeSchema.strict().extend(strictAssertions),
+  directoryProbeSchema.strict().extend(strictAssertions),
+  /*
+   * `safeExtend` rather than `extend`, and not a style choice: this is the one
+   * probe carrying a refinement — `of: process` must name one — and Zod refuses
+   * to overwrite a key on such a schema, because replacing `assertions` could
+   * silently invalidate the assumption a refinement was written under. It
+   * throws at module load, which is how this was found. The refinement itself
+   * survives, so a file describing a process control with no process in it is
+   * refused here and not only by the form.
+   */
+  uptimeProbeSchema.strict().safeExtend(strictAssertions),
 ])
 
 /**
@@ -102,11 +117,13 @@ const strictProbeSchema = z.discriminatedUnion('type', [
  * order — the enum is appended to and never reordered, so this list reads as
  * the history of what the product learned to check.
  *
- * `docker` is accepted here even though the server cannot run it. A file is a
- * description of what to monitor, not a claim about who monitors it: the
- * control is created, and the assignment to an agent that has the socket is a
- * separate decision made on a separate screen. Refusing it at import would mean
- * a fleet's file could not describe the fleet's own containers.
+ * `docker`, `file`, `directory` and `uptime` are accepted here even though the
+ * server cannot run any of them. A file is a description of what to monitor,
+ * not a claim about who monitors it: the control is created, and the assignment
+ * to an agent that has the socket — or the path, or the process — is a separate
+ * decision made on a separate screen. Refusing them at import would mean a
+ * fleet's file could not describe the fleet's own machines, which is most of
+ * what a fleet is.
  */
 export const CONTROL_KINDS = [
   'push',
@@ -117,6 +134,9 @@ export const CONTROL_KINDS = [
   'cert',
   'websocket',
   'docker',
+  'file',
+  'directory',
+  'uptime',
 ] as const
 
 /**

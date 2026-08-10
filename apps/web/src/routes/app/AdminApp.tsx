@@ -2262,6 +2262,21 @@ const CONTROL_KINDS = [
     label: 'Docker container',
     hint: 'A container on an agent’s host. Needs an agent with the Docker socket.',
   },
+  {
+    id: 'file',
+    label: 'File present or absent',
+    hint: 'Whether a path exists on an agent’s machine, and how big and how old it is.',
+  },
+  {
+    id: 'directory',
+    label: 'Directory activity',
+    hint: 'Whether a directory on an agent’s machine is still being written to.',
+  },
+  {
+    id: 'uptime',
+    label: 'Uptime / restart',
+    hint: 'How long an agent’s machine, or one process on it, has been up. Linux only.',
+  },
 ] as const
 
 const KIND_HINT: Record<string, string> = Object.fromEntries(
@@ -2283,6 +2298,13 @@ function probeConfig(form: {
   port: number
   dnsName: string
   recordType: string
+  path: string
+  mustExist: boolean
+  contains: string
+  maxQuietSeconds: number
+  uptimeOf: string
+  processName: string
+  minSeconds: number
 }): Record<string, unknown> {
   switch (form.kind) {
     case 'http':
@@ -2299,6 +2321,29 @@ function probeConfig(form: {
       return { url: form.url.trim() }
     case 'docker':
       return { container: form.host.trim() }
+    case 'file':
+      return { path: form.path.trim(), mustExist: form.mustExist }
+    case 'directory':
+      /*
+       * The two optional fields are omitted when empty rather than sent as
+       * empty or zero. `contains` is `min(1)` and `maxQuietSeconds` is
+       * `positive()`, so either would be rejected by the API for a shape the
+       * operator never chose — "no filter" and "filter on nothing" are not the
+       * same request.
+       */
+      return {
+        path: form.path.trim(),
+        ...(form.contains.trim() ? { contains: form.contains.trim() } : {}),
+        ...(form.maxQuietSeconds > 0 ? { maxQuietSeconds: form.maxQuietSeconds } : {}),
+      }
+    case 'uptime':
+      return {
+        of: form.uptimeOf,
+        ...(form.uptimeOf === 'process' && form.processName.trim()
+          ? { process: form.processName.trim() }
+          : {}),
+        ...(form.minSeconds > 0 ? { minSeconds: form.minSeconds } : {}),
+      }
     default:
       // `push` carries no probe. An empty object rather than the previous spec,
       // so switching a control to push actually stops it being probed.
@@ -2345,6 +2390,17 @@ function ControlEditor({
     port: typeof probe.port === 'number' ? probe.port : 443,
     dnsName: typeof probe.name === 'string' ? probe.name : '',
     recordType: typeof probe.recordType === 'string' ? probe.recordType : 'A',
+    // The host targets. `path` is shared by `file` and `directory` — they ask
+    // about the same thing and never appear together.
+    path: typeof probe.path === 'string' ? probe.path : '',
+    mustExist: typeof probe.mustExist === 'boolean' ? probe.mustExist : true,
+    contains: typeof probe.contains === 'string' ? probe.contains : '',
+    // Zero is the form's way of saying "not set", which is why the schema makes
+    // both of these `positive()`: there is no meaningful zero to collide with.
+    maxQuietSeconds: typeof probe.maxQuietSeconds === 'number' ? probe.maxQuietSeconds : 0,
+    uptimeOf: typeof probe.of === 'string' ? probe.of : 'machine',
+    processName: typeof probe.process === 'string' ? probe.process : '',
+    minSeconds: typeof probe.minSeconds === 'number' ? probe.minSeconds : 0,
     expectedIntervalS: control?.expectedIntervalS ?? 60,
     degradedThresholdMs: control?.degradedThresholdMs ?? 500,
     downThresholdMs: control?.downThresholdMs ?? 3000,
@@ -2567,6 +2623,108 @@ function ControlEditor({
                   placeholder="api"
                 />
               </Field>
+            )}
+
+            {/*
+              The three targets that observe the machine rather than the
+              network. Each says so in its hint, because the failure they
+              otherwise produce is silent in the worst way: a control saved
+              against the server, assigned to nothing, reporting an error about
+              a path the operator will read as a typo.
+            */}
+            {form.kind === 'file' && (
+              <div className="field-row is-lead-first">
+                <Field
+                  label="Path"
+                  hint="Absolute path on the agent's machine. The server cannot run this kind."
+                >
+                  <Input
+                    value={form.path}
+                    onChange={(e) => setForm({ ...form, path: e.target.value })}
+                    placeholder="/var/run/exporter.pid"
+                  />
+                </Field>
+                <Field label="Healthy when">
+                  <select
+                    value={form.mustExist ? 'present' : 'absent'}
+                    onChange={(e) => setForm({ ...form, mustExist: e.target.value === 'present' })}
+                    style={SELECT_STYLE}
+                  >
+                    <option value="present">It is there</option>
+                    <option value="absent">It is gone</option>
+                  </select>
+                </Field>
+              </div>
+            )}
+
+            {form.kind === 'directory' && (
+              <>
+                <div className="field-row is-lead-first">
+                  <Field
+                    label="Directory"
+                    hint="Absolute path on the agent's machine. One level, not a recursive walk."
+                  >
+                    <Input
+                      value={form.path}
+                      onChange={(e) => setForm({ ...form, path: e.target.value })}
+                      placeholder="/var/backups"
+                    />
+                  </Field>
+                  <Field label="Only names containing" hint="Optional.">
+                    <Input
+                      value={form.contains}
+                      onChange={(e) => setForm({ ...form, contains: e.target.value })}
+                      placeholder=".sql.gz"
+                    />
+                  </Field>
+                </div>
+                <Field
+                  label="Fail after this many seconds with no change"
+                  hint="Leave at 0 to only record the activity and let the checks below decide."
+                >
+                  <Input
+                    type="number"
+                    value={form.maxQuietSeconds}
+                    onChange={(e) => setForm({ ...form, maxQuietSeconds: Number(e.target.value) })}
+                  />
+                </Field>
+              </>
+            )}
+
+            {form.kind === 'uptime' && (
+              <>
+                <div className="field-row is-lead-first">
+                  <Field label="Of" hint="Read from /proc, so this kind needs a Linux agent.">
+                    <select
+                      value={form.uptimeOf}
+                      onChange={(e) => setForm({ ...form, uptimeOf: e.target.value })}
+                      style={SELECT_STYLE}
+                    >
+                      <option value="machine">The machine</option>
+                      <option value="process">One process</option>
+                    </select>
+                  </Field>
+                  {form.uptimeOf === 'process' && (
+                    <Field label="Process" hint="The command name, without arguments.">
+                      <Input
+                        value={form.processName}
+                        onChange={(e) => setForm({ ...form, processName: e.target.value })}
+                        placeholder="postgres"
+                      />
+                    </Field>
+                  )}
+                </div>
+                <Field
+                  label="Fail below this many seconds of uptime"
+                  hint="Set it a little above the interval below, and a restart shows up as one failed check instead of disappearing between two green points."
+                >
+                  <Input
+                    type="number"
+                    value={form.minSeconds}
+                    onChange={(e) => setForm({ ...form, minSeconds: Number(e.target.value) })}
+                  />
+                </Field>
+              </>
             )}
 
             {(form.kind === 'tcp' || form.kind === 'cert') && (

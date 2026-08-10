@@ -49,9 +49,11 @@ export const checkStatus = pgEnum('check_status', [
  * inserting a value in the middle rewrites the meaning of every row already
  * written. New kinds go on the end.
  *
- * `websocket` and `docker` are the two the agent grew last. `docker` is the
- * only kind in this list the server cannot run itself — see the note on
- * `dockerProbeSchema` in `@tern/shared` for why it is agent-only.
+ * Four of these the server cannot run itself, and they are the last four:
+ * `docker` needs a Docker socket, and `file`, `directory` and `uptime` observe
+ * the machine they run on. All four are refused by `probe-transport.ts` rather
+ * than left unimplemented — see the notes on `dockerProbeSchema` and
+ * `fileProbeSchema` in `@tern/shared` for why that refusal is the feature.
  */
 export const controlKind = pgEnum('control_kind', [
   'push',
@@ -62,6 +64,9 @@ export const controlKind = pgEnum('control_kind', [
   'cert',
   'websocket',
   'docker',
+  'file',
+  'directory',
+  'uptime',
 ])
 
 /**

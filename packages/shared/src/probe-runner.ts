@@ -227,9 +227,23 @@ function compare(actual: unknown, comparator: Comparator, expected: unknown): bo
     case 'lte':
     case 'gt':
     case 'gte': {
-      // Ordering comparisons are only meaningful on numbers. Falling back to
-      // string ordering here would make "9" > "10" and silently break a
-      // threshold, so a non-numeric operand fails the assertion instead.
+      /*
+       * Ordering comparisons are only meaningful on numbers. Falling back to
+       * string ordering here would make "9" > "10" and silently break a
+       * threshold, so a non-numeric operand fails the assertion instead.
+       *
+       * Absent is not zero, and this is the line that used to say otherwise.
+       * `Number(null)` is `0` — not `NaN` — so a missing field slipped past the
+       * finite check and was ordered as if it had been measured at zero. Half
+       * the comparators then passed on nothing at all: `$.modifiedSecondsAgo lt
+       * 86400` reported a file refreshed within the day when the file was not
+       * there. The targets that observe a host make this ordinary rather than
+       * exotic — an absent path reports `sizeBytes: null` by design — but the
+       * hole was never specific to them, and `$.queue.depth lt 100` over a
+       * response that omitted the field has always read as an empty queue.
+       */
+      if (actual === undefined || actual === null) return false
+      if (expected === undefined || expected === null) return false
       const a = Number(actual)
       const b = Number(expected)
       if (!Number.isFinite(a) || !Number.isFinite(b)) return false
