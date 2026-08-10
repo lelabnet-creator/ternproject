@@ -418,11 +418,11 @@ async fn declare_zone(state: &AppState, key: &str) {
         (agents, inner.config.clone(), inner.config_path.clone())
     };
 
-    if agents.is_empty() {
-        return;
-    }
+    // Sent even with nobody behind it yet: the address is how an operator adds
+    // the first machine, so it has to be known before there is one.
+    let listen = config.listen.clone();
 
-    if let Err(error) = state.client.zone(key, &agents).await {
+    if let Err(error) = state.client.zone(key, &agents, &listen).await {
         warn!(%error, "could not declare the zone — the fleet view will be a poll behind");
         return;
     }
@@ -617,10 +617,29 @@ async fn pair(State(state): State<AppState>, Json(body): Json<PairBody>) -> impl
                     info!(%tenant, "the server accepted a code for this zone");
                 }
                 Err(error) => {
-                    info!(%error, "no local PIN matched and the server refused the code");
+                    let text = error.to_string();
+                    // Two different facts, and the one that matters is which.
+                    // Told as one, they send somebody looking at their PIN
+                    // while the truth is that this relay cannot ask anybody —
+                    // which is what happened during an upgrade of the server.
+                    if text.starts_with("refused:") {
+                        info!("no local PIN matched and the server refused the code");
+                        return (
+                            StatusCode::UNAUTHORIZED,
+                            Json(json!({ "message": "Invalid or expired pairing code" })),
+                        )
+                            .into_response();
+                    }
+
+                    warn!(%error, "cannot check the code — the server is unreachable");
                     return (
-                        StatusCode::UNAUTHORIZED,
-                        Json(json!({ "message": "Invalid or expired pairing code" })),
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        Json(json!({
+                            "message":
+                                "This relay cannot reach TERN, so it cannot check that code. \
+                                 Try again once the server is back, or mint a PIN on the relay \
+                                 itself with: tern-proxy pin"
+                        })),
                     )
                         .into_response();
                 }

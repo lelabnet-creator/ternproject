@@ -128,6 +128,19 @@ export const agents = pgTable(
     status: agentStatus().notNull().default('active'),
     lastSeenAt: timestamp({ withTimezone: true }),
     pairedIp: inet(),
+    /**
+     * The `host:port` a relay serves its zone on, as the relay itself reports.
+     *
+     * Null for anything that is not a relay, and for a relay too old to say.
+     *
+     * `pairedIp` cannot answer this, and assuming it could was a real mistake:
+     * it holds the address a connection *arrived from* as this server saw it,
+     * which — with TERN in a container and the relay on the host — is a Docker
+     * bridge gateway. The admin offered that as the address to reach the relay
+     * on, and it is meaningless anywhere but on that host. The relay is the only
+     * thing that knows where it binds, so the relay is what says it.
+     */
+    zoneAddress: text(),
     revokedAt: timestamp({ withTimezone: true }),
     createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
   },

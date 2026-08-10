@@ -29,6 +29,7 @@ function agent(over: Partial<Agent> & { id: string; name: string }): Agent {
     role: 'agent',
     parentAgentId: null,
     pairedIp: null,
+    zoneAddress: null,
     status: 'active',
     lastSeenAt: new Date().toISOString(),
     pairedAt: new Date().toISOString(),

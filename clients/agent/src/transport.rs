@@ -258,8 +258,11 @@ impl Client {
             .await
             .context("could not reach the server")?;
 
+        // A refusal and an unreachable server are different facts, and the
+        // caller has to be able to tell them apart. Reported as one, they sent
+        // somebody looking at their PIN while their instance was restarting.
         if !response.status().is_success() {
-            bail!("the server refused the code ({})", response.status());
+            bail!("refused:{}", response.status().as_u16());
         }
 
         #[derive(Deserialize)]
@@ -352,12 +355,17 @@ impl Client {
     /// that did not pair as one. It carries a name, a last contact and the
     /// address seen inside the zone — not an OS or a version, which the proxy
     /// has no way to know and would have to invent.
-    pub async fn zone(&self, api_key: &str, agents: &[ZoneAgent]) -> Result<()> {
+    pub async fn zone(&self, api_key: &str, agents: &[ZoneAgent], listen: &str) -> Result<()> {
         let response = self
             .http
             .post(format!("{}/api/v1/agent/zone", self.base_url))
             .bearer_auth(api_key)
-            .json(&serde_json::json!({ "agents": agents }))
+            // The address this relay serves its zone on, said by the only thing
+            // that knows it. The server used to infer it from where the pairing
+            // arrived from, which on a containerised TERN is a Docker bridge
+            // gateway — an address that means nothing outside that one host, and
+            // that the admin then offered as the one to reach the relay on.
+            .json(&serde_json::json!({ "agents": agents, "listen": listen }))
             .send()
             .await
             .context("could not reach the server")?;

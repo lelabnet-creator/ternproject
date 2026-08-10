@@ -404,6 +404,16 @@ const routes: FastifyPluginAsyncZod = async (app) => {
               }),
             )
             .max(500),
+          /**
+           * Where this relay serves its zone, as it sees itself.
+           *
+           * Optional: a relay from before this release says nothing, and must
+           * keep working. Read here rather than inferred from `req.ip`, which
+           * with TERN in a container is the bridge gateway — an address that
+           * means nothing outside that one host, and which the admin was
+           * offering as the one to reach the relay on.
+           */
+          listen: z.string().max(255).optional(),
         }),
         response: { 200: z.object({ known: z.number() }) },
       },
@@ -443,6 +453,13 @@ const routes: FastifyPluginAsyncZod = async (app) => {
        * unlinking clears the parent, and a match on parent alone would then
        * create a second row for the same machine.
        */
+      if (req.body.listen && req.body.listen !== proxy.zoneAddress) {
+        await app.db
+          .update(schema.agents)
+          .set({ zoneAddress: req.body.listen })
+          .where(eq(schema.agents.id, proxy.id))
+      }
+
       await app.db.transaction(async (tx) => {
         const seen = req.body.agents.map((agent) => agent.name)
 
@@ -645,6 +662,8 @@ const routes: FastifyPluginAsyncZod = async (app) => {
                * server never saw it at all.
                */
               pairedIp: z.string().nullable(),
+              /** Where a relay serves its zone. Null for anything else. */
+              zoneAddress: z.string().nullable(),
               status: z.string(),
               lastSeenAt: z.string().nullable(),
               pairedAt: z.string(),
@@ -708,6 +727,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
           role: row.role,
           parentAgentId: row.parentAgentId,
           pairedIp: row.pairedIp,
+          zoneAddress: row.zoneAddress,
           status: row.status,
           lastSeenAt: row.lastSeenAt?.toISOString() ?? null,
           pairedAt: row.createdAt.toISOString(),

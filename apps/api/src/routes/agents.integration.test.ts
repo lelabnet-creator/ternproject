@@ -864,6 +864,39 @@ describe('a proxy declaring its zone', () => {
   })
 
   /**
+   * Where a relay serves its zone, said by the relay.
+   *
+   * This server used to infer it from the address the pairing arrived from,
+   * which with TERN in a container is a Docker bridge gateway — an address that
+   * exists only on that one host. The admin then offered it as the address to
+   * reach the relay on, and it produced a connection refused on the one machine
+   * that could not investigate. Only the relay knows where it binds.
+   */
+  it('records the address a relay says it serves on', async () => {
+    const proxy = await pairAs('proxy/0.1.0')
+
+    await fx.app.inject({
+      method: 'POST',
+      url: '/api/v1/agent/zone',
+      headers: { authorization: `Bearer ${proxy.key}` },
+      payload: { agents: [], listen: '192.168.1.170:8787' },
+    })
+
+    const rows = (await fleet()) as unknown as { id: string; zoneAddress: string | null }[]
+    expect(rows.find((row) => row.id === proxy.id)?.zoneAddress).toBe('192.168.1.170:8787')
+  })
+
+  it('leaves it null for a relay too old to say', async () => {
+    // A relay deployed before this release sends no such field, and must keep
+    // working — the admin falls back to its guess and labels it as one.
+    const proxy = await pairAs('proxy/0.1.0')
+    await declare(proxy.key, [{ name: 'zone-x', lastSeenUnix: null, ip: null }])
+
+    const rows = (await fleet()) as unknown as { id: string; zoneAddress: string | null }[]
+    expect(rows.find((row) => row.id === proxy.id)?.zoneAddress).toBeNull()
+  })
+
+  /**
    * A relay redeeming, for a machine that cannot reach this server at all.
    *
    * Before this, a code for such a machine could only be minted on the relay

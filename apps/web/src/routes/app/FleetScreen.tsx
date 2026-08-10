@@ -239,6 +239,21 @@ export function rootsOf(agents: Agent[]): Agent[] {
  * where it serves on an ordinary single-homed machine and is not on one with
  * two cards. So one is a choice and the other stays typeable.
  */
+/**
+ * The address to offer for one relay.
+ *
+ * What the relay says about itself first. `pairedIp` only as a fallback, and it
+ * is a poor one: it holds where a connection arrived *from* as this server saw
+ * it, which with TERN in a container is a Docker bridge gateway — an address
+ * that exists only on that host. Offered as the way to reach the relay, it
+ * produced a connection refused on the one machine that could not investigate.
+ */
+export function relayOrigin(relay: Agent | undefined): string {
+  if (!relay) return ''
+  if (relay.zoneAddress) return `http://${relay.zoneAddress}`
+  return relay.pairedIp ? `http://${relay.pairedIp}:8787` : ''
+}
+
 export function RelayPicker({
   relays,
   chosenId,
@@ -262,7 +277,11 @@ export function RelayPicker({
                   hosts, so two of them can share a name and be told apart only
                   by where they answer. */}
               {relay.name}
-              {relay.pairedIp ? ` — ${relay.pairedIp}` : ' — address unknown'}
+              {relay.zoneAddress
+                ? ` — ${relay.zoneAddress}`
+                : relay.pairedIp
+                  ? ` — ${relay.pairedIp} (guessed)`
+                  : ' — address unknown'}
             </option>
           ))}
         </Select>
@@ -372,8 +391,7 @@ export function PairPanel({ slug, onDone }: { slug: string; onDone: () => void }
   const [chosenId, setChosenId] = useState<string | null>(null)
   const [via, setVia] = useState<string | null>(null)
   const chosen = relays.find((r) => r.id === chosenId) ?? relays[0]
-  const suggested = chosen?.pairedIp ? `http://${chosen.pairedIp}:8787` : ''
-  const zoneOrigin = via ?? suggested
+  const zoneOrigin = via ?? relayOrigin(chosen)
 
   const pickRelay = (id: string) => {
     setChosenId(id)

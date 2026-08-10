@@ -246,6 +246,11 @@ export interface Agent {
   parentAgentId: string | null
   /** The address it paired from. Null for an agent known only through a proxy. */
   pairedIp: string | null
+  /**
+   * Where a relay serves its zone, as the relay itself reports. Null for
+   * anything that is not a relay, and for a relay too old to say.
+   */
+  zoneAddress: string | null
   status: string
   lastSeenAt: string | null
   pairedAt: string
