@@ -2,26 +2,31 @@
 
 ## Current Task
 
-Rien en cours. `v0.1.21` : le taux de disponibilité se calcule sur la durée et
-non sur un compte de checks, et trois genres de sonde regardent la machine
-(`file`, `directory`, `uptime`). Vert : 848 tests JS, 68 côté agent, 75 côté
-installateur. Migration `0021` (trois valeurs de plus sur `control_kind`).
+Rien en cours. `v0.1.22` : correctifs d'usage sur la zone, l'installation et
+l'admin, plus la réparation d'une régression que j'avais publiée en 0.1.21.
+Vert : 850 tests JS avec l'index seul, 68 côté agent, 75 côté installateur.
 
 ## Key Decisions
 
-- Le chiffre publié **change de sens** à cette version : time-weighted, `degraded`
-  compte comme disponible, le temps non observé quitte le dénominateur, un push
-  silencieux compte contre vous. Dit au lecteur dans `docs/user-guide.md`.
-- `computeAvailability` prend des **intervalles**, pas des points : un check brut
-  est un intervalle à état plein, un seau d'agrégat un intervalle fractionnaire.
-  Un seul compteur, sinon une résolution porte sa propre copie des règles.
-- `file`/`directory`/`uptime` sont refusées côté serveur comme `docker`, et pour
-  une raison plus vive : le disque est là sans qu'on ait rien à monter.
+- **Ne jamais indexer un fichier partagé sans inspecter ses hunks.** Nommer le
+  chemin ne suffit pas : `git add apps/api/src/routes/status.ts` a emporté un
+  travail en cours dans une image publiée, et la page publique est morte sur
+  `custom.html.trim()`. Deuxième occurrence après `apps/web/src`.
+- Le relais déclare sa zone **à l'appairage**, plus seulement toutes les cinq
+  minutes : l'agent apparaissait avec des minutes de retard et tout donnait
+  l'impression d'un échec d'installation.
+- `systemctl restart --no-block` : attendre l'unité, c'est attendre
+  `network-online.target`, soit deux minutes pleines sur une machine à deux
+  interfaces.
+- Révoquer un relais demande ce qu'il advient de sa zone. Ces lignes n'existent
+  que parce qu'il les déclare ; le laisser choisir vaut mieux que les orpheliner
+  ou les supprimer en silence.
 
 ## Next Steps
 
 - La refonte `TenantStyle` / `custom-style` reste en cours dans l'arbre — 27
-  fichiers non commités.
-- Bornes `from`/`to` arbitraires et regroupement semaine/mois/année sur
-  `uptime.json` : non livrés, séparables.
-- Le service worker sert un bundle périmé après une mise à jour.
+  fichiers non commités. Le passage de `custom` à `{ css }` côté serveur devra
+  repartir **avec** son côté client cette fois.
+- La déclaration immédiate de zone n'a pas de test dédié : exercer `pair` de
+  bout en bout demande un `AppState` complet avec un amont simulé.
+- Bornes `from`/`to` et regroupement semaine/mois/année sur `uptime.json`.
