@@ -228,6 +228,91 @@ describe('several agents on one control', () => {
   })
 })
 
+describe('a push control, where silence is the signal', () => {
+  const push = { silence: 'down' as const }
+
+  it('counts a missing heartbeat as unavailability', () => {
+    /*
+     * There is no failed check to observe — the nightly job simply did not run.
+     * Treating that as unknown would publish 100% for a backup that has not run
+     * in a month, which is the exact figure somebody would rely on to not
+     * notice.
+     */
+    const result = run('o'.repeat(20), push)
+
+    // Heartbeats at minutes 0..19. One full interval of lateness is allowed, so
+    // the last one covers through minute 21; the remaining 39 are silence.
+    expect(result.downMs).toBe(39 * MINUTE)
+    expect(result.unknownMs).toBe(0)
+    expect(result.uptimePct).toBeCloseTo((100 * 21) / 60, 6)
+  })
+
+  it('leaves the same gap as unknown for a probe control', () => {
+    // The same series, the same silence, the opposite reading — because for a
+    // probe a gap means nobody was measuring, and publishing the monitoring
+    // system's downtime as the service's is a different mistake.
+    const probe = run('o'.repeat(20))
+    expect(probe.downMs).toBe(0)
+    expect(probe.unknownMs).toBe(39 * MINUTE)
+  })
+
+  it('tolerates one late heartbeat before counting it', () => {
+    /*
+     * The grace, and the number is not new: `sweepStaleControls` marks a
+     * control quiet after `expected_interval_s * 2`, and this lands on the same
+     * threshold from the other direction. Two thresholds for one question is
+     * how a badge and a percentage end up disagreeing about the same minute.
+     */
+    const late: AvailabilitySample[] = [
+      { ts: at(0), status: 'operational' },
+      // Two minutes later rather than one: late, but inside the grace.
+      { ts: at(2), status: 'operational' },
+      { ts: at(3), status: 'operational' },
+    ]
+    const result = computeAvailability({
+      window: { from: at(0), to: at(4) },
+      intervalMs: MINUTE,
+      samples: late,
+      ...push,
+    })
+    expect(result.downMs).toBe(0)
+  })
+
+  it('reads the staleness sweep’s own marker as the silence it records', () => {
+    /*
+     * `sweepStaleControls` writes an `unknown` row precisely when a push
+     * control stops reporting. Leaving it in the unknown bucket would cancel
+     * the thing being counted — the evidence of the silence would remove the
+     * silence from the arithmetic.
+     */
+    const result = run('o'.repeat(30) + 'u'.repeat(30), push)
+    expect(result.downMs).toBe(30 * MINUTE)
+    expect(result.unknownMs).toBe(0)
+  })
+
+  it('does not put a silence through the debounce', () => {
+    /*
+     * A silence is one long segment, so a debounce of two would discard every
+     * one of them and the rule would never fire at all. The tolerance for a
+     * late heartbeat is the grace, expressed in the unit that suits it — time,
+     * not a count of checks that did not happen.
+     */
+    const result = run('o'.repeat(20), { ...push, debounce: 5 })
+    expect(result.downMs).toBe(39 * MINUTE)
+  })
+
+  it('still excludes planned maintenance from a silence', () => {
+    // A job that is not running because somebody stopped it on purpose is not
+    // an outage, and the announcement is what says so.
+    const result = run('o'.repeat(20), {
+      ...push,
+      exclusions: [{ from: at(21), to: at(60) }],
+    })
+    expect(result.downMs).toBe(0)
+    expect(result.excludedMs).toBe(39 * MINUTE)
+  })
+})
+
 describe('time nobody observed', () => {
   it('leaves the denominator rather than being guessed', () => {
     /*

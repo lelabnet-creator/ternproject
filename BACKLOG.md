@@ -56,17 +56,36 @@ précision qu'il n'a pas.
       maintenances. Aucun accès base ici — c'est ce qui le rend testable.
 
       Fait : `packages/shared/src/availability.ts`, 17 tests. Vérifié avec
-              l'index seul. Deux décisions écrites en chemin — `degraded` compte comme
-              disponible (les agrégats ne comptaient que `operational`, donc un service
-              lent baissait l'uptime publié), et le temps que personne n'a observé quitte
-              le dénominateur au lieu d'être deviné dans un sens ou dans l'autre.
-              Le sous-chemin `@tern/shared/availability` reste à ajouter au point 4 :
-              `packages/shared/package.json` porte un travail en cours non commité.
+                  l'index seul. Deux décisions écrites en chemin — `degraded` compte comme
+                  disponible (les agrégats ne comptaient que `operational`, donc un service
+                  lent baissait l'uptime publié), et le temps que personne n'a observé quitte
+                  le dénominateur au lieu d'être deviné dans un sens ou dans l'autre.
+                  Le sous-chemin `@tern/shared/availability` reste à ajouter au point 4 :
+                  `packages/shared/package.json` porte un travail en cours non commité.
 
-- [ ] **2. Le cas `push`.** Pas d'échec au sens classique : l'indisponibilité
+- [x] **2. Le cas `push`.** Pas d'échec au sens classique : l'indisponibilité
       commence à `expectedIntervalS` + grâce après le dernier battement reçu, et
       court jusqu'au suivant. La grâce est configurable ; choisir un défaut et
       écrire pourquoi. Se raccorder à la balayeuse de péremption qui existe déjà.
+
+      Fait : `silence: 'down'` et `graceMs`, 6 tests de plus (23 au total).
+          La grâce vaut un intervalle plein par défaut, donc le seuil effectif est
+          deux fois l'intervalle — **le nombre exact** de `sweepStaleControls`
+          (`expected_interval_s * 2`). Deux seuils pour une même question, c'est
+          ainsi qu'une pastille et un pourcentage finissent par ne pas dire la même
+          chose de la même minute.
+
+          Une tension levée plutôt que contournée : la balayeuse écrit `unknown`,
+          jamais `down`, et elle a raison — mais elle répond à « que dit la pastille
+          maintenant », où déclarer une panne publique sur un battement manqué
+          transforme chaque redémarrage d'agent en incident. Le calcul répond à « ce
+          que la période **a été** », où une heure de silence inexpliqué d'un travail
+          censé rapporter toutes les cinq minutes n'est pas du temps à retirer de
+          l'arithmétique. La pastille reste prudente, le pourcentage reste honnête.
+
+          Le marqueur `unknown` de la balayeuse compte comme silence pour un `push` :
+          le laisser dans le seau « inconnu » ferait annuler par la preuve du silence
+          le silence lui-même. Le câblage effectif se fait au point 3.
 
 - [ ] **3. L'endpoint.** Granularités jour / semaine / mois / année, bornes de
       début et de fin, un contrôle ou tous. Il annonce la résolution employée.

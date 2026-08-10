@@ -94,6 +94,45 @@ export type AvailabilityInput = {
    * agent was not reporting.
    */
   maxGapMs?: number
+  /**
+   * What a silence means for this control.
+   *
+   * ── Why this is a parameter and not a rule ────────────────────────────────
+   * For a probe control, silence means nobody was measuring: the agent was
+   * restarting, the scheduler was down, the machine was rebooting. Counting it
+   * as an outage would publish the monitoring system's own downtime as the
+   * service's, so it is `'unknown'` and leaves the denominator.
+   *
+   * For a `push` control the heartbeat **is** the measurement. There is no
+   * failed check to observe, because nothing was checking — the nightly job
+   * simply did not run. Silence is the only signal there is, and treating it as
+   * unknown would publish 100% for a backup that has not run in a month, which
+   * is the exact figure somebody would rely on to not notice.
+   *
+   * ── This does not contradict the staleness sweep ──────────────────────────
+   * `sweepStaleControls` marks a quiet push control `unknown`, never `down`,
+   * and says why: "silence means we stopped hearing, which is not the same
+   * claim as the service being broken". That is right, and it answers a
+   * different question — what the badge should say *right now*, where declaring
+   * a public outage on one missed heartbeat turns every agent restart into an
+   * incident. This answers what the period *was*, after the fact, where an hour
+   * of unexplained silence from a job that was supposed to report every five
+   * minutes is not time to leave out of the arithmetic.
+   *
+   * Both readings live together on purpose: the badge stays cautious, the
+   * percentage stays honest.
+   */
+  silence?: 'unknown' | 'down'
+  /**
+   * How long past the expected interval a heartbeat may be late. Push only.
+   *
+   * Defaults to one full interval, so the effective threshold is twice the
+   * declared interval — deliberately the same number as
+   * `sweepStaleControls`, which marks a control quiet after
+   * `expected_interval_s * 2`. Two thresholds for one question is how a badge
+   * and a percentage end up disagreeing about the same minute.
+   */
+  graceMs?: number
 }
 
 export type AvailabilityResult = {
@@ -184,12 +223,38 @@ type Segment = {
   failing: boolean
   excluded: boolean
   unknown: boolean
+  /**
+   * This segment is a missing heartbeat rather than an observed failure.
+   *
+   * It skips the debounce, and that is not an oversight. The debounce exists to
+   * require several consecutive *checks* before believing a failure; a silence
+   * produces one long segment, so a debounce of two would discard every one of
+   * them and the rule would never fire at all. The tolerance for a late
+   * heartbeat is `graceMs`, which is the same idea expressed in the unit that
+   * suits it — time, not a count of checks that did not happen.
+   */
+  fromSilence: boolean
 }
 
 export function computeAvailability(input: AvailabilityInput): AvailabilityResult {
   const { window, intervalMs, samples } = input
   const debounce = Math.max(1, input.debounce ?? DEFAULT_DEBOUNCE)
-  const maxGapMs = input.maxGapMs ?? intervalMs * 2
+  const silenceIsDown = input.silence === 'down'
+  const graceMs = input.graceMs ?? intervalMs
+  /*
+   * Both defaults land on twice the interval, from two directions: a probe
+   * sample speaks for one missed check before the time becomes unknown, and a
+   * heartbeat is allowed one full interval of lateness before it counts as
+   * missed. The second is the number `sweepStaleControls` already uses.
+   */
+  const maxGapMs = input.maxGapMs ?? (silenceIsDown ? intervalMs + graceMs : intervalMs * 2)
+  /** What a stretch with no live sample is, for this control. */
+  const silent = {
+    failing: silenceIsDown,
+    excluded: false,
+    unknown: !silenceIsDown,
+    fromSilence: silenceIsDown,
+  }
   const exclusions = normaliseWindows(input.exclusions ?? [], window)
 
   const windowMs = Math.max(0, window.to - window.from)
@@ -264,22 +329,31 @@ export function computeAvailability(input: AvailabilityInput): AvailabilityResul
     if (to <= at) continue
 
     if (live.length === 0) {
-      segments.push({ from: at, to, failing: false, excluded: false, unknown: true })
+      segments.push({ from: at, to, ...silent })
       continue
     }
+
+    /*
+     * An `unknown` sample on a push control is the staleness sweep's own
+     * marker: it is written precisely when a control stopped reporting. Leaving
+     * it in the unknown bucket would cancel the thing being counted — the
+     * evidence of the silence would remove the silence from the arithmetic.
+     */
+    const allUnknown = live.every((s) => isUnknown(s.status))
 
     segments.push({
       from: at,
       to,
-      failing: live.some((s) => isFailing(s.status)),
+      failing: live.some((s) => isFailing(s.status)) || (allUnknown && silenceIsDown),
       // Every live agent has to agree it is planned work; one that is measuring
       // a real outage during a maintenance window is still measuring one.
       excluded: live.every((s) => isExcluded(s.status)),
-      unknown: live.every((s) => isUnknown(s.status)),
+      unknown: allUnknown && !silenceIsDown,
+      fromSilence: allUnknown && silenceIsDown,
     })
 
     if (to < next) {
-      segments.push({ from: to, to: next, failing: false, excluded: false, unknown: true })
+      segments.push({ from: to, to: next, ...silent })
     }
   }
 
@@ -336,7 +410,11 @@ export function computeAvailability(input: AvailabilityInput): AvailabilityResul
     }
 
     const counted =
-      segment.failing && confirmed.some((r) => segment.from >= r.start && segment.to <= r.end)
+      segment.failing &&
+      // A missing heartbeat is already time-bounded by `graceMs`; putting it
+      // through a count of consecutive checks that never happened would discard
+      // every silence there is.
+      (segment.fromSilence || confirmed.some((r) => segment.from >= r.start && segment.to <= r.end))
     if (counted) downMs += span
     else upMs += span
   }
