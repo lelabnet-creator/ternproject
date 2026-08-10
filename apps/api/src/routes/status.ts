@@ -4,10 +4,13 @@ import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod'
 import { schema, toDate } from '@tern/db'
 import {
   checkStatusSchema,
+  computeAvailability,
   impactToStatus,
   overallStatus,
+  publishedUptime,
   rollupStatus,
   worstStatus,
+  type AvailabilityBucket,
   type CheckStatusValue,
 } from '@tern/shared'
 
@@ -127,18 +130,20 @@ const routes: FastifyPluginAsyncZod = async (app) => {
               /** Refuses every write. Travels with `isDemo`; not only with it. */
               readOnly: z.boolean(),
               /**
-               * The document a `custom` layout renders, and null for every
-               * other layout — there is no reason to put a hundred kilobytes of
-               * someone's unused draft on the path every visitor hits.
+               * The stylesheet a `custom` layout applies to itself, and null for
+               * every other layout — there is no reason to put a hundred
+               * kilobytes of someone's unused draft on the path every visitor
+               * hits.
+               *
+               * CSS only. The `customHtml` and `customJs` columns still exist
+               * and are still written by the admin's older payloads, but the
+               * public page no longer renders a tenant document: the page it
+               * used to be embedded in is now arranged out of blocks, and a
+               * stylesheet is what was actually being asked for. See
+               * `TenantStyle.tsx` for the whole of that reasoning.
                */
-              custom: z
-                .object({
-                  html: z.string(),
-                  css: z.string(),
-                  js: z.string(),
-                })
-                .nullable(),
-              /** Blocks on a grid. Non-empty is what makes them win over the document. */
+              custom: z.object({ css: z.string() }).nullable(),
+              /** Blocks on a grid. The arrangement *is* the page in `custom`. */
               customBlocks: z.array(z.unknown()),
               branding: z.record(z.string(), z.unknown()),
             }),
@@ -385,14 +390,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
           isDemo: tenantRow.isDemo,
           readOnly: tenantRow.readOnly,
           customBlocks: tenantRow.layout === 'custom' ? tenantRow.customBlocks : [],
-          custom:
-            tenantRow.layout === 'custom'
-              ? {
-                  html: tenantRow.customHtml ?? '',
-                  css: tenantRow.customCss ?? '',
-                  js: tenantRow.customJs ?? '',
-                }
-              : null,
+          custom: tenantRow.layout === 'custom' ? { css: tenantRow.customCss ?? '' } : null,
           branding: tenantRow.branding,
         },
         overall: {
@@ -452,6 +450,12 @@ const routes: FastifyPluginAsyncZod = async (app) => {
         response: {
           200: z.object({
             period: z.string(),
+            /**
+             * Which continuous aggregate answered, so a reader knows how sharp
+             * the figure is. An hourly bucket cannot say where inside the hour
+             * an outage fell.
+             */
+            resolution: z.enum(['checks_1m', 'checks_5m', 'checks_1h']),
             days: z.array(
               z.object({
                 controlId: z.string(),
@@ -468,52 +472,160 @@ const routes: FastifyPluginAsyncZod = async (app) => {
     async (req) => {
       const tenant = req.tenant!
       const period: Period = req.query.period
-      const { days } = PERIODS[period]
+      const { days: windowDays } = PERIODS[period]
 
       // Live-mode tenants keep no long history, so asking for a year of it
       // would return a misleading wall of "no data". The window is clamped to
       // what the tenant actually retains.
-      const effectiveDays = clampToRetention(days, tenant)
+      const effectiveDays = clampToRetention(windowDays, tenant)
+
+      /*
+       * ── Buckets, not a percentage computed in SQL ─────────────────────────
+       *
+       * This used to be `sum(ok_samples) / sum(samples)` — a ratio of points.
+       * A ten-minute outage cost a control probed every ten seconds six hundred
+       * failed points and one probed every five minutes two, so the same outage
+       * on the same service published two very different figures; and changing
+       * a control's interval rewrote the meaning of its whole history.
+       *
+       * The buckets now come back raw and `computeAvailability` weights them by
+       * duration. It also carries the four rules SQL had nowhere to put: the
+       * debounce, planned maintenance leaving the denominator, silence on a
+       * push control, and time nobody observed leaving it too.
+       *
+       * The resolution is `PERIODS[period].bucket`, which already existed —
+       * a day of history is read minute by minute, a year hour by hour. It is
+       * returned to the caller rather than left implicit: an hourly bucket
+       * cannot say where inside the hour an outage fell, and a reader comparing
+       * two windows deserves to know which one is sharper.
+       */
+      const { bucket } = PERIODS[period]
+      const source =
+        bucket === 'checks_1m'
+          ? app.sql`checks_1m`
+          : bucket === 'checks_5m'
+            ? app.sql`checks_5m`
+            : app.sql`checks_1h`
+      const bucketMs =
+        bucket === 'checks_1m' ? 60_000 : bucket === 'checks_5m' ? 5 * 60_000 : 60 * 60_000
 
       const rows = await app.sql<
         {
           control_id: string
-          day: string
-          uptime_pct: number | null
+          bucket: string
           samples: number
-          down_samples: number
+          ok_samples: number
           degraded_samples: number
+          down_samples: number
+          maintenance_samples: number
+          unknown_samples: number
         }[]
       >`
         SELECT a.control_id,
-               time_bucket(INTERVAL '1 day', a.bucket) AS day,
-               CASE WHEN sum(a.samples) > 0
-                    THEN round(100.0 * sum(a.ok_samples) / sum(a.samples), 4)
-                    END AS uptime_pct,
-               sum(a.samples)          AS samples,
-               sum(a.down_samples)     AS down_samples,
-               sum(a.degraded_samples) AS degraded_samples
-          FROM checks_1h a
+               a.bucket,
+               a.samples,
+               a.ok_samples,
+               a.degraded_samples,
+               a.down_samples,
+               a.maintenance_samples,
+               a.unknown_samples
+          FROM ${source} a
          WHERE a.tenant_id = ${tenant.id}::uuid
            AND a.bucket >= now() - (${effectiveDays} || ' days')::interval
-         GROUP BY 1, 2
-         ORDER BY 2
+         ORDER BY a.bucket
       `
+
+      /*
+       * Planned work, and only what actually happened.
+       *
+       * `actual_start`/`actual_end` when the window ran, falling back to what
+       * was scheduled — a maintenance announced for two hours and finished in
+       * twenty minutes must not remove two hours from the denominator, or the
+       * figure would improve by over-announcing.
+       */
+      const windows = await app.sql<{ control_id: string; starts_at: string; ends_at: string }[]>`
+        SELECT mc.control_id,
+               coalesce(m.actual_start, m.scheduled_start) AS starts_at,
+               coalesce(m.actual_end, m.scheduled_end)     AS ends_at
+          FROM maintenance_controls mc
+          JOIN maintenances m ON m.id = mc.maintenance_id
+         WHERE m.tenant_id = ${tenant.id}::uuid
+           AND coalesce(m.actual_end, m.scheduled_end) >= now() - (${effectiveDays} || ' days')::interval
+      `
+
+      const exclusionsByControl = new Map<string, { from: number; to: number }[]>()
+      for (const row of windows) {
+        const list = exclusionsByControl.get(row.control_id) ?? []
+        list.push({ from: toDate(row.starts_at).getTime(), to: toDate(row.ends_at).getTime() })
+        exclusionsByControl.set(row.control_id, list)
+      }
+
+      /** Buckets, grouped by control and by the day they fall in. */
+      const byControlDay = new Map<string, AvailabilityBucket[]>()
+      const countsByControlDay = new Map<
+        string,
+        { samples: number; down: number; degraded: number }
+      >()
+
+      for (const row of rows) {
+        const from = toDate(row.bucket).getTime()
+        const day = new Date(from).toISOString().slice(0, 10)
+        const key = `${row.control_id} ${day}`
+
+        const list = byControlDay.get(key) ?? []
+        list.push({
+          from,
+          to: from + bucketMs,
+          samples: Number(row.samples),
+          ok: Number(row.ok_samples),
+          degraded: Number(row.degraded_samples),
+          down: Number(row.down_samples),
+          maintenance: Number(row.maintenance_samples),
+          unknown: Number(row.unknown_samples),
+        })
+        byControlDay.set(key, list)
+
+        const counts = countsByControlDay.get(key) ?? { samples: 0, down: 0, degraded: 0 }
+        counts.samples += Number(row.samples)
+        counts.down += Number(row.down_samples)
+        counts.degraded += Number(row.degraded_samples)
+        countsByControlDay.set(key, counts)
+      }
 
       const visible = new Set(req.actor.scopeControlIds)
 
-      return {
-        period,
-        days: rows
-          .filter((row) => visible.size === 0 || visible.has(row.control_id))
-          .map((row) => ({
-            controlId: row.control_id,
-            day: toDate(row.day).toISOString().slice(0, 10),
-            uptimePct: row.uptime_pct === null ? null : Number(row.uptime_pct),
-            samples: Number(row.samples),
-            worstStatus: dayStatus(row),
-          })),
-      }
+      const days = [...byControlDay.entries()]
+        .map(([key, buckets]) => {
+          const [controlId, day] = key.split(' ') as [string, string]
+          const dayStart = Date.parse(`${day}T00:00:00.000Z`)
+
+          const availability = computeAvailability({
+            window: { from: dayStart, to: dayStart + 86_400_000 },
+            // Ignored on the bucket path — a bucket states its own span — but
+            // the field is required, so it is given the truth rather than a
+            // placeholder somebody would later mistake for a setting.
+            intervalMs: bucketMs,
+            buckets,
+            exclusions: exclusionsByControl.get(controlId) ?? [],
+          })
+
+          const counts = countsByControlDay.get(key)!
+          return {
+            controlId,
+            day,
+            uptimePct: publishedUptime(availability, counts.samples),
+            samples: counts.samples,
+            worstStatus: dayStatus({
+              samples: counts.samples,
+              down_samples: counts.down,
+              degraded_samples: counts.degraded,
+            }),
+          }
+        })
+        .filter((row) => visible.size === 0 || visible.has(row.controlId))
+        .sort((a, b) => a.day.localeCompare(b.day))
+
+      return { period, resolution: bucket, days }
     },
   )
 }

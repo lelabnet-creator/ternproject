@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { computeAvailability, DEFAULT_DEBOUNCE, type AvailabilitySample } from './availability.js'
+import {
+  computeAvailability,
+  DEFAULT_DEBOUNCE,
+  publishedUptime,
+  type AvailabilitySample,
+} from './availability.js'
 
 /**
  * The availability rate.
@@ -310,6 +315,64 @@ describe('a push control, where silence is the signal', () => {
     })
     expect(result.downMs).toBe(0)
     expect(result.excludedMs).toBe(39 * MINUTE)
+  })
+})
+
+describe('the figure as it is published', () => {
+  const result = (downMs: number, observedMs: number) => ({
+    uptimePct: observedMs > 0 ? (100 * (observedMs - downMs)) / observedMs : null,
+    upMs: observedMs - downMs,
+    downMs,
+    observedMs,
+    excludedMs: 0,
+    unknownMs: 0,
+  })
+
+  const NINETY_DAYS = 90 * 24 * 60 * MINUTE
+
+  it('rounds to three decimals, where the nines stop being distinguishable', () => {
+    // 99.999% is five nines; a fourth decimal invites a comparison no sampling
+    // rate could support.
+    expect(publishedUptime(result(MINUTE, 1000 * MINUTE), 1000)).toBe(99.9)
+    expect(publishedUptime(result(1234, 1_000_000), 1_000_000)).toBe(99.877)
+  })
+
+  it('publishes 100 for an outage shorter than the sampling can resolve', () => {
+    /*
+     * The rule that keeps the number honest rather than merely precise. One
+     * failed check in ninety days of minute-by-minute probing is 99.99923% —
+     * a figure whose last four digits are an artefact of the sampling rate,
+     * and which a reader has no way to recognise as such.
+     */
+    const samples = NINETY_DAYS / MINUTE
+    expect(publishedUptime(result(MINUTE * 0.9, NINETY_DAYS), samples)).toBe(100)
+  })
+
+  it('lets an outage longer than the sampling survive', () => {
+    // The correction rounds up to 100 and never down to 0: shorter than the
+    // sampling is an artefact, longer than it is real.
+    const samples = NINETY_DAYS / MINUTE
+    const published = publishedUptime(result(10 * MINUTE, NINETY_DAYS), samples)
+    expect(published).not.toBe(100)
+    expect(published).toBeCloseTo(99.992, 3)
+  })
+
+  it('derives the threshold from the series rather than from a constant', () => {
+    /*
+     * The same absolute outage, two probing rates. A constant floor would be
+     * right for one and wrong for the other — the same mistake the
+     * check-weighted figure made.
+     */
+    const outage = 3 * MINUTE
+    const dense = publishedUptime(result(outage, NINETY_DAYS), NINETY_DAYS / MINUTE)
+    const sparse = publishedUptime(result(outage, NINETY_DAYS), NINETY_DAYS / (5 * MINUTE))
+
+    expect(dense).not.toBe(100) // three minutes is three checks: resolvable
+    expect(sparse).toBe(100) // three minutes is less than one check: not
+  })
+
+  it('says nothing rather than 100 when nothing was observed', () => {
+    expect(publishedUptime(result(0, 0), 0)).toBeNull()
   })
 })
 

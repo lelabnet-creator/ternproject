@@ -101,3 +101,84 @@ describe('maintenance windows', () => {
     expect(component?.status).not.toBe('maintenance')
   })
 })
+
+/**
+ * The availability figure, end to end.
+ *
+ * `uptime.json` had no test at all — the endpoint that publishes the number the
+ * whole ribbon is built from, and the one this change rewrote. The unit suite
+ * pins what the rules mean; nothing ran the SQL that feeds them, which is
+ * exactly how a malformed query ships green.
+ *
+ * These write real checks, refresh the real continuous aggregate, and read the
+ * real endpoint.
+ */
+describe('uptime.json', () => {
+  const MINUTE = 60_000
+
+  /** Minute-by-minute checks over the last `minutes`, with a contiguous outage. */
+  async function seedChecks(minutes: number, outage: { from: number; to: number }) {
+    const now = Date.now()
+    const rows: { ts: string; status: 'operational' | 'down' }[] = []
+    for (let age = minutes; age > 0; age--) {
+      rows.push({
+        ts: new Date(now - age * MINUTE).toISOString(),
+        status: age > outage.from && age <= outage.to ? 'down' : 'operational',
+      })
+    }
+
+    // One statement rather than a hundred and eighty: a round trip per check
+    // put half a minute on every run of the suite, for nothing.
+    await fx.app.sql`
+      INSERT INTO checks (ts, tenant_id, control_id, status, latency_ms)
+      SELECT v.ts::timestamptz, ${fx.tenantId}::uuid, ${fx.controls.publicId}::uuid,
+             v.status::check_status, 100
+        FROM json_to_recordset(${JSON.stringify(rows)}::json)
+          AS v(ts text, status text)
+    `
+
+    // The endpoint reads the aggregate, not the table. Without this the query
+    // is correct and returns nothing, which is the failure that looks like a
+    // passing test.
+    await fx.app.sql.unsafe(`CALL refresh_continuous_aggregate('checks_1m', NULL, NULL)`)
+  }
+
+  it('weights an outage by its duration, and says which resolution answered', async () => {
+    // Three hours of history with a ten-minute outage in the middle of it.
+    await seedChecks(180, { from: 60, to: 70 })
+
+    const response = await fx.app.inject({
+      method: 'GET',
+      url: `/api/v1/public/${fx.slug}/uptime.json?period=24h`,
+    })
+    expect(response.statusCode).toBe(200)
+
+    const body = response.json() as {
+      resolution: string
+      days: { controlId: string; uptimePct: number | null; samples: number }[]
+    }
+
+    // Declared rather than implicit: a reader comparing two windows deserves to
+    // know which one is sharper.
+    expect(body.resolution).toBe('checks_1m')
+
+    const mine = body.days.filter((d) => d.controlId === fx.controls.publicId)
+    expect(mine.length).toBeGreaterThan(0)
+
+    const measured = mine.reduce((sum, d) => sum + d.samples, 0)
+    expect(measured).toBeGreaterThan(0)
+
+    /*
+     * Ten minutes out of the time actually observed. Not `10/1440`: the rest of
+     * the day has no buckets, and unobserved time leaves the denominator rather
+     * than being credited as available — which is the difference between an
+     * honest figure and a flattering one.
+     */
+    const worst = mine.reduce(
+      (low, d) => (d.uptimePct !== null && d.uptimePct < low ? d.uptimePct : low),
+      100,
+    )
+    expect(worst).toBeLessThan(100)
+    expect(worst).toBeGreaterThan(80)
+  }, 60_000)
+})

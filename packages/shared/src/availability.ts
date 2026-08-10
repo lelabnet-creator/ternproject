@@ -209,6 +209,47 @@ export type AvailabilityResult = {
 export const DEFAULT_DEBOUNCE = 2
 
 /**
+ * The figure as it should be published, rather than as it was computed.
+ *
+ * Two separate corrections, and they are not the same one.
+ *
+ * ── Rounding ──────────────────────────────────────────────────────────────
+ * Three decimals. That is where the "nines" people quote stop being
+ * distinguishable — 99.999% is five nines, and a fourth decimal invites a
+ * reader to compare two numbers that no sampling rate could tell apart.
+ *
+ * ── The uncertainty floor ─────────────────────────────────────────────────
+ * A control checked once a minute over ninety days cannot resolve an outage
+ * shorter than a minute; one checked every five minutes cannot resolve one
+ * shorter than five. Publishing `99.997%` from a single failed check inside a
+ * ninety-day window states a precision the measurement does not have, and the
+ * reader has no way to know that. Below one sample's worth of time, the answer
+ * is `100`.
+ *
+ * The threshold is derived from the series — observed time divided by the
+ * number of measurements in it — and not from a constant. A constant would be
+ * right for one probing rate and wrong for every other, which is the same
+ * mistake the check-weighted figure made.
+ *
+ * This rounds *up* to 100 and never down to 0: an outage shorter than the
+ * sampling can resolve is a measurement artefact, whereas an outage longer than
+ * it is real and must survive to be published.
+ */
+export function publishedUptime(
+  result: AvailabilityResult,
+  /** How many measurements the window contained. */
+  samples: number,
+): number | null {
+  if (result.uptimePct === null) return null
+  if (result.downMs <= 0) return 100
+
+  const resolvableMs = samples > 0 ? result.observedMs / samples : 0
+  if (result.downMs < resolvableMs) return 100
+
+  return Math.round(result.uptimePct * 1000) / 1000
+}
+
+/**
  * `degraded` counts as available, and this is a change.
  *
  * The aggregates count only `operational` as `ok_samples`, so a service that
