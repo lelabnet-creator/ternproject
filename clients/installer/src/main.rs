@@ -459,34 +459,59 @@ fn report_versions(c: &'static Catalog, running: Option<&str>, published: Option
 /// `--upgrade-only` then has nothing left to download.
 fn check(c: &'static Catalog) -> Result<Verdict, Stop> {
     let d = deployment(c)?;
-    println!("{}", style(&c.check_title).bold());
-    println!();
 
-    let running = running_version(&d);
+    // The same box the install draws. It knows on its own whether anything is
+    // watching — `Term::stderr().is_term()` — and falls back to one plain line
+    // per step when nothing is, which is what keeps a cron log readable instead
+    // of filling it with cursor movements.
+    let list = Checklist::new(
+        c,
+        c.check_title,
+        vec![
+            c.step_read_version.to_string(),
+            c.upgrade_pulling.to_string(),
+        ],
+    );
+
+    let mut running = None;
+    let _ = list.run(0, || {
+        running = running_version(&d);
+        // The version as the note on the right: the number is the answer, and
+        // it belongs on the line that went to fetch it.
+        Ok(running.clone())
+    });
 
     // The newest published image, not the one `.env` names — see
     // `upgrade::latest_ref`. Fetched with `docker pull` rather than through
     // compose, because compose would fetch what the file says and that is the
     // reference this check exists to look past.
     let newest = upgrade::latest_ref(&d.image);
-    let pull = run::run(
-        &d.journal,
-        run::command("docker", &["pull", "--quiet", &newest]),
-    );
+    let mut published = None;
+    let _ = list.run(1, || {
+        let pull = run::run(
+            &d.journal,
+            run::command("docker", &["pull", "--quiet", &newest]),
+        );
 
-    // A registry that cannot be reached, or an image built from sources with no
-    // published twin, leaves the question unanswered — and unanswered is a
-    // verdict of its own here, never silently folded into "up to date".
-    let published = pull
-        .ok
-        .then(|| label_version(&d.journal, &newest))
-        .flatten();
-    if !pull.ok {
-        d.journal.line(&format!(
-            "could not fetch {newest}: {}",
-            pull.output().trim()
-        ));
-    }
+        // A registry that cannot be reached, or an image built from sources
+        // with no published twin, leaves the question unanswered — and
+        // unanswered is a verdict of its own, never folded into "up to date".
+        // So this step does not fail: it comes back with nothing, and the
+        // verdict below says why that is not the same as being current.
+        if pull.ok {
+            published = label_version(&d.journal, &newest);
+        } else {
+            d.journal.line(&format!(
+                "could not fetch {newest}: {}",
+                pull.output().trim()
+            ));
+        }
+        Ok(published
+            .clone()
+            .or_else(|| Some(c.version_unknown.to_string())))
+    });
+    list.finish();
+    println!();
 
     let verdict = report_versions(c, running.as_deref(), published.as_deref());
     if verdict == Verdict::Update {
@@ -500,20 +525,80 @@ fn check(c: &'static Catalog) -> Result<Verdict, Stop> {
 /// already on the machine.
 fn redeploy(c: &'static Catalog) -> Result<(), Stop> {
     let d = deployment(c)?;
-    println!("{}", style(&c.upgrade_title).bold());
+
+    let list = Checklist::new(
+        c,
+        c.upgrade_title,
+        vec![
+            c.step_read_version.to_string(),
+            c.upgrade_pulling.to_string(),
+            c.upgrade_starting.to_string(),
+            c.upgrade_waiting.to_string(),
+        ],
+    );
+
+    let mut before = None;
+    let _ = list.run(0, || {
+        before = running_version(&d);
+        Ok(before.clone())
+    });
+
+    let mut after = None;
+    list.run(1, || {
+        let pull = run::run(&d.journal, run::compose(COMPOSE_FILE, &["pull", "--quiet"]));
+        if !pull.ok {
+            return Err(Failure::new(
+                fill(c.image_not_found, &[&d.image]),
+                pull.output(),
+            ));
+        }
+        after = label_version(&d.journal, &d.image);
+        Ok(after.clone())
+    })
+    .map_err(|failure| stop_from_plain(failure, &d.journal))?;
+
+    list.run(2, || {
+        let up = run::run(&d.journal, run::compose(COMPOSE_FILE, &["up", "-d"]));
+        match up.ok {
+            true => Ok(None),
+            false => Err(Failure::new(c.start_failed, up.output())),
+        }
+    })
+    .map_err(|failure| {
+        stop_from_plain(failure, &d.journal).hint(fill(c.logs_hint, &[COMPOSE_FILE]))
+    })?;
+
+    // The same wait the install does, and for the same reason: a new image
+    // usually brings migrations, and reporting an upgrade finished while they
+    // are still running would put the operator in front of an instance that
+    // answers nothing.
+    list.run(3, || {
+        for attempt in 1..=API_ATTEMPTS {
+            if run::run(
+                &d.journal,
+                run::compose(
+                    COMPOSE_FILE,
+                    &["exec", "-T", "app", "node", "-e", HEALTH_PROBE],
+                ),
+            )
+            .ok
+            {
+                d.journal
+                    .line(&format!("the API answered on attempt {attempt}"));
+                return Ok(None);
+            }
+            std::thread::sleep(API_INTERVAL);
+        }
+        Err(Failure::bare(c.api_timeout))
+    })
+    .map_err(|failure| {
+        stop_from_plain(failure, &d.journal)
+            .hint(c.api_migrating)
+            .hint(fill(c.logs_hint, &[COMPOSE_FILE]))
+    })?;
+
+    list.finish();
     println!();
-
-    let before = running_version(&d);
-
-    println!("{}{}", c.upgrade_pulling, ELLIPSIS.pick());
-    let pull = run::run(&d.journal, run::compose(COMPOSE_FILE, &["pull", "--quiet"]));
-    if !pull.ok {
-        return Err(Stop::new(fill(c.image_not_found, &[&d.image]))
-            .saying(&pull.output())
-            .logged(&d.journal));
-    }
-
-    let after = label_version(&d.journal, &d.image);
 
     // Before and after, and no verdict. `report_versions` answers "is anything
     // newer published", which is a different question from the one being
@@ -529,47 +614,6 @@ fn redeploy(c: &'static Catalog) -> Result<(), Stop> {
         "  {}",
         fill(c.version_after, &[after.as_deref().unwrap_or(unknown)])
     );
-    println!();
-
-    println!("{}{}", c.upgrade_starting, ELLIPSIS.pick());
-    let up = run::run(&d.journal, run::compose(COMPOSE_FILE, &["up", "-d"]));
-    if !up.ok {
-        return Err(Stop::new(c.start_failed)
-            .saying(&up.output())
-            .hint(fill(c.logs_hint, &[COMPOSE_FILE]))
-            .logged(&d.journal));
-    }
-
-    // The same wait the install does, and for the same reason: a new image
-    // usually brings migrations, and reporting an upgrade finished while they
-    // are still running would put the operator in front of an instance that
-    // answers nothing.
-    println!("{}{}", c.upgrade_waiting, ELLIPSIS.pick());
-    let mut answered = false;
-    for attempt in 1..=API_ATTEMPTS {
-        if run::run(
-            &d.journal,
-            run::compose(
-                COMPOSE_FILE,
-                &["exec", "-T", "app", "node", "-e", HEALTH_PROBE],
-            ),
-        )
-        .ok
-        {
-            d.journal
-                .line(&format!("the API answered on attempt {attempt}"));
-            answered = true;
-            break;
-        }
-        std::thread::sleep(API_INTERVAL);
-    }
-    if !answered {
-        return Err(Stop::new(c.api_timeout)
-            .hint(c.api_migrating)
-            .hint(fill(c.logs_hint, &[COMPOSE_FILE]))
-            .logged(&d.journal));
-    }
-
     println!();
     println!(
         "{}",
@@ -1637,4 +1681,15 @@ fn stop_from(failure: Failure, ctx: &Ctx) -> Stop {
     Stop::new(failure.message)
         .saying(&failure.output)
         .logged(&ctx.journal)
+}
+
+/// The same ending, for the two modes that have a journal and no `Ctx`.
+///
+/// `Ctx` carries what is needed to hold a conversation — the account to sudo
+/// as, the catalog to ask in. `--check` and `--upgrade-only` ask nothing, which
+/// is the whole reason they exist, so they never build one.
+fn stop_from_plain(failure: Failure, journal: &Journal) -> Stop {
+    Stop::new(failure.message)
+        .saying(&failure.output)
+        .logged(journal)
 }

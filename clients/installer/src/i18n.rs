@@ -286,6 +286,8 @@ pub struct Catalog {
     pub verdict_unknown: &'static str,
     /// What to run once a newer image has been announced.
     pub verdict_how: &'static str,
+    /// The first step of both redeployment modes.
+    pub step_read_version: &'static str,
     pub upgrade_pulling: &'static str,
     pub upgrade_starting: &'static str,
     pub upgrade_waiting: &'static str,
@@ -530,6 +532,7 @@ pub static EN: Catalog = Catalog {
          An image built from sources, or one older than the label, says nothing\n\
          about which version it is - which is not the same as being current.",
     verdict_how: "Deploy it:    sh setup.sh --upgrade-only",
+    step_read_version: "Reading the running version",
     upgrade_pulling: "Fetching the published image",
     upgrade_starting: "Restarting the services",
     upgrade_waiting: "Waiting for the API",
@@ -779,6 +782,7 @@ pub static FR: Catalog = Catalog {
          Une image construite depuis les sources, ou antérieure au label, ne dit\n\
          rien de sa version - ce qui n'est pas la même chose qu'être à jour.",
     verdict_how: "La déployer : sh setup.sh --upgrade-only",
+    step_read_version: "Lecture de la version en service",
     upgrade_pulling: "Récupération de l'image publiée",
     upgrade_starting: "Redémarrage des services",
     upgrade_waiting: "Attente de l'API",

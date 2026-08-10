@@ -194,6 +194,66 @@ if [ "$PLAIN" = 1 ]; then
   export TERN_ALLOW_PLAIN_HTTP=1
 fi
 
+# --- a list of steps that fills in -------------------------------------------
+#
+# Four lines, redrawn in place while the work happens. Deliberately small: this
+# file is meant to be read before it is run, and a progress display is not worth
+# trading that for. No cursor save/restore, no alternate screen, no eval.
+#
+# Whether to redraw at all is decided on stdout, not stdin. Piping this script
+# into a shell hands stdin to the pipe, so the usual test says nothing here —
+# and a log full of cursor movements is worse than no display at all. Without a
+# terminal each step prints one plain line as it finishes, which is what a cron
+# entry or a CI step wants anyway.
+TTY=0
+[ -t 1 ] && TTY=1
+
+L1="Picking the binary for this machine"
+L2="Downloading"
+L3="Pairing"
+L4="Registering to start at boot"
+M1="  "; M2="  "; M3="  "; M4="  "
+DRAWN=0
+
+draw_list() {
+  [ "$TTY" = 1 ] || return 0
+  # Back over the five lines drawn last time — the title and the four steps.
+  [ "$DRAWN" = 1 ] && printf '\\033[5A'
+  printf '  %s\\033[K\\n' "$BIN"
+  printf '  %s %s\\033[K\\n' "$M1" "$L1"
+  printf '  %s %s\\033[K\\n' "$M2" "$L2"
+  printf '  %s %s\\033[K\\n' "$M3" "$L3"
+  printf '  %s %s\\033[K\\n' "$M4" "$L4"
+  DRAWN=1
+}
+
+# mark <n> <glyph>: the step's new state, and the display that goes with it.
+mark() {
+  case "$1" in
+    1) M1="$2" ;;
+    2) M2="$2" ;;
+    3) M3="$2" ;;
+    4) M4="$2" ;;
+  esac
+  if [ "$TTY" = 1 ]; then
+    draw_list
+  else
+    # One line, and only when a step is finished: a "started" line for every
+    # step doubles the length of a log that nobody reads until something breaks.
+    case "$2" in
+      "$OK") eval "printf '  %s %s\\n' \\"$2\\" \\"\\$L$1\\"" ;;
+    esac
+  fi
+}
+
+OK="✓"
+GOING="›"
+
+# Declared here and not inside the pairing branch: this script runs with unset
+# variables treated as errors, and the printer below is reachable from a path
+# that never paired.
+JOINED=""
+
 os=$(uname -s)
 arch=$(uname -m)
 
@@ -249,7 +309,8 @@ else
   DESC="TERN agent"
 fi
 
-echo "Downloading $BIN for $target…"
+mark 1 "$OK"
+mark 2 "$GOING"
 if ! curl -fsSL "$SERVER/api/v1/agent/bin/$BIN-$target" -o "$DEST/$BIN.tmp"; then
   echo "This instance does not have that binary. Ask its operator, or build from source." >&2
   exit 1
@@ -257,7 +318,7 @@ fi
 
 chmod +x "$DEST/$BIN.tmp"
 mv "$DEST/$BIN.tmp" "$DEST/$BIN"
-echo "Installed $DEST/$BIN"
+mark 2 "$OK"
 
 case ":$PATH:" in
   *":$DEST:"*) ;;
@@ -270,13 +331,33 @@ mkdir -p "$CONF_DIR" "$STATE_DIR"
 # was never true. It pairs like an agent and writes a config holding the key and
 # the address it will serve on, so it walks the same path from this line down.
 if [ -n "$PIN" ]; then
-  echo
+  mark 3 "$GOING"
+  # Captured rather than shown as it happens: pairing prints a block of its own —
+  # what it paired with, where the config went, the command for the next machine
+  # — and a list being redrawn above it would walk over those lines. Held here
+  # and printed once the list is finished, which is also where somebody reading
+  # the screen expects to find it.
+  JOINED="$STATE_DIR/pairing.out"
   # Only the relay has an interface to choose; tern-agent would refuse the flag.
   if [ "$BIN" = "tern-proxy" ] && [ -n "$IFACE" ]; then
-    "$DEST/$BIN" $JOIN --server "$SERVER" --pin "$PIN" --config "$CONF" --interface "$IFACE"
+    set +e
+    "$DEST/$BIN" $JOIN --server "$SERVER" --pin "$PIN" --config "$CONF" --interface "$IFACE" > "$JOINED" 2>&1
+    joined=$?
+    set -e
   else
-    "$DEST/$BIN" $JOIN --server "$SERVER" --pin "$PIN" --config "$CONF"
+    set +e
+    "$DEST/$BIN" $JOIN --server "$SERVER" --pin "$PIN" --config "$CONF" > "$JOINED" 2>&1
+    joined=$?
+    set -e
   fi
+  if [ "$joined" != 0 ]; then
+    mark 3 "×"
+    echo
+    cat "$JOINED" >&2
+    rm -f "$JOINED"
+    exit 1
+  fi
+  mark 3 "$OK"
 else
   echo
   echo "Next: $DEST/$BIN $JOIN --server $SERVER --pin <PIN> --config $CONF"
@@ -284,7 +365,18 @@ else
   exit 0
 fi
 
-[ "$SERVICE" = 1 ] || exit 0
+# What pairing said, once the list above has stopped moving.
+show_pairing() {
+  if [ -n "$JOINED" ] && [ -f "$JOINED" ]; then
+    echo
+    cat "$JOINED"
+    rm -f "$JOINED"
+  fi
+}
+
+[ "$SERVICE" = 1 ] || { show_pairing; exit 0; }
+
+mark 4 "$GOING"
 
 # --- starting again after a reboot -------------------------------------------
 #
@@ -464,6 +556,9 @@ else
   echo "  Start it with:"
   echo "    $DEST/$BIN run --config $CONF --queue $QUEUE"
 fi
+
+mark 4 "$OK"
+show_pairing
 
 # ICMP without root, which is what \`ping\` controls need. Said only where it
 # applies: root already has it, and macOS allows it unprivileged.
