@@ -14,9 +14,9 @@ import { rememberPage } from '../../lib/recentPages'
 import { SponsorButton } from '../../components/SponsorButton'
 import { SiteFooter } from '../../components/SiteFooter'
 import { previewOverrides } from './preview'
-import { CustomDashboard } from './CustomDashboard'
+import { TenantStyle } from './TenantStyle'
 import { communicationsPlacement, CustomLayout } from './CustomLayout'
-import { blocksSchema } from '@tern/shared/blocks'
+import { defaultBlocks, hasComponentsBlock, parseBlocks } from '@tern/shared/blocks'
 import { DemoBanner } from '../../components/DemoBanner'
 
 /**
@@ -25,6 +25,13 @@ import { DemoBanner } from '../../components/DemoBanner'
  * Mobile-first: one column of component cards, groups as headings, the pulse at
  * the top. Everything widens rather than rearranging, so the same reading order
  * holds on a phone and on a wall display.
+ *
+ * Two shells, and the difference between them is the whole of what `custom`
+ * means. The three densities draw a page TERN arranged: header, pulse,
+ * subscribe, notes, components, in that order, inside a card. `custom` draws
+ * the tenant's arrangement instead — the same pieces, wherever they put them,
+ * with no card around it. TERN keeps the utility strip and its own credit,
+ * because neither reports anything about the service.
  */
 export function StatusPage({ slug }: { slug: string }) {
   const { t, i18n } = useTranslation()
@@ -99,21 +106,26 @@ export function StatusPage({ slug }: { slug: string }) {
   const preview = previewOverrides(window.location.search)
   const layout = preview.layout ?? data.tenant.layout
 
-  // Parsed rather than trusted: the column is JSON, and a page arranged by a
-  // future version must degrade to the document rather than throw on a visitor.
-  const parsedBlocks = blocksSchema.safeParse(data.tenant.customBlocks)
-  const blocks = parsedBlocks.success ? parsedBlocks.data : []
-
-  // Blocks win over the document when there are any. The two are different
-  // answers to the same question — one arranged, one written — and a page can
-  // only render one. Non-empty is the signal because it is the one an operator
-  // sets by doing something, rather than a mode switch to remember.
-  const arranged = layout === 'custom' && blocks.length > 0
+  /*
+   * Parsed rather than trusted: the column is JSON, and a page arranged by a
+   * future version must degrade block by block rather than throw on a visitor.
+   *
+   * An empty arrangement is not a blank page — it is a page nobody has
+   * rearranged yet, and drawing nothing for it would lose the header, the pulse
+   * and the components at once. The editor seeds the same list the moment
+   * somebody opens the Design tab, so this only catches pages that were
+   * `custom` before any of this existed.
+   */
+  const stored = layout === 'custom' ? parseBlocks(data.tenant.customBlocks) : []
+  const blocks = stored.length > 0 ? stored : defaultBlocks()
 
   // Read once and used in two places, which is the point: the notes above the
   // components and the `incidents` block are the same render, and a page that
   // computed the condition twice could show both or neither.
   const placement = communicationsPlacement(layout, blocks)
+
+  const daysFor = (component: StatusComponent) =>
+    uptime.data?.days.filter((day) => day.controlId === component.id) ?? []
 
   const communications = (
     <Communications
@@ -130,8 +142,125 @@ export function StatusPage({ slug }: { slug: string }) {
     />
   )
 
+  // Before anything the page reports, not under it: someone who reads a figure
+  // and only then learns it was invented has already been misled.
+  const notices = (
+    <>
+      {data.tenant.isDemo && <DemoBanner />}
+      {!online && (
+        <Banner tone="unknown">
+          {t('page.offline', { when: formatTime(data.generatedAt, locale, timeZone) })}
+        </Banner>
+      )}
+    </>
+  )
+
+  /*
+   * The custom shell: the arrangement is the page.
+   *
+   * What is left outside it is the shortest list that could be: the notices,
+   * because a demo page must say so before it says anything else; the theme and
+   * admin controls, because a reader stranded without a theme toggle has no
+   * other way to get one; the credit, because it names TERN rather than the
+   * service. Everything a visitor came to read — the name, the ring, the
+   * incidents, the components — is a block, placed wherever the tenant put it.
+   */
+  if (layout === 'custom') {
+    return (
+      <div
+        data-tern="page"
+        style={{
+          maxWidth: '72rem',
+          margin: '0 auto',
+          padding: 'var(--space-6) var(--space-4) var(--space-12)',
+        }}
+      >
+        <TenantStyle css={data.tenant.custom?.css ?? ''} />
+
+        <div data-tern="utility" data-tern-guard="">
+          {notices}
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'flex-end',
+              gap: 'var(--space-3)',
+              marginBottom: 'var(--space-4)',
+            }}
+          >
+            <AdminLink slug={slug} />
+            <ThemeToggle />
+          </div>
+        </div>
+
+        <CustomLayout
+          blocks={blocks}
+          data={data}
+          days={daysFor}
+          locale={locale}
+          timeZone={timeZone}
+          renderComponent={(component, componentDays) => (
+            <ComponentCard
+              component={component}
+              days={componentDays}
+              locale={locale}
+              timeZone={timeZone}
+              layout="list"
+            />
+          )}
+          renderCommunications={() => communications}
+          renderHeader={() => <Header name={data.tenant.name} logoUrl={logoUrl} controls={false} />}
+          renderPulse={(showUpdatedAt) => (
+            <Pulse
+              data={data}
+              logoUrl={logoUrl}
+              locale={locale}
+              timeZone={timeZone}
+              showUpdatedAt={showUpdatedAt}
+            />
+          )}
+          renderSubscribe={() => (
+            <Subscribe slug={slug} disclaimer={data.tenant.subscriberDisclaimer ?? null} />
+          )}
+          renderComponents={(density) => (
+            <ComponentGrid
+              data={data}
+              order={preview.order}
+              days={daysFor}
+              locale={locale}
+              timeZone={timeZone}
+              density={density}
+            />
+          )}
+        />
+
+        {/* The two guarantees. An arrangement can place the incidents and the
+            components anywhere; it cannot leave a status page with no news and
+            no status on it. Absence of the block is what brings them back. */}
+        {placement === 'above' && <div data-tern-guard="">{communications}</div>}
+        {!hasComponentsBlock(blocks) && (
+          <div data-tern-guard="">
+            <ComponentGrid
+              data={data}
+              order={preview.order}
+              days={daysFor}
+              locale={locale}
+              timeZone={timeZone}
+              density="list"
+            />
+          </div>
+        )}
+
+        <div data-tern-guard="">
+          <Footer />
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div
+      data-tern="page"
       style={{
         maxWidth: '72rem',
         margin: '0 auto',
@@ -139,119 +268,143 @@ export function StatusPage({ slug }: { slug: string }) {
       }}
     >
       <div className="page-card">
-        <Header name={data.tenant.name} slug={slug} logoUrl={logoUrl} />
+        <Header name={data.tenant.name} slug={slug} logoUrl={logoUrl} controls />
 
-        {/* Before anything it reports, not under it: someone who reads a figure
-            and only then learns it was invented has already been misled. */}
-        {data.tenant.isDemo && <DemoBanner />}
+        {notices}
 
         <Subscribe slug={slug} disclaimer={data.tenant.subscriberDisclaimer ?? null} />
 
-        {!online && (
-          <Banner tone="unknown">
-            {t('page.offline', { when: formatTime(data.generatedAt, locale, timeZone) })}
-          </Banner>
-        )}
-
-        <section style={{ padding: 'var(--space-8) 0' }}>
-          <SystemPulse
-            overall={data.overall.status}
-            affectedCount={data.overall.affectedCount}
-            groups={topLevelGroups(data)}
-            // Only when the header is the tenant's. See the note beside the
-            // mark in SystemPulse.
-            attribution={logoUrl !== null}
-          />
-          <p
-            className="tabular"
-            style={{
-              textAlign: 'center',
-              fontSize: 'var(--text-xs)',
-              color: 'var(--color-fg-subtle)',
-              marginTop: 'var(--space-2)',
-            }}
-          >
-            {t('page.lastUpdated', { when: formatTime(data.generatedAt, locale, timeZone) })}
-          </p>
-        </section>
+        <Pulse data={data} logoUrl={logoUrl} locale={locale} timeZone={timeZone} showUpdatedAt />
 
         {/*
           Above the components, because an incident is why most people opened
           the page. The coloured tiles below say *which* things are wrong; this
           says what is happening and what is being done, which is the part a
           reader would otherwise go looking for on social media.
-
-          Skipped only when the arrangement placed the incidents itself — see
-          `communicationsPlacement`, which is the whole of that decision.
         */}
         {placement === 'above' && communications}
 
-        {/*
-          A custom layout replaces the component grid and nothing else. The
-          header and the pulse are the page's own voice and stay whatever the
-          tenant writes below.
-        */}
-        {layout === 'custom' ? (
-          arranged ? (
-            <CustomLayout
-              blocks={blocks}
-              data={data}
-              days={(component) =>
-                uptime.data?.days.filter((d) => d.controlId === component.id) ?? []
-              }
-              locale={locale}
-              timeZone={timeZone}
-              renderComponent={(component, componentDays) => (
-                <ComponentCard
-                  component={component}
-                  days={componentDays}
-                  locale={locale}
-                  timeZone={timeZone}
-                  layout="list"
-                />
-              )}
-              renderCommunications={() => communications}
-            />
-          ) : (
-            <CustomDashboard data={data} />
-          )
-        ) : (
-          groupTree(data, preview.order).map(({ group, components }) => (
-            <section key={group?.id ?? 'ungrouped'} className="page-group">
-              {group && (
-                <h2
-                  style={{
-                    fontSize: 'var(--text-sm)',
-                    fontWeight: 600,
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.06em',
-                    color: 'var(--color-fg-subtle)',
-                    margin: '0 0 var(--space-3)',
-                  }}
-                >
-                  {group.name}
-                </h2>
-              )}
-
-              <div style={layoutStyle(layout)}>
-                {components.map((component) => (
-                  <ComponentCard
-                    key={component.id}
-                    component={component}
-                    days={uptime.data?.days.filter((d) => d.controlId === component.id) ?? []}
-                    locale={locale}
-                    timeZone={timeZone}
-                    layout={layout}
-                  />
-                ))}
-              </div>
-            </section>
-          ))
-        )}
+        <ComponentGrid
+          data={data}
+          order={preview.order}
+          days={daysFor}
+          locale={locale}
+          timeZone={timeZone}
+          density={layout}
+        />
       </div>
 
       {/* Outside the card: this says who made the page, not what it reports. */}
       <Footer />
+    </div>
+  )
+}
+
+/**
+ * The ring, and when it was last true.
+ *
+ * Extracted so the arranged page draws the same one rather than a second
+ * rendering of it. The timestamp is optional only in an arrangement — a page
+ * built for a wall has a clock on the wall — and the ring never is.
+ */
+function Pulse({
+  data,
+  logoUrl,
+  locale,
+  timeZone,
+  showUpdatedAt,
+}: {
+  data: StatusSummary
+  logoUrl: string | null
+  locale: string
+  timeZone: string
+  showUpdatedAt: boolean
+}) {
+  const { t } = useTranslation()
+
+  return (
+    <section style={{ padding: 'var(--space-8) 0' }}>
+      <SystemPulse
+        overall={data.overall.status}
+        affectedCount={data.overall.affectedCount}
+        groups={topLevelGroups(data)}
+        // Only when the header is the tenant's. See the note beside the mark in
+        // SystemPulse.
+        attribution={logoUrl !== null}
+      />
+      {showUpdatedAt && (
+        <p
+          className="tabular"
+          style={{
+            textAlign: 'center',
+            fontSize: 'var(--text-xs)',
+            color: 'var(--color-fg-subtle)',
+            marginTop: 'var(--space-2)',
+          }}
+        >
+          {t('page.lastUpdated', { when: formatTime(data.generatedAt, locale, timeZone) })}
+        </p>
+      )}
+    </section>
+  )
+}
+
+/**
+ * Every component, grouped, at one density.
+ *
+ * The same render in all four layouts: three of them pass their own density, and
+ * the arranged one passes whatever its `components` block was set to. Extracting
+ * it is what lets the block exist at all — without it, arranging a page with
+ * forty controls would mean placing forty blocks.
+ */
+function ComponentGrid({
+  data,
+  order,
+  days,
+  locale,
+  timeZone,
+  density,
+}: {
+  data: StatusSummary
+  order?: string[]
+  days: (component: StatusComponent) => UptimeDay[]
+  locale: string
+  timeZone: string
+  density: 'list' | 'grid' | 'compact'
+}) {
+  return (
+    <div data-tern="components">
+      {groupTree(data, order).map(({ group, components }) => (
+        <section key={group?.id ?? 'ungrouped'} className="page-group">
+          {group && (
+            <h2
+              style={{
+                fontSize: 'var(--text-sm)',
+                fontWeight: 600,
+                textTransform: 'uppercase',
+                letterSpacing: '0.06em',
+                color: 'var(--color-fg-subtle)',
+                margin: '0 0 var(--space-3)',
+              }}
+            >
+              {group.name}
+            </h2>
+          )}
+
+          <div style={layoutStyle(density)}>
+            {components.map((component) => (
+              <ComponentCard
+                key={component.id}
+                component={component}
+                days={days(component)}
+                locale={locale}
+                timeZone={timeZone}
+                layout={density}
+              />
+            ))}
+          </div>
+        </section>
+      ))}
     </div>
   )
 }
@@ -407,9 +560,29 @@ function ComponentCard({
 
 // ── Layout pieces ───────────────────────────────────────────────────────────
 
-function Header({ name, slug, logoUrl }: { name: string; slug: string; logoUrl: string | null }) {
+function Header({
+  name,
+  slug,
+  logoUrl,
+  controls,
+}: {
+  name: string
+  /** Only needed for the admin link, which an arranged header does not draw. */
+  slug?: string
+  logoUrl: string | null
+  /**
+   * Whether the header carries the theme toggle and the way back to the admin.
+   *
+   * False in an arranged page, where those two live in the utility strip
+   * instead — outside the arrangement, because they are the reader's controls
+   * rather than the tenant's content, and a header dragged to the bottom of the
+   * page would otherwise take the theme toggle with it.
+   */
+  controls: boolean
+}) {
   return (
     <header
+      data-tern="header"
       style={{
         display: 'flex',
         alignItems: 'center',
@@ -488,10 +661,12 @@ function Header({ name, slug, logoUrl }: { name: string; slug: string; logoUrl: 
         <SponsorButton />
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
-        <AdminLink slug={slug} />
-        <ThemeToggle />
-      </div>
+      {controls && slug && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
+          <AdminLink slug={slug} />
+          <ThemeToggle />
+        </div>
+      )}
     </header>
   )
 }
@@ -532,7 +707,7 @@ function Subscribe({ slug, disclaimer }: { slug: string; disclaimer: string | nu
   }
 
   return (
-    <section style={{ padding: 'var(--space-4) 0 0' }}>
+    <section data-tern="subscribe" style={{ padding: 'var(--space-4) 0 0' }}>
       {!open ? (
         <button
           type="button"
@@ -791,7 +966,11 @@ function Communications({
   const titleSize = dense ? 'var(--text-sm)' : 'var(--text-base)'
 
   return (
-    <section className={framed ? 'page-group' : undefined} style={layoutStyle(layout)}>
+    <section
+      data-tern="incidents"
+      className={framed ? 'page-group' : undefined}
+      style={layoutStyle(layout)}
+    >
       {incidents.length > 0 && <SectionTitle>{t('incident.active')}</SectionTitle>}
 
       {incidents.map((incident) => {
