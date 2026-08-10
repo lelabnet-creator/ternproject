@@ -206,12 +206,30 @@ async fn main() -> Result<()> {
                 None => {}
             }
 
-            // Two commands, because there are two situations and only one of
-            // them used to be answered. A machine in an isolated zone cannot
-            // fetch anything from TERN — including the installer — so the
-            // relay serves it, and this is where that becomes findable.
+            /*
+             * Two situations, one of which is the common one — and it is the
+             * line to paste, so it is the line that is coloured.
+             *
+             * Green through a plain escape rather than a crate: this binary
+             * carries no colour dependency and one word is not worth adding
+             * one. Written only when stdout is a terminal, because a PIN
+             * captured into a file or piped onward must not arrive wrapped in
+             * bytes the reader then has to strip — which is exactly what makes
+             * a "ready to paste" line stop being ready to paste.
+             */
+            let (green, reset) = if std::io::IsTerminal::is_terminal(&std::io::stdout()) {
+                ("\x1b[32m", "\x1b[0m")
+            } else {
+                ("", "")
+            };
+
+            // A machine in an isolated zone cannot fetch anything from TERN —
+            // including the installer — so the relay serves it, and this is
+            // where that becomes findable.
             println!("On a machine in this zone, with nothing installed on it yet:");
-            println!("  curl -fsSL {origin}/install.sh | sh -s -- --server {origin} --pin {pin}");
+            println!(
+                "  {green}curl -fsSL {origin}/install.sh | sh -s -- --server {origin} --pin {pin}{reset}"
+            );
             println!();
             println!("Or, if tern-agent is already on it:");
             println!("  tern-agent pair --server {origin} --pin {pin}");

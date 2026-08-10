@@ -1866,6 +1866,44 @@ function ControlCard({
               the default, so the eye lands on the exceptions. */}
           {!control.isPublic && <Tag>internal</Tag>}
           {!control.enabled && <Tag tone="down">disabled</Tag>}
+
+          {/*
+            Top right, in the danger colour, and away from the row of things
+            that act on the control.
+            
+            It sat at the end of that row, after Edit — where the eye arrives
+            having read four harmless verbs and the hand is already moving. The
+            one action here that cannot be undone should not be the one at the
+            end of a reading path, and it should not look like its neighbours.
+            Corner, icon only, red: the three things that say "this is not the
+            same kind of button".
+          */}
+          {canWrite && !confirmingDelete && (
+            <button
+              type="button"
+              aria-label={`Delete ${control.name}`}
+              title={`Delete ${control.name}`}
+              onClick={() => setConfirmingDelete(true)}
+              style={{
+                // 32 visible, 44 of reach: the mark stays small in the corner
+                // and the target still meets the minimum.
+                width: 32,
+                height: 32,
+                margin: -6,
+                padding: 6,
+                display: 'grid',
+                placeItems: 'center',
+                flexShrink: 0,
+                border: 'none',
+                background: 'none',
+                borderRadius: 'var(--radius-sm)',
+                color: 'var(--status-down)',
+                cursor: 'pointer',
+              }}
+            >
+              <Icons.Trash2 size={16} aria-hidden="true" />
+            </button>
+          )}
         </div>
 
         {refused && (
@@ -2017,15 +2055,6 @@ function ControlCard({
           {canWrite && (
             <Button ariaLabel={`Edit ${control.name}`} onClick={onEdit}>
               Edit
-            </Button>
-          )}
-
-          {/* Last, and only an icon: it is the one action here that cannot be
-              undone, so it should not sit at the end of a reading path that
-              ends in a word the eye can mistake for another. */}
-          {canWrite && !confirmingDelete && (
-            <Button ariaLabel={`Delete ${control.name}`} onClick={() => setConfirmingDelete(true)}>
-              <Icons.Trash2 size={14} aria-hidden="true" />
             </Button>
           )}
         </div>
