@@ -710,6 +710,81 @@ pub fn issue_pin(config_path: &Path, ttl_minutes: u64) -> Result<(String, PathBu
     Ok((pin, path))
 }
 
+/// How a machine in the zone should address this relay — and what is uncertain
+/// about that answer.
+///
+/// `listen` answers "what do I bind to", which is a different question from
+/// "what should an agent be told to connect to", and the default answers the
+/// second one wrongly on purpose: binding loopback is the right default, and
+/// `127.0.0.1` is the one address that cannot work in a command meant to be run
+/// on another machine. Printing it without a word would hand somebody a command
+/// that fails with a connection refused and no explanation of why.
+#[derive(Debug, PartialEq, Eq)]
+pub struct ZoneAddress {
+    /// The `host:port` to print in the commands.
+    pub authority: String,
+    pub caveat: Option<ZoneCaveat>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum ZoneCaveat {
+    /// Bound to loopback: nothing off this machine can reach it at all.
+    LoopbackOnly,
+    /// Bound to every interface, so no single address is *the* address. What is
+    /// offered is the one this machine uses to reach TERN, which is a guess
+    /// about the zone and has to be named as one.
+    Guessed,
+}
+
+pub fn zone_address(listen: &str, outbound: Option<std::net::IpAddr>) -> ZoneAddress {
+    let (host, port) = match listen.rsplit_once(':') {
+        Some((host, port)) => (host.trim_matches(['[', ']']), port),
+        // Not a host:port at all: say back exactly what was configured rather
+        // than invent something that looks authoritative.
+        None => {
+            return ZoneAddress {
+                authority: listen.to_string(),
+                caveat: None,
+            }
+        }
+    };
+
+    match host {
+        "0.0.0.0" | "::" | "" => ZoneAddress {
+            authority: match outbound {
+                Some(ip) => format!("{ip}:{port}"),
+                None => format!("<this-machine>:{port}"),
+            },
+            caveat: Some(ZoneCaveat::Guessed),
+        },
+        "127.0.0.1" | "localhost" | "::1" => ZoneAddress {
+            authority: listen.to_string(),
+            caveat: Some(ZoneCaveat::LoopbackOnly),
+        },
+        _ => ZoneAddress {
+            authority: listen.to_string(),
+            caveat: None,
+        },
+    }
+}
+
+/// Which of this machine's addresses faces the upstream server.
+///
+/// A connected UDP socket sends nothing; it only asks the routing table which
+/// interface would be used to reach that destination. That is exactly the
+/// question — and it needs no privileges, no probing, and no network round
+/// trip. Best guess only: the interface that reaches TERN is not necessarily
+/// the one the zone arrives on, which is why the caller says so.
+pub fn outbound_address(upstream: &str) -> Option<std::net::IpAddr> {
+    let url = reqwest::Url::parse(upstream).ok()?;
+    let host = url.host_str()?;
+    let port = url.port_or_known_default().unwrap_or(443);
+
+    let socket = std::net::UdpSocket::bind("0.0.0.0:0").ok()?;
+    socket.connect((host, port)).ok()?;
+    socket.local_addr().ok().map(|address| address.ip())
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct PendingPin {
     hash: String,
@@ -1035,6 +1110,40 @@ mod tests {
         ] {
             assert!(!is_publishable_binary(name), "{name} should be refused");
         }
+    }
+
+    /// What an agent is told to connect to, which is not what the relay binds.
+    ///
+    /// The default binds loopback, and that is the right default — but a
+    /// command built from it works only on the relay itself, and the machine it
+    /// is meant for is by definition a different one. Printing `127.0.0.1:8787`
+    /// without a word hands somebody a connection refused and no reason for it.
+    #[test]
+    fn the_printed_address_says_when_it_cannot_work() {
+        let loopback = zone_address("127.0.0.1:8787", None);
+        assert_eq!(loopback.authority, "127.0.0.1:8787");
+        assert_eq!(loopback.caveat, Some(ZoneCaveat::LoopbackOnly));
+        assert_eq!(
+            zone_address("localhost:8787", None).caveat,
+            Some(ZoneCaveat::LoopbackOnly)
+        );
+
+        // Bound to everything: no single address is the address, so the one
+        // offered is a guess and has to be marked as one.
+        let every = zone_address("0.0.0.0:8787", Some("192.168.1.112".parse().unwrap()));
+        assert_eq!(every.authority, "192.168.1.112:8787");
+        assert_eq!(every.caveat, Some(ZoneCaveat::Guessed));
+
+        // Nothing to guess from: better a placeholder that cannot be mistaken
+        // for an address than an address that is wrong.
+        let unknown = zone_address("0.0.0.0:9000", None);
+        assert_eq!(unknown.authority, "<this-machine>:9000");
+        assert_eq!(unknown.caveat, Some(ZoneCaveat::Guessed));
+
+        // Configured deliberately: use it as written, say nothing.
+        let chosen = zone_address("192.168.64.1:8787", None);
+        assert_eq!(chosen.authority, "192.168.64.1:8787");
+        assert_eq!(chosen.caveat, None);
     }
 
     /// The passthrough, against a server that actually answers.
