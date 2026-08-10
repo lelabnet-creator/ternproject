@@ -2,31 +2,30 @@
 
 ## Current Task
 
-Rien en cours. `v0.1.22` : correctifs d'usage sur la zone, l'installation et
-l'admin, plus la réparation d'une régression que j'avais publiée en 0.1.21.
-Vert : 850 tests JS avec l'index seul, 68 côté agent, 75 côté installateur.
+Rien en cours. `v0.1.23` : la page publique se feuillette sur mobile, le PIN de
+zone dure cinq minutes avec son compte à rebours, et l'installeur du relais
+n'imprime plus une commande qui n'en est pas une.
 
 ## Key Decisions
 
-- **Ne jamais indexer un fichier partagé sans inspecter ses hunks.** Nommer le
-  chemin ne suffit pas : `git add apps/api/src/routes/status.ts` a emporté un
-  travail en cours dans une image publiée, et la page publique est morte sur
-  `custom.html.trim()`. Deuxième occurrence après `apps/web/src`.
-- Le relais déclare sa zone **à l'appairage**, plus seulement toutes les cinq
-  minutes : l'agent apparaissait avec des minutes de retard et tout donnait
-  l'impression d'un échec d'installation.
-- `systemctl restart --no-block` : attendre l'unité, c'est attendre
-  `network-online.target`, soit deux minutes pleines sur une machine à deux
-  interfaces.
-- Révoquer un relais demande ce qu'il advient de sa zone. Ces lignes n'existent
-  que parce qu'il les déclare ; le laisser choisir vaut mieux que les orpheliner
-  ou les supprimer en silence.
+- **Deux arrangements rendus, pas un restylé.** `order` en CSS sépare ce que
+  l'œil voit de ce que le clavier parcourt ; `useCompact` rend deux DOM pour que
+  l'ordre visuel et l'ordre de tabulation restent la même chose.
+- **Feuilleter ne doit jamais masquer une panne.** Les points sont de vrais
+  contrôles, celui d'un volet en difficulté garde sa couleur et respire, et le
+  filtre « only what is not working » n'est jamais mémorisé — une page filtrée
+  ressemble à une page saine.
+- **`eslint-plugin-react-hooks` était absent.** Ajouté et prouvé en
+  réintroduisant le bug qu'il devait attraper. Une règle non vérifiée est une
+  case cochée, pas un garde-fou.
+- Formater **après** la dernière édition, et régénérer le rendu des docs : les
+  deux causes des deux CI rouges de la 0.1.21.
 
 ## Next Steps
 
-- La refonte `TenantStyle` / `custom-style` reste en cours dans l'arbre — 27
-  fichiers non commités. Le passage de `custom` à `{ css }` côté serveur devra
-  repartir **avec** son côté client cette fois.
-- La déclaration immédiate de zone n'a pas de test dédié : exercer `pair` de
-  bout en bout demande un `AppState` complet avec un amont simulé.
-- Bornes `from`/`to` et regroupement semaine/mois/année sur `uptime.json`.
+- Le panneau d'appairage de zone en **deux onglets** (PIN + compte à rebours,
+  puis le contenu actuel) : non fait.
+- Reprendre les textes de `docs/` et des écrans d'admin pour décrire le nouveau
+  processus d'ajout d'un agent de zone.
+- Rien du travail mobile n'a été vu à 390 px — anneau, cadre ASCII, coupe à deux
+  lignes du bandeau, hauteur des volets.
