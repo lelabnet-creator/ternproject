@@ -251,6 +251,8 @@ export interface Agent {
    * anything that is not a relay, and for a relay too old to say.
    */
   zoneAddress: string | null
+  /** Every address a relay says it can be dialled on. Empty if it never said. */
+  zoneAddresses: string[]
   status: string
   lastSeenAt: string | null
   pairedAt: string

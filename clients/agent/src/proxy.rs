@@ -107,7 +107,29 @@ fn default_forward_interval() -> u64 {
 }
 
 /// The port a relay serves its zone on, unless told otherwise.
-pub const ZONE_PORT: u16 = 8787;
+///
+/// High and unusual on purpose. 8787 sits in the range things pick for
+/// themselves — a second relay, a development server, anything already on the
+/// host — and a default that collides is a failure at the far end of an
+/// install. Five digits nobody else reaches for costs nothing and collides with
+/// nothing.
+pub const ZONE_PORT: u16 = 38787;
+
+/// How a new relay will serve its zone.
+///
+/// Grouped rather than passed one by one: they answer a single question — what
+/// this relay will look like from inside its zone — and threading five options
+/// through a signature is how the wrong one ends up in the wrong position.
+#[derive(Debug, Default)]
+pub struct ZoneSetup {
+    /// A whole `host:port`, when neither the address nor the port is to be
+    /// worked out. Wins over everything else here.
+    pub listen: Option<String>,
+    pub interface: Option<String>,
+    pub port: Option<u16>,
+    pub forward_interval: Option<u64>,
+    pub forward: Option<Forward>,
+}
 
 fn default_listen() -> String {
     // Only for a config file written before `listen` existed, or one that lost
@@ -186,6 +208,34 @@ fn interface_v4(name: &str) -> Result<std::net::Ipv4Addr> {
         "no IPv4 address on interface {name}. This machine has: {}",
         names.join(", ")
     )
+}
+
+/// Every address of this machine an agent could plausibly dial.
+///
+/// Loopback and link-local are left out: the first cannot be reached from
+/// anywhere else, the second needs a scope nobody types. What remains is short
+/// — one or two entries on an ordinary host — and it is a list of facts rather
+/// than a guess, which is the whole point. The server had been inferring this
+/// from where a connection arrived, and on a containerised TERN that is a
+/// bridge gateway that exists nowhere else.
+pub fn routable_addresses() -> Vec<String> {
+    let Ok(interfaces) = if_addrs::get_if_addrs() else {
+        return Vec::new();
+    };
+
+    let mut out: Vec<String> = interfaces
+        .iter()
+        .filter_map(|interface| match interface.ip() {
+            std::net::IpAddr::V4(address) if !address.is_loopback() && !address.is_link_local() => {
+                Some(address.to_string())
+            }
+            _ => None,
+        })
+        .collect();
+
+    out.sort();
+    out.dedup();
+    out
 }
 
 fn first_routable_v4() -> Option<std::net::Ipv4Addr> {
@@ -422,7 +472,11 @@ async fn declare_zone(state: &AppState, key: &str) {
     // the first machine, so it has to be known before there is one.
     let listen = config.listen.clone();
 
-    if let Err(error) = state.client.zone(key, &agents, &listen).await {
+    if let Err(error) = state
+        .client
+        .zone(key, &agents, &listen, &routable_addresses())
+        .await
+    {
         warn!(%error, "could not declare the zone — the fleet view will be a poll behind");
         return;
     }
@@ -951,20 +1005,21 @@ fn read_pending_pins(state_path: &Path) -> Vec<(String, u64)> {
 }
 
 /// Pairs the proxy itself with TERN, exactly as an agent would.
-pub async fn init(
-    server: &str,
-    pin: &str,
-    config_path: &Path,
-    listen: Option<String>,
-    interface: Option<String>,
-    forward_interval: Option<u64>,
-    forward: Option<Forward>,
-) -> Result<()> {
+pub async fn init(server: &str, pin: &str, config_path: &Path, setup: ZoneSetup) -> Result<()> {
     // Resolved before pairing, so a machine whose address cannot be worked out
     // fails without having consumed a single-use PIN.
-    let listen = match listen {
+    let listen = match setup.listen {
         Some(explicit) => explicit,
-        None => listen_address(interface.as_deref(), server, ZONE_PORT)?,
+        // The port alone, when the address is fine and 8787 is taken — which is
+        // the ordinary shape of a second relay on one machine, or of a host
+        // where something else already answers there. Naming a whole host:port
+        // for that would mean working out the address by hand, which is exactly
+        // what this stopped requiring.
+        None => listen_address(
+            setup.interface.as_deref(),
+            server,
+            setup.port.unwrap_or(ZONE_PORT),
+        )?,
     };
 
     let client = Client::new(server)?;
@@ -986,8 +1041,10 @@ pub async fn init(
         api_key: response.api_key,
         listen,
         refresh_s: default_refresh(),
-        forward_interval_s: forward_interval.unwrap_or_else(default_forward_interval),
-        forward: forward.unwrap_or_default(),
+        forward_interval_s: setup
+            .forward_interval
+            .unwrap_or_else(default_forward_interval),
+        forward: setup.forward.unwrap_or_default(),
         local_keys: Vec::new(),
     };
     config.save(config_path)?;

@@ -141,6 +141,15 @@ export const agents = pgTable(
      * thing that knows where it binds, so the relay is what says it.
      */
     zoneAddress: text(),
+    /**
+     * Every address this relay could be dialled on, as it reports them.
+     *
+     * A list rather than one value because a relay bound to every interface has
+     * no single address, and one with two cards has a right answer and a wrong
+     * one that only its operator can tell apart. Offering the choice is what
+     * stops this server from guessing — which it did, wrongly, from `pairedIp`.
+     */
+    zoneAddresses: jsonb().$type<string[]>().notNull().default([]),
     revokedAt: timestamp({ withTimezone: true }),
     createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
   },
