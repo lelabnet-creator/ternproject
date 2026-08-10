@@ -2,25 +2,26 @@
 
 ## Current Task
 
-Rien en cours. `v0.1.20` est taguée : l'adresse et le port d'un relais se
-choisissent au lieu d'être devinés. Vert : 796 tests JS, 56 côté agent, 75 côté
-installateur. Migration `0020` (`agents.zone_addresses`).
+Rien en cours. `v0.1.21` : le taux de disponibilité se calcule sur la durée et
+non sur un compte de checks, et trois genres de sonde regardent la machine
+(`file`, `directory`, `uptime`). Vert : 848 tests JS, 68 côté agent, 75 côté
+installateur. Migration `0021` (trois valeurs de plus sur `control_kind`).
 
 ## Key Decisions
 
-- Le relais déclare **toutes** ses adresses joignables ; l'admin les offre en
-  liste. `pairedIp` — l'adresse vue par le serveur, donc une passerelle Docker
-  quand TERN est en conteneur — n'est plus qu'un dernier recours étiqueté.
-- Port de zone par défaut à **38787** : 8787 est dans la plage où les choses se
-  choisissent un port seules, et une collision de défaut échoue au bout d'une
-  installation. Les relais déjà posés gardent le leur.
-- Ne jamais indexer par répertoire. Un `git add apps/web/src` a emporté une
-  refonte en cours dans un commit poussé sur `main`, rouge en CI ; annulé,
-  travail préservé sur `wip/tenant-style`, arbre restitué à l'identique.
+- Le chiffre publié **change de sens** à cette version : time-weighted, `degraded`
+  compte comme disponible, le temps non observé quitte le dénominateur, un push
+  silencieux compte contre vous. Dit au lecteur dans `docs/user-guide.md`.
+- `computeAvailability` prend des **intervalles**, pas des points : un check brut
+  est un intervalle à état plein, un seau d'agrégat un intervalle fractionnaire.
+  Un seul compteur, sinon une résolution porte sa propre copie des règles.
+- `file`/`directory`/`uptime` sont refusées côté serveur comme `docker`, et pour
+  une raison plus vive : le disque est là sans qu'on ait rien à monter.
 
 ## Next Steps
 
-- La refonte `TenantStyle` / `custom-style` est en cours dans l'arbre de
-  travail, non commitée — 25 fichiers.
-- La recette VM avec isolement réel reste à jouer (scripts dans `.vm-lab/`).
+- La refonte `TenantStyle` / `custom-style` reste en cours dans l'arbre — 27
+  fichiers non commités.
+- Bornes `from`/`to` arbitraires et regroupement semaine/mois/année sur
+  `uptime.json` : non livrés, séparables.
 - Le service worker sert un bundle périmé après une mise à jour.
