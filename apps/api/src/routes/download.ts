@@ -144,7 +144,6 @@ function shellScript(): string {
 #   --no-service    install and pair, but do not register for boot
 #   --proxy         install tern-proxy instead
 #   --interface <n> the interface a relay serves its zone on (with --proxy)
-#   --port <n>      the port a relay serves its zone on (with --proxy)
 set -eu
 
 SERVER="${base()}"
@@ -152,7 +151,6 @@ PIN=""
 DEST="\${TERN_INSTALL_DIR:-}"
 BIN="tern-agent"
 IFACE=""
-ZPORT=""
 SERVICE=1
 
 while [ $# -gt 0 ]; do
@@ -170,9 +168,6 @@ while [ $# -gt 0 ]; do
     # carries traffic to TERN, which is right for a single-homed machine and
     # wrong for the other shape.
     --interface) IFACE="\${2:-}"; shift 2 ;;
-    # The port alone, for a machine where 8787 is taken. The address is still
-    # worked out by the relay, so this is usually the whole of what changes.
-    --port) ZPORT="\${2:-}"; shift 2 ;;
     --no-service) SERVICE=0; shift ;;
     *) echo "Unknown option: $1" >&2; exit 2 ;;
   esac
@@ -353,17 +348,12 @@ if [ -n "$PIN" ]; then
   # the next machine — lands in the held buffer with everything else, so the
   # list above can keep moving without walking over it.
   #
-  # Only the relay has an interface and a port to choose; tern-agent would
-  # refuse both flags. Built up rather than branched three ways, so the two can
-  # be combined without a fourth arm.
-  EXTRA=""
-  if [ "$BIN" = "tern-proxy" ]; then
-    [ -n "$IFACE" ] && EXTRA="$EXTRA --interface $IFACE"
-    [ -n "$ZPORT" ] && EXTRA="$EXTRA --port $ZPORT"
+  # Only the relay has an interface to choose; tern-agent would refuse the flag.
+  if [ "$BIN" = "tern-proxy" ] && [ -n "$IFACE" ]; then
+    "$DEST/$BIN" $JOIN --server "$SERVER" --pin "$PIN" --config "$CONF" --interface "$IFACE"
+  else
+    "$DEST/$BIN" $JOIN --server "$SERVER" --pin "$PIN" --config "$CONF"
   fi
-  # Unquoted on purpose: EXTRA holds flags and their values, and quoting it
-  # would hand the whole string to the binary as one argument.
-  "$DEST/$BIN" $JOIN --server "$SERVER" --pin "$PIN" --config "$CONF" $EXTRA
   mark 3 "$OK"
 else
   echo

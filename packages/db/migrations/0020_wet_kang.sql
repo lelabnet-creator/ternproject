@@ -1,1 +1,0 @@
-ALTER TABLE "agents" ADD COLUMN "zone_addresses" jsonb DEFAULT '[]'::jsonb NOT NULL;

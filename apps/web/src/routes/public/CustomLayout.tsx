@@ -35,17 +35,13 @@ export function communicationsPlacement(
 /**
  * A page arranged on a grid.
  *
- * The whole of the `custom` layout, and the whole of the page: the header, the
- * pulse, the subscribe box and the components are blocks here, not fixtures
- * around it. What the tenant does not place is not drawn — with the two
- * exceptions the page keeps for itself, incidents and components, which come
- * back on their own when no block claims them.
- *
- * Nothing here re-implements what it draws. Every part arrives as a render
- * prop from the page, so an arranged header is the same header, an arranged
- * pulse the same ring, an arranged component the same card with the same
- * widget. A second rendering of any of them would drift the first time either
- * side was touched.
+ * The other half of the `custom` layout. Where the document mode hands a
+ * sandboxed frame whatever the tenant wrote, this draws structured blocks — and
+ * because they are structured, a component block renders the component's own
+ * widget. That closes the gap the document mode has by construction: a frame
+ * confined enough to be safe cannot reach React, so it can only redraw the
+ * charts approximately, and the ones here are the same charts the other layouts
+ * use.
  *
  * Free placement without pixel coordinates. A twelve-column grid with explicit
  * spans is what makes the arrangement reachable from a keyboard in the builder,
@@ -60,10 +56,6 @@ export function CustomLayout({
   timeZone,
   renderComponent,
   renderCommunications,
-  renderHeader,
-  renderPulse,
-  renderSubscribe,
-  renderComponents,
 }: {
   blocks: Block[]
   data: StatusSummary
@@ -80,17 +72,20 @@ export function CustomLayout({
    * of them that drifts.
    */
   renderCommunications: () => React.ReactNode
-  /** The tenant's mark and the page name. */
-  renderHeader: () => React.ReactNode
-  /** The ring. The argument is the block's own `showUpdatedAt`. */
-  renderPulse: (showUpdatedAt: boolean) => React.ReactNode
-  renderSubscribe: () => React.ReactNode
-  /** Every component, grouped, at the density the block asked for. */
-  renderComponents: (density: 'list' | 'grid' | 'compact') => React.ReactNode
 }) {
+  if (blocks.length === 0) {
+    return (
+      <section className="page-group">
+        <p style={{ margin: 0, color: 'var(--color-fg-subtle)' }}>
+          This page uses a custom layout, and nothing has been placed on it yet.
+        </p>
+      </section>
+    )
+  }
+
   return (
     <section
-      data-tern="arrangement"
+      className="page-group"
       style={{
         display: 'grid',
         gridTemplateColumns: `repeat(${GRID_COLUMNS}, minmax(0, 1fr))`,
@@ -99,19 +94,11 @@ export function CustomLayout({
         // clip a chart on one page and leave a gap under a line of text on the
         // next, and the blocks already say how many rows they span.
         gridAutoRows: 'minmax(3.5rem, auto)',
-        // The panel is gone with the card around it: the arrangement is the
-        // page, not a section of one. What is left is the gap before whatever
-        // the guarantees put underneath.
-        marginBottom: 'var(--space-5)',
       }}
     >
       {blocks.map((block) => (
         <div
           key={block.id}
-          // The selector contract the tenant's stylesheet is written against.
-          // Stable across every refactor of what is inside it, which is the
-          // point of having one rather than letting people target our markup.
-          data-tern={block.type}
           style={{
             /*
              * One column on a narrow screen, whatever the block asked for.
@@ -134,10 +121,6 @@ export function CustomLayout({
             timeZone={timeZone}
             renderComponent={renderComponent}
             renderCommunications={renderCommunications}
-            renderHeader={renderHeader}
-            renderPulse={renderPulse}
-            renderSubscribe={renderSubscribe}
-            renderComponents={renderComponents}
           />
         </div>
       ))}
@@ -151,10 +134,6 @@ function BlockBody({
   days,
   renderComponent,
   renderCommunications,
-  renderHeader,
-  renderPulse,
-  renderSubscribe,
-  renderComponents,
 }: {
   block: Block
   data: StatusSummary
@@ -163,10 +142,6 @@ function BlockBody({
   timeZone: string
   renderComponent: (component: StatusComponent, componentDays: UptimeDay[]) => React.ReactNode
   renderCommunications: () => React.ReactNode
-  renderHeader: () => React.ReactNode
-  renderPulse: (showUpdatedAt: boolean) => React.ReactNode
-  renderSubscribe: () => React.ReactNode
-  renderComponents: (density: 'list' | 'grid' | 'compact') => React.ReactNode
 }) {
   if (block.type === 'incidents') {
     // Nothing is drawn when there is nothing to say, here as everywhere else —
@@ -174,14 +149,6 @@ function BlockBody({
     // that trains people to skip the place where the news appears.
     return <>{renderCommunications()}</>
   }
-
-  // The page's own parts, drawn by the page. Each of these was a fixture above
-  // the arrangement until `custom` came to mean the whole page rather than the
-  // panel in the middle of it.
-  if (block.type === 'header') return <>{renderHeader()}</>
-  if (block.type === 'pulse') return <>{renderPulse(block.showUpdatedAt)}</>
-  if (block.type === 'subscribe') return <>{renderSubscribe()}</>
-  if (block.type === 'components') return <>{renderComponents(block.density)}</>
 
   if (block.type === 'text') {
     return (

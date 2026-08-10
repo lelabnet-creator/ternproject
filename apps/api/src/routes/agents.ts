@@ -414,8 +414,6 @@ const routes: FastifyPluginAsyncZod = async (app) => {
            * offering as the one to reach the relay on.
            */
           listen: z.string().max(255).optional(),
-          /** Every address it could be dialled on. Bounded, and it is short. */
-          addresses: z.array(z.string().max(64)).max(16).optional(),
         }),
         response: { 200: z.object({ known: z.number() }) },
       },
@@ -455,13 +453,10 @@ const routes: FastifyPluginAsyncZod = async (app) => {
        * unlinking clears the parent, and a match on parent alone would then
        * create a second row for the same machine.
        */
-      if (req.body.listen || req.body.addresses) {
+      if (req.body.listen && req.body.listen !== proxy.zoneAddress) {
         await app.db
           .update(schema.agents)
-          .set({
-            ...(req.body.listen && { zoneAddress: req.body.listen }),
-            ...(req.body.addresses && { zoneAddresses: req.body.addresses }),
-          })
+          .set({ zoneAddress: req.body.listen })
           .where(eq(schema.agents.id, proxy.id))
       }
 
@@ -669,8 +664,6 @@ const routes: FastifyPluginAsyncZod = async (app) => {
               pairedIp: z.string().nullable(),
               /** Where a relay serves its zone. Null for anything else. */
               zoneAddress: z.string().nullable(),
-              /** Every address it says it can be dialled on. Empty if it never said. */
-              zoneAddresses: z.array(z.string()),
               status: z.string(),
               lastSeenAt: z.string().nullable(),
               pairedAt: z.string(),
@@ -735,7 +728,6 @@ const routes: FastifyPluginAsyncZod = async (app) => {
           parentAgentId: row.parentAgentId,
           pairedIp: row.pairedIp,
           zoneAddress: row.zoneAddress,
-          zoneAddresses: row.zoneAddresses ?? [],
           status: row.status,
           lastSeenAt: row.lastSeenAt?.toISOString() ?? null,
           pairedAt: row.createdAt.toISOString(),

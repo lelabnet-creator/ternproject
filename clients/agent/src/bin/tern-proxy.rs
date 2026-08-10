@@ -33,7 +33,7 @@ fn port_of(listen: &str) -> &str {
     listen
         .rsplit_once(':')
         .map(|(_, port)| port)
-        .unwrap_or("38787")
+        .unwrap_or("8787")
 }
 
 /// `batch` or `stream`, named rather than derived — the enum is serde's, and a
@@ -64,10 +64,6 @@ enum Command {
         /// already carries traffic to TERN.
         #[arg(long)]
         interface: Option<String>,
-        /// Serve the zone on this port instead of 38787. The address is still
-        /// worked out, so this is the whole of what usually needs changing.
-        #[arg(long)]
-        port: Option<u16>,
         /// Seconds points wait before being carried upstream. Default 10.
         #[arg(long)]
         forward_interval: Option<u64>,
@@ -133,7 +129,6 @@ async fn main() -> Result<()> {
             config,
             listen,
             interface,
-            port,
             forward_interval,
             forward,
         } => {
@@ -142,13 +137,10 @@ async fn main() -> Result<()> {
                 &server,
                 &pin,
                 &path,
-                proxy::ZoneSetup {
-                    listen,
-                    interface,
-                    port,
-                    forward_interval,
-                    forward,
-                },
+                listen,
+                interface,
+                forward_interval,
+                forward,
             )
             .await
         }

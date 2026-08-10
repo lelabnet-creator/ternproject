@@ -30,7 +30,6 @@ function agent(over: Partial<Agent> & { id: string; name: string }): Agent {
     parentAgentId: null,
     pairedIp: null,
     zoneAddress: null,
-    zoneAddresses: [],
     status: 'active',
     lastSeenAt: new Date().toISOString(),
     pairedAt: new Date().toISOString(),

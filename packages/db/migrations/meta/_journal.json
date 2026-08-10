@@ -141,13 +141,6 @@
       "when": 1786364814062,
       "tag": "0019_happy_cargill",
       "breakpoints": true
-    },
-    {
-      "idx": 20,
-      "version": "7",
-      "when": 1786370467638,
-      "tag": "0020_wet_kang",
-      "breakpoints": true
     }
   ]
 }

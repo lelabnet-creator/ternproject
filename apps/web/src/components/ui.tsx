@@ -280,24 +280,7 @@ export function Banner({
 }
 
 /** Monospace block for generated scripts and PINs. */
-export function CodeBlock({
-  children,
-  label,
-  copyable = false,
-}: {
-  children: string
-  label?: string
-  /**
-   * A copy button in the corner.
-   *
-   * Opt-in rather than everywhere: most code blocks in this admin are there to
-   * be read — a payload shape, a config example — and a button offering to copy
-   * them would be noise. It earns its place on the ones meant to be pasted into
-   * a shell, where selecting a long line by hand is where a command loses its
-   * last character.
-   */
-  copyable?: boolean
-}) {
+export function CodeBlock({ children, label }: { children: string; label?: string }) {
   return (
     <div style={{ position: 'relative' }}>
       {label && (
@@ -329,11 +312,6 @@ export function CodeBlock({
       >
         <code>{children}</code>
       </pre>
-      {copyable && (
-        <div style={{ position: 'absolute', top: label ? '1.6rem' : '0.4rem', right: '0.4rem' }}>
-          <CopyButton value={children} />
-        </div>
-      )}
     </div>
   )
 }

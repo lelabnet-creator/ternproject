@@ -248,54 +248,22 @@ export function rootsOf(agents: Agent[]): Agent[] {
  * that exists only on that host. Offered as the way to reach the relay, it
  * produced a connection refused on the one machine that could not investigate.
  */
-/**
- * The port a relay serves its zone on when nobody says otherwise.
- *
- * High and unusual on purpose, and the same number the binary defaults to —
- * see `ZONE_PORT` in `clients/agent/src/proxy.rs`. 8787 sits where things pick
- * ports for themselves, and a default that collides fails at the far end of an
- * install rather than here.
- */
-export const ZONE_PORT = '38787'
-
-export function relayOrigins(relay: Agent | undefined): string[] {
-  if (!relay) return []
-
-  // The port it actually binds, taken from what it says it listens on. A relay
-  // on a port nobody expects is exactly the case a hard-coded 8787 would get
-  // wrong, and it is knowable.
-  const port = relay.zoneAddress?.split(':').pop() ?? ZONE_PORT
-
-  const out: string[] = []
-  // Where it binds, first — when that names a concrete address rather than
-  // every interface, it is the answer and not a candidate.
-  if (relay.zoneAddress && !relay.zoneAddress.startsWith('0.0.0.0')) {
-    out.push(`http://${relay.zoneAddress}`)
-  }
-  for (const address of relay.zoneAddresses) {
-    out.push(`http://${address}:${port}`)
-  }
-  // Last, and only if nothing else: the address this server saw it arrive from
-  // is not where it serves — with TERN in a container it is a bridge gateway
-  // that exists on one host and nowhere else.
-  if (out.length === 0 && relay.pairedIp) out.push(`http://${relay.pairedIp}:${ZONE_PORT}`)
-
-  return [...new Set(out)]
+export function relayOrigin(relay: Agent | undefined): string {
+  if (!relay) return ''
+  if (relay.zoneAddress) return `http://${relay.zoneAddress}`
+  return relay.pairedIp ? `http://${relay.pairedIp}:8787` : ''
 }
 
 export function RelayPicker({
   relays,
   chosenId,
   origin,
-  candidates,
   onPick,
   onAddress,
 }: {
   relays: Agent[]
   chosenId: string
   origin: string
-  /** What the relay says it can be dialled on. Empty for one too old to say. */
-  candidates: string[]
   onPick: (id: string) => void
   onAddress: (address: string) => void
 }) {
@@ -319,56 +287,16 @@ export function RelayPicker({
         </Select>
       </Field>
 
-      {/*
-        A choice when the relay has told us its addresses, a free field when it
-        has not. Two relays out of three have one address and this is a
-        formality; the third has two cards, and only its operator knows which
-        one faces the zone. Guessing that was the mistake — the server was
-        offering the address a connection *arrived from*, which on a
-        containerised TERN is a bridge gateway that exists on one host alone.
-      */}
-      {candidates.length > 0 ? (
-        <Field
-          label="At this address"
-          hint="Where the isolated machine reaches it. These are the addresses the relay reports; pick the one that faces the zone."
-        >
-          <Select value={origin} onChange={(e) => onAddress(e.target.value)}>
-            {candidates.map((candidate) => (
-              <option key={candidate} value={candidate}>
-                {candidate}
-              </option>
-            ))}
-            {/* Not every network is reachable at the address a machine sees on
-                itself — a relay behind NAT or published on another port is
-                dialled at something it has no way of knowing. */}
-            <option value="">Somewhere else…</option>
-          </Select>
-        </Field>
-      ) : (
-        <Field
-          label="At this address"
-          hint="This relay has not reported its addresses — it predates that, or has not declared its zone yet. Type where the isolated machine reaches it."
-        >
-          <Input
-            value={origin}
-            placeholder="http://192.168.10.4:38787"
-            onChange={(e) => onAddress(e.target.value)}
-          />
-        </Field>
-      )}
-
-      {/* Chosen "somewhere else": the field appears rather than replacing the
-          list, so the reported addresses stay visible as a reminder of what the
-          relay believes about itself. */}
-      {candidates.length > 0 && origin === '' && (
-        <Field label="Its address" hint="As the isolated machine reaches it.">
-          <Input
-            autoFocus
-            placeholder="http://192.168.10.4:38787"
-            onChange={(e) => onAddress(e.target.value)}
-          />
-        </Field>
-      )}
+      <Field
+        label="At this address"
+        hint="Where the isolated machine reaches it. Taken from where the relay paired — change it if it serves the zone on another card."
+      >
+        <Input
+          value={origin}
+          placeholder="http://192.168.10.4:8787"
+          onChange={(e) => onAddress(e.target.value)}
+        />
+      </Field>
     </div>
   )
 }
@@ -378,19 +306,10 @@ export function PairCommands({
   pin,
   relay,
   via,
-  port,
 }: {
   origin: string
   pin: string
   relay: boolean
-  /**
-   * The port a relay will serve its zone on, when it is not the default.
-   *
-   * Only ever set for a relay: an agent has nothing to serve. Left out when it
-   * is 8787, because a flag that restates a default is one more thing to read
-   * on a line already long enough to be pasted wrong.
-   */
-  port?: string
   /**
    * The relay a zone machine goes through, when it cannot reach this server.
    *
@@ -405,21 +324,19 @@ export function PairCommands({
   const from = via ?? origin
   const server = via ? ` --server ${via}` : ''
   const serverPs = via ? ` -Server ${via}` : ''
-  const zonePort = relay && port && port !== ZONE_PORT ? ` --port ${port}` : ''
-  const zonePortPs = relay && port && port !== ZONE_PORT ? ` -Port ${port}` : ''
 
   return (
     <>
-      <CodeBlock label="Linux or macOS" copyable>
-        {`curl -fsSL ${from}/install.sh | sh -s --${relay ? ' --proxy' : ''}${server} --pin ${pin}${zonePort}`}
+      <CodeBlock label="Linux or macOS">
+        {`curl -fsSL ${from}/install.sh | sh -s --${relay ? ' --proxy' : ''}${server} --pin ${pin}`}
       </CodeBlock>
 
       <div style={{ height: 'var(--space-2)' }} />
 
-      <CodeBlock label="Windows, in PowerShell" copyable>
+      <CodeBlock label="Windows, in PowerShell">
         {/* A param script, so it is invoked as a script block — `| iex` would
             run it with no arguments and never see the PIN. */}
-        {`& ([scriptblock]::Create((irm ${from}/install.ps1)))${relay ? ' -Proxy' : ''}${serverPs} -Pin ${pin}${zonePortPs}`}
+        {`& ([scriptblock]::Create((irm ${from}/install.ps1)))${relay ? ' -Proxy' : ''}${serverPs} -Pin ${pin}`}
       </CodeBlock>
     </>
   )
@@ -471,19 +388,10 @@ export function PairPanel({ slug, onDone }: { slug: string; onDone: () => void }
    * at where it serves and not a fact. Picking a relay fills the address;
    * typing over the address does not un-pick the relay.
    */
-  /**
-   * The port a new relay will serve on.
-   *
-   * Asked before the PIN because it goes in the command, and a code minted
-   * while it is wrong would have to be minted again. Only for a relay: an agent
-   * serves nothing.
-   */
-  const [zonePort, setZonePort] = useState(ZONE_PORT)
   const [chosenId, setChosenId] = useState<string | null>(null)
   const [via, setVia] = useState<string | null>(null)
   const chosen = relays.find((r) => r.id === chosenId) ?? relays[0]
-  const candidates = relayOrigins(chosen)
-  const zoneOrigin = via ?? candidates[0] ?? ''
+  const zoneOrigin = via ?? relayOrigin(chosen)
 
   const pickRelay = (id: string) => {
     setChosenId(id)
@@ -540,22 +448,6 @@ export function PairPanel({ slug, onDone }: { slug: string; onDone: () => void }
             : 'An agent measures from the machine it runs on, and reports here directly.'}
       </p>
 
-      {/* A relay serves its zone on a port, and 8787 is not free everywhere —
-          a second relay on one machine, or a host where something already
-          answers there. Offered before the PIN, since it goes in the command. */}
-      {relay && (
-        <div style={{ marginBottom: 'var(--space-3)', maxWidth: '16rem' }}>
-          <Field label="Port for the zone" hint="Where the agents behind it will connect.">
-            <Input
-              value={zonePort}
-              inputMode="numeric"
-              placeholder="38787"
-              onChange={(e) => setZonePort(e.target.value.replace(/[^0-9]/g, ''))}
-            />
-          </Field>
-        </div>
-      )}
-
       {/* The relay to go through, asked before the PIN: it is part of the
           command, and a code minted while the field is empty would produce a
           line nobody can run. */}
@@ -571,7 +463,6 @@ export function PairPanel({ slug, onDone }: { slug: string; onDone: () => void }
               relays={relays}
               chosenId={chosen?.id ?? ''}
               origin={zoneOrigin}
-              candidates={candidates}
               onPick={pickRelay}
               onAddress={setVia}
             />
@@ -614,7 +505,6 @@ export function PairPanel({ slug, onDone }: { slug: string; onDone: () => void }
             pin={pair.data.pin}
             relay={relay}
             via={zone ? zoneOrigin || undefined : undefined}
-            port={zonePort}
           />
 
           {relay && (

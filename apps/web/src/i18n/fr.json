@@ -66,15 +66,7 @@
   "blocks": {
     "incidents": "Incidents et maintenances",
     "addIncidents": "Ajouter les incidents",
-    "incidentsHint": "Les incidents et les composants sont toujours affichés. Placez ces blocs pour choisir où ; retirez-les et ils reviennent autour de la disposition.",
-    "header": "En-tête — logo et nom de la page",
-    "addHeader": "Ajouter l'en-tête",
-    "pulse": "Anneau d'état",
-    "addPulse": "Ajouter l'anneau d'état",
-    "subscribe": "Bloc d'inscription",
-    "addSubscribe": "Ajouter le bloc d'inscription",
-    "components": "Tous les composants",
-    "addComponents": "Ajouter tous les composants"
+    "incidentsHint": "Les incidents et les maintenances sont toujours affichés. Placez ce bloc pour choisir où ; retirez-le et ils reviennent au-dessus de la disposition."
   },
   "period": {
     "24h": "24 heures",

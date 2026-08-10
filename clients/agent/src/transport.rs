@@ -355,13 +355,7 @@ impl Client {
     /// that did not pair as one. It carries a name, a last contact and the
     /// address seen inside the zone — not an OS or a version, which the proxy
     /// has no way to know and would have to invent.
-    pub async fn zone(
-        &self,
-        api_key: &str,
-        agents: &[ZoneAgent],
-        listen: &str,
-        addresses: &[String],
-    ) -> Result<()> {
+    pub async fn zone(&self, api_key: &str, agents: &[ZoneAgent], listen: &str) -> Result<()> {
         let response = self
             .http
             .post(format!("{}/api/v1/agent/zone", self.base_url))
@@ -371,14 +365,7 @@ impl Client {
             // arrived from, which on a containerised TERN is a Docker bridge
             // gateway — an address that means nothing outside that one host, and
             // that the admin then offered as the one to reach the relay on.
-            // `listen` is where it binds; `addresses` is everywhere it could be
-            // dialled. Both, because a relay bound to every interface has a
-            // listen line that names no address anybody can type.
-            .json(&serde_json::json!({
-                "agents": agents,
-                "listen": listen,
-                "addresses": addresses,
-            }))
+            .json(&serde_json::json!({ "agents": agents, "listen": listen }))
             .send()
             .await
             .context("could not reach the server")?;

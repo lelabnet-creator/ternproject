@@ -26,7 +26,7 @@ Object.defineProperty(globalThis, 'window', {
   configurable: true,
 })
 
-const { PairPanel, PairCommands, RelayPicker, relayOrigins } = await import('./FleetScreen')
+const { PairPanel, PairCommands, RelayPicker } = await import('./FleetScreen')
 
 /**
  * Adding a relay from the same panel that adds an agent.
@@ -173,7 +173,6 @@ describe('picking a relay', () => {
       relays={RELAYS.filter((r) => r.role === 'proxy') as Agent[]}
       chosenId="r2"
       origin="http://192.168.20.9:8787"
-      candidates={['http://192.168.20.9:8787', 'http://10.8.0.3:8787']}
       onPick={() => {}}
       onAddress={() => {}}
     />,
@@ -200,85 +199,11 @@ describe('picking a relay', () => {
         relays={[{ id: 'x', name: 'silent', role: 'proxy', pairedIp: null } as Agent]}
         chosenId="x"
         origin=""
-        candidates={[]}
         onPick={() => {}}
         onAddress={() => {}}
       />,
     )
     // Rather than an empty dash, which reads as a rendering fault.
     expect(unknown).toContain('address unknown')
-  })
-})
-
-/**
- * The port a relay serves its zone on.
- *
- * 38787 is the default; another is needed on a machine where it is taken — a second relay on one machine, a host where
- * something already answers there — and the flag has to reach the command or
- * the choice is decorative.
- */
-describe('a relay on another port', () => {
-  it('carries the port, and only for a relay', () => {
-    const relay = renderToStaticMarkup(
-      <PairCommands origin="https://s.example" pin="4K7Q-92XB" relay={true} port="9443" />,
-    )
-    expect(relay).toContain('--port 9443')
-    expect(relay).toContain('-Port 9443')
-
-    // An agent serves nothing, so the flag would be refused by the binary.
-    const agent = renderToStaticMarkup(
-      <PairCommands origin="https://s.example" pin="4K7Q-92XB" relay={false} port="9443" />,
-    )
-    expect(agent).not.toContain('--port')
-  })
-
-  it('says nothing when it is the default', () => {
-    // A flag restating a default is one more thing to read on a line already
-    // long enough to be pasted wrong.
-    const html = renderToStaticMarkup(
-      <PairCommands origin="https://s.example" pin="4K7Q-92XB" relay={true} port="38787" />,
-    )
-    expect(html).not.toContain('--port')
-  })
-})
-
-/**
- * Which addresses a relay is offered at.
- *
- * The whole point is that this stopped being a guess: the relay says where it
- * can be dialled, and `pairedIp` — where a connection arrived from, as this
- * server saw it — is a last resort that is wrong on a containerised instance.
- */
-describe('the addresses offered for a relay', () => {
-  const at = (over: Partial<Agent>) =>
-    relayOrigins({ zoneAddress: null, zoneAddresses: [], pairedIp: null, ...over } as Agent)
-
-  it('puts where it binds first, then everywhere else it answers', () => {
-    expect(
-      at({ zoneAddress: '192.168.1.170:38787', zoneAddresses: ['192.168.1.170', '10.8.0.3'] }),
-    ).toEqual(['http://192.168.1.170:38787', 'http://10.8.0.3:38787'])
-  })
-
-  it('keeps the port it actually binds', () => {
-    // A relay moved off 8787 must not be offered at 8787.
-    expect(at({ zoneAddress: '10.0.0.5:9443', zoneAddresses: ['10.0.0.5'] })).toEqual([
-      'http://10.0.0.5:9443',
-    ])
-  })
-
-  it('offers real addresses when it binds every interface', () => {
-    // `0.0.0.0` is not something anybody can dial, so it is never offered.
-    expect(at({ zoneAddress: '0.0.0.0:38787', zoneAddresses: ['192.168.1.170'] })).toEqual([
-      'http://192.168.1.170:38787',
-    ])
-  })
-
-  it('falls back to the paired address only when it has nothing else', () => {
-    // The case that caused this: a Docker bridge gateway, offered as the way to
-    // reach a relay, on the one machine that could not investigate.
-    expect(at({ pairedIp: '192.168.64.1' })).toEqual(['http://192.168.64.1:38787'])
-    expect(at({ zoneAddresses: ['10.0.0.9'], pairedIp: '192.168.64.1' })).toEqual([
-      'http://10.0.0.9:38787',
-    ])
   })
 })

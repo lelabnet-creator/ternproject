@@ -17,8 +17,8 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { defaultBlocks, parseBlocks, type Block } from '@tern/shared/blocks'
-import { starterStylesheet } from '@tern/shared/custom-style'
+import { blocksSchema, type Block } from '@tern/shared/blocks'
+import { starterDocument } from '@tern/shared/custom-document'
 import { adminApi, ApiError, type Control } from '../../lib/adminApi'
 import { BlockCanvas } from '../../features/layout-builder/BlockCanvas'
 import { api } from '../../lib/api'
@@ -47,7 +47,7 @@ const DENSITIES: { id: PageLayout; label: string; hint: string }[] = [
   {
     id: 'custom',
     label: 'Custom',
-    hint: 'You arrange the whole page — header, ring, components. The densities stop applying.',
+    hint: 'You write the page. The three densities stop applying.',
   },
 ]
 
@@ -65,7 +65,7 @@ export function LayoutScreen({ slug, canWrite }: { slug: string; canWrite: boole
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
   const [view, setView] = useState('order')
-  const [css, setCss] = useState<string | null>(null)
+  const [custom, setCustom] = useState<{ html: string; css: string; js: string } | null>(null)
   const [design, setDesign] = useState<Block[] | null>(null)
 
   // The server is the source of truth until the first edit; after that the
@@ -81,38 +81,44 @@ export function LayoutScreen({ slug, canWrite }: { slug: string; canWrite: boole
   }, [summary.data, density])
 
   // Only served while the layout is `custom`, so an operator switching to it
-  // starts from an empty stylesheet rather than from whatever the last one was.
+  // starts from an empty document rather than from whatever the last one was.
   useEffect(() => {
-    if (summary.data && css === null) setCss(summary.data.tenant.custom?.css ?? '')
-  }, [summary.data, css])
-
-  // Parsed block by block rather than trusted: the column is JSON, and a page
-  // arranged by another version should degrade to the blocks this build can
-  // read rather than crash the screen that would let someone fix it.
-  useEffect(() => {
-    if (summary.data && design === null) setDesign(parseBlocks(summary.data.tenant.customBlocks))
-  }, [summary.data, design])
+    if (summary.data && custom === null) {
+      setCustom(summary.data.tenant.custom ?? { html: '', css: '', js: '' })
+    }
+  }, [summary.data, custom])
 
   /*
-   * An empty canvas is where this mode used to leave everybody.
+   * An empty document is where this mode used to leave everybody.
    *
-   * `custom` is the whole page now, so nothing placed means nothing drawn —
-   * and the way forward from a blank grid was to rebuild, block by block, the
-   * page you already had. Nobody does that to find out whether the mode is
-   * worth using. So arriving here with nothing arranged fills the draft with
-   * the default page expressed as blocks: your page, now movable.
+   * `custom` hands the page over — TERN draws none of its own widgets — so
+   * three empty boxes produced a public page that said nothing had been written
+   * yet, and the only way forward was to invent a dashboard, a stylesheet and a
+   * data bridge from nothing. Nobody does that to find out whether the mode is
+   * worth using. So arriving here with nothing written fills the draft with the
+   * example the demo runs, which is a thing to modify.
    *
    * Once, guarded by a ref rather than by the emptiness itself: an operator who
-   * deliberately clears the canvas must not have it written back under their
-   * hands on the next render. Nothing is saved until they save.
+   * deliberately clears all three fields must not have them written back under
+   * their hands on the next render. Nothing is saved until they save.
    */
   const seeded = useRef(false)
   useEffect(() => {
-    if (seeded.current || design === null || density !== 'custom') return
+    if (seeded.current || !summary.data || custom === null || density !== 'custom') return
     seeded.current = true
-    if (design.length > 0) return
-    setDesign(defaultBlocks())
-  }, [design, density])
+    if (custom.html.trim() || custom.css.trim() || custom.js.trim()) return
+    setCustom(starterDocument(summary.data.tenant.name))
+  }, [summary.data, custom, density])
+
+  // Parsed rather than trusted: the column is JSON, and a page arranged by an
+  // older version should degrade to an empty canvas rather than crash the
+  // screen that would let someone fix it.
+  useEffect(() => {
+    if (summary.data && design === null) {
+      const parsed = blocksSchema.safeParse(summary.data.tenant.customBlocks)
+      setDesign(parsed.success ? parsed.data : [])
+    }
+  }, [summary.data, design])
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -129,8 +135,12 @@ export function LayoutScreen({ slug, canWrite }: { slug: string; canWrite: boole
         layout: density ?? 'list',
         order: (order ?? []).map((control) => ({ controlId: control.id })),
         // Sent whatever the mode: an operator who tried `custom`, went back to
-        // `list` and returned should find their page where they left it.
-        ...(css !== null && { customCss: css }),
+        // `list` and returned should find their document where they left it.
+        ...(custom && {
+          customHtml: custom.html,
+          customCss: custom.css,
+          customJs: custom.js,
+        }),
         ...(design && { customBlocks: design }),
       }),
     onSuccess: async () => {
@@ -142,28 +152,14 @@ export function LayoutScreen({ slug, canWrite }: { slug: string; canWrite: boole
     onError: (err) => setError(err instanceof ApiError ? err.message : String(err)),
   })
 
-  /*
-   * Everything this screen can change, not just the two it used to watch.
-   *
-   * The density and the order were the whole of it once. Then the canvas and
-   * the stylesheet arrived and were left out, so moving a block or writing a
-   * rule left "Save layout" disabled — the one screen where the work is done by
-   * dragging was the one that would not admit anything had happened. Compared
-   * against what the server served rather than against a snapshot, so undoing
-   * an edit by hand goes back to clean.
-   */
   const dirty = useMemo(() => {
     if (!controls.data || !order || !summary.data || !density) return false
-    const tenant = summary.data.tenant
     const original = [...controls.data].sort((a, b) => a.position - b.position)
-    const storedBlocks = parseBlocks(tenant.customBlocks)
     return (
-      density !== tenant.layout ||
-      original.some((control, index) => control.id !== order[index]?.id) ||
-      (css !== null && css !== (tenant.custom?.css ?? '')) ||
-      (design !== null && JSON.stringify(design) !== JSON.stringify(storedBlocks))
+      density !== summary.data.tenant.layout ||
+      original.some((control, index) => control.id !== order[index]?.id)
     )
-  }, [controls.data, order, summary.data, density, css, design])
+  }, [controls.data, order, summary.data, density])
 
   if (controls.isPending || summary.isPending) return <p>Loading the page layout…</p>
   if (controls.isError) return <Banner tone="down">Could not load the components.</Banner>
@@ -223,13 +219,6 @@ export function LayoutScreen({ slug, canWrite }: { slug: string; canWrite: boole
                 onClick={() => {
                   setDensity(option.id)
                   setSaved(false)
-                  // Design and Style only exist under `custom`. Leaving it while
-                  // one of them is open left the strip with nothing selected and
-                  // an empty panel under it — the tab had gone, the state
-                  // pointing at it had not.
-                  if (option.id !== 'custom' && (view === 'design' || view === 'style')) {
-                    setView('order')
-                  }
                 }}
                 style={{
                   textAlign: 'left',
@@ -267,7 +256,7 @@ export function LayoutScreen({ slug, canWrite }: { slug: string; canWrite: boole
           ...(density === 'custom'
             ? [
                 { id: 'design', label: 'Design' },
-                { id: 'style', label: 'Style' },
+                { id: 'document', label: 'Document' },
               ]
             : []),
           { id: 'preview', label: 'Preview' },
@@ -279,18 +268,18 @@ export function LayoutScreen({ slug, canWrite }: { slug: string; canWrite: boole
               className="measure"
               style={{ margin: 0, fontSize: 'var(--text-sm)', color: 'var(--color-fg-subtle)' }}
             >
-              This is the whole page, not a panel in it: the header, the status ring, the subscribe
-              box and your components are all blocks here, on a twelve-column grid. Design decides
-              what is on the page and where; Style decides what it looks like.
+              Place components, your incidents, headings, text and images on a twelve-column grid.
+              Anything here wins over the Document tab — that one is the escape hatch for a page
+              this cannot express, and the two are kept apart so neither overwrites the other.
             </p>
             <BlockCanvas blocks={design} controls={controls.data ?? []} onChange={setDesign} />
           </div>
         )}
-        {view === 'style' && css !== null && (
-          <CustomStyleEditor
-            value={css}
+        {view === 'document' && custom && (
+          <CustomDocumentEditor
+            value={custom}
             pageName={summary.data?.tenant.name ?? 'Status'}
-            onChange={setCss}
+            onChange={setCustom}
           />
         )}
         {view === 'preview' && <LayoutPreview slug={slug} density={density} order={order} />}
@@ -639,46 +628,41 @@ function SortableRow({
   )
 }
 
+/** A miniature of the arrangement, so the choice is made on a shape, not a word. */
 /**
- * One editor, for the page's own stylesheet.
+ * Three editors for one document.
  *
- * This was three boxes — HTML, CSS and a script — rendered in a sandboxed frame
- * embedded in TERN's page. Two things were wrong with that, and they compounded:
- * a frame confined enough to be safe could not reach the component widgets, so
- * it redrew the charts approximately; and being a frame, it was a rectangle
- * *inside* the page rather than the page, which is exactly the complaint that
- * `custom` only ever changed a sub-part of it.
+ * Plain textareas rather than a code editor: pulling in CodeMirror for three
+ * fields is a megabyte of dependency for syntax colouring, and the thing an
+ * operator writes here is usually pasted from somewhere that already had one.
  *
- * The Design tab answers the arrangement half properly. What was left of the
- * document was the styling, and styling does not need a sandbox to be styling.
- * So: one stylesheet, applied to the real page, addressing the real elements.
- *
- * A plain textarea rather than a code editor: pulling in CodeMirror for one
- * field is a megabyte of dependency for syntax colouring, and what an operator
- * writes here is usually pasted from somewhere that already had one.
+ * The note above them is not decoration. Somebody arriving at a box marked
+ * "JavaScript" on a public status page deserves to be told, in the place they
+ * are typing, exactly how far it reaches.
  */
-function CustomStyleEditor({
+function CustomDocumentEditor({
   value,
   pageName,
   onChange,
 }: {
-  value: string
+  value: { html: string; css: string; js: string }
   pageName: string
-  onChange: (next: string) => void
+  onChange: (next: { html: string; css: string; js: string }) => void
 }) {
-  const empty = value.trim() === ''
+  const set = (key: 'html' | 'css' | 'js') => (next: string) => onChange({ ...value, [key]: next })
+  const empty = !value.html.trim() && !value.css.trim() && !value.js.trim()
 
   return (
     <div style={{ display: 'grid', gap: 'var(--space-4)' }}>
       <Banner tone="maintenance">
-        This stylesheet applies to your public page and nowhere else — not to this admin, and not to
-        anybody else&rsquo;s page. It styles what the Design tab placed; it cannot add or remove
-        anything. Your incidents, the theme controls and the TERN credit stay visible whatever this
-        says.
+        This document renders in a sandboxed frame with no access to the page around it: no cookies,
+        no session, no network. It is handed the status data through <code>tern.onUpdate(fn)</code>{' '}
+        and cannot fetch anything, which is what makes running your script here safe rather than
+        reckless. It arranges pixels; it cannot reach anything else.
       </Banner>
 
-      {/* The way back to something that works — for whoever cleared the box, or
-          styled themselves into a page that no longer reads. It is the same
+      {/* The way back to something that works — for whoever cleared the boxes,
+          or edited themselves into a page that no longer draws. It is the same
           text the demo runs, so what it produces is already known. Nothing is
           written until Save, here as everywhere on this screen. */}
       <div
@@ -689,48 +673,75 @@ function CustomStyleEditor({
           flexWrap: 'wrap',
         }}
       >
-        <Button onClick={() => onChange(starterStylesheet(pageName))}>
+        <Button onClick={() => onChange(starterDocument(pageName))}>
           {empty ? 'Start from the example' : 'Replace with the example'}
         </Button>
         <span style={{ fontSize: 'var(--text-xs)', color: 'var(--color-fg-subtle)' }}>
-          The stylesheet the demo runs — a palette, a width and a card shadow, commented. Overwrites
-          the field.
+          The dashboard the demo runs — a tile per component, incidents underneath. Overwrites all
+          three fields.
         </span>
       </div>
 
       <Field
-        label="CSS"
-        hint="Applied to the public page, after ours. Target the blocks by what they are, not by our markup."
+        label="HTML"
+        hint="The body of the document. Give the elements your script will fill ids or classes."
       >
         <Textarea
-          value={value}
-          rows={20}
+          value={value.html}
+          rows={12}
           spellCheck={false}
-          placeholder={'[data-tern="page"] { --color-accent: #2f6feb; }'}
-          onChange={(e) => onChange(e.target.value)}
+          placeholder={'<div class="wall">\n  <div id="components"></div>\n</div>'}
+          onChange={(e) => set('html')(e.target.value)}
+          style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-sm)' }}
+        />
+      </Field>
+
+      <Field label="CSS" hint="Applies inside the frame only. Nothing here can affect the admin.">
+        <Textarea
+          value={value.css}
+          rows={12}
+          spellCheck={false}
+          placeholder={'.wall { display: grid; grid-template-columns: repeat(4, 1fr); }'}
+          onChange={(e) => set('css')(e.target.value)}
+          style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-sm)' }}
+        />
+      </Field>
+
+      <Field
+        label="JavaScript"
+        hint="Runs on every refresh of the data. tern.data holds the latest summary."
+      >
+        <Textarea
+          value={value.js}
+          rows={12}
+          spellCheck={false}
+          placeholder={
+            'tern.onUpdate(function (data) {\n' +
+            "  document.getElementById('components').textContent =\n" +
+            "    data.components.map(function (c) { return c.name + ': ' + c.status }).join('\\n')\n" +
+            '})'
+          }
+          onChange={(e) => set('js')(e.target.value)}
           style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-sm)' }}
         />
       </Field>
 
       <details>
         <summary style={{ cursor: 'pointer', fontSize: 'var(--text-sm)', fontWeight: 600 }}>
-          What you can select
+          What the document is given
         </summary>
-        <CodeBlock label="Selectors">
-          {`[data-tern="page"]         the page itself — set --color-accent,
-                          --radius-md, max-width here
-[data-tern="header"]       your logo and the page name
-[data-tern="pulse"]        the status ring
-[data-tern="subscribe"]    the subscribe box
-[data-tern="incidents"]    incidents and maintenance notes
-[data-tern="components"]   the component cards
-[data-tern="control"]      a single placed component
-[data-tern="text"]         a heading or paragraph block
-[data-tern="image"]        an image block
-[data-tern="arrangement"]  the twelve-column grid itself
-
-.page-note                 one incident or maintenance note
-.page-group                one group of components`}
+        <CodeBlock label="tern.data">
+          {`{
+  overall:      { status, affectedCount },
+  groups:       [{ id, parentId, name, position, status }],
+  components:   [{ id, key, name, description, groupId, status,
+                   latencyMs, value, valueUnit, valueLabel, lastCheckAt }],
+  incidents:    [{ id, title, severity, status, startedAt,
+                   latestUpdate: { status, body, createdAt } | null, impacts }],
+  maintenances: [{ id, title, body, status,
+                   scheduledStart, scheduledEnd, controlIds }],
+  generatedAt:  string
+}`}
         </CodeBlock>
       </details>
     </div>
