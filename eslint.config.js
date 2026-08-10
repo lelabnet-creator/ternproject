@@ -1,6 +1,7 @@
 import js from '@eslint/js'
 import tseslint from 'typescript-eslint'
 import prettier from 'eslint-config-prettier'
+import reactHooks from 'eslint-plugin-react-hooks'
 
 export default tseslint.config(
   {
@@ -43,6 +44,29 @@ export default tseslint.config(
     },
     rules: {
       'no-console': 'off',
+    },
+  },
+  /*
+   * The rules of hooks, on the React code.
+   *
+   * Absent until a hook was added below an early return in `StatusPage` and
+   * shipped: it ran on the renders that had data and not on the ones that did
+   * not, so the first render after the skeleton called a thirty-fifth hook
+   * where there had been thirty-four and React threw before drawing anything.
+   * Lint was green throughout, because nothing here was checking.
+   *
+   * `rules-of-hooks` is an error — it catches a class of bug that cannot be
+   * caught by types and is invisible until the exact render order that trips
+   * it. `exhaustive-deps` stays a warning: it is right most of the time and
+   * wrong often enough that making it fail the build would teach people to
+   * disable it.
+   */
+  {
+    files: ['apps/web/**/*.{ts,tsx}'],
+    plugins: { 'react-hooks': reactHooks },
+    rules: {
+      'react-hooks/rules-of-hooks': 'error',
+      'react-hooks/exhaustive-deps': 'warn',
     },
   },
   prettier,

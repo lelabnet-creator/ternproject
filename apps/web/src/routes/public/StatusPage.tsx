@@ -58,6 +58,18 @@ export function StatusPage({ slug }: { slug: string }) {
 
   const online = useOnline()
 
+  /*
+   * Up here with the other hooks, and that is not a matter of tidiness.
+   *
+   * This sat further down, below `if (summary.isPending) return …` — so it ran
+   * on the renders that had data and not on the ones that did not, which is the
+   * conditional-hook mistake exactly. React counts hooks by call order, so the
+   * first render after the skeleton added a thirty-fifth where there had been
+   * thirty-four, and the page threw "Rendered more hooks than during the
+   * previous render" before it drew anything.
+   */
+  const compact = useCompact()
+
   const branding = summary.data?.tenant.branding as Record<string, unknown> | undefined
 
   const accentId = branding?.accent
@@ -104,7 +116,6 @@ export function StatusPage({ slug }: { slug: string }) {
   // The admin's layout editor frames this page to preview an arrangement that
   // has not been saved. Presentation only — the query cannot reveal a component
   // the reader could not already see, reorder anything server-side, or persist.
-  const compact = useCompact()
   const preview = previewOverrides(window.location.search)
   const layout = preview.layout ?? data.tenant.layout
 
