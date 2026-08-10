@@ -1799,6 +1799,31 @@ function ControlCard({
     onError: (err) => setRefused(err instanceof ApiError ? err.message : String(err)),
   })
 
+  /*
+   * Deleting the control from its own card.
+   *
+   * It was only reachable from inside the editor, which meant opening a
+   * four-step wizard to get rid of something — and the one case where that
+   * hurts is the common one: a control created by mistake, or a test left over
+   * from setting the page up. Those are exactly the rows nobody wants to walk a
+   * wizard for, so they stay.
+   *
+   * Confirmed in place rather than with a dialog. What is being destroyed is
+   * the measurement history, which is the only thing here that cannot be
+   * recreated by typing the definition again — so the sentence says that
+   * instead of asking "are you sure".
+   */
+  const [confirmingDelete, setConfirmingDelete] = useState(false)
+  const remove = useMutation({
+    mutationFn: () => adminApi.deleteControl(slug, control.id),
+    onSuccess: async () => {
+      setRefused(null)
+      setConfirmingDelete(false)
+      await queryClient.invalidateQueries({ queryKey: ['controls', slug] })
+    },
+    onError: (err) => setRefused(err instanceof ApiError ? err.message : String(err)),
+  })
+
   return (
     /*
      * A disabled control is drawn differently, not merely tagged.
@@ -1994,7 +2019,31 @@ function ControlCard({
               Edit
             </Button>
           )}
+
+          {/* Last, and only an icon: it is the one action here that cannot be
+              undone, so it should not sit at the end of a reading path that
+              ends in a word the eye can mistake for another. */}
+          {canWrite && !confirmingDelete && (
+            <Button ariaLabel={`Delete ${control.name}`} onClick={() => setConfirmingDelete(true)}>
+              <Icons.Trash2 size={14} aria-hidden="true" />
+            </Button>
+          )}
         </div>
+
+        {confirmingDelete && (
+          <div style={{ display: 'grid', gap: 'var(--space-2)' }}>
+            <p style={{ margin: 0, fontSize: 'var(--text-sm)' }}>
+              Delete “{control.name}”? Its measurement history goes with it, and that is the part
+              that cannot be typed back.
+            </p>
+            <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
+              <Button variant="danger" busy={remove.isPending} onClick={() => remove.mutate()}>
+                Delete it
+              </Button>
+              <Button onClick={() => setConfirmingDelete(false)}>Keep it</Button>
+            </div>
+          </div>
+        )}
       </div>
     </Card>
   )

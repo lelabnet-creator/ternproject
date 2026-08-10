@@ -858,8 +858,34 @@ export function AgentRow({
     onError: (err) => setError(err instanceof ApiError ? err.message : String(err)),
   })
 
+  /*
+   * Revoking a relay leaves its zone behind, and somebody has to decide what
+   * happens to it.
+   *
+   * The rows for agents in a zone exist only because the relay declares them:
+   * this server never paired them and holds no key for them. Revoke the relay
+   * and it stops declaring, so those rows stop being refreshed and sit there
+   * for ever — machines that look enrolled, are not, and cannot be revoked
+   * because there is nothing to revoke. Silently deleting them would be just as
+   * wrong the other way: a relay swapped for a new one at the same address
+   * would lose the record of what it covered.
+   *
+   * So it is asked, once, at the moment the answer is known.
+   */
+  const [alsoZone, setAlsoZone] = useState(true)
   const revoke = useMutation({
-    mutationFn: () => adminApi.revokeAgent(slug, agent.id),
+    mutationFn: async () => {
+      await adminApi.revokeAgent(slug, agent.id)
+      // After the relay, not before: if revoking it fails, its zone is left
+      // exactly as it was rather than half cleared.
+      if (relay && alsoZone && zone.length > 0) {
+        await adminApi.bulkAgents(
+          slug,
+          zone.map((a) => a.id),
+          'delete',
+        )
+      }
+    },
     onSuccess: () => invalidate(),
   })
 
@@ -967,19 +993,6 @@ export function AgentRow({
               proxy
             </span>
           )}
-          <div
-            className="tabular"
-            style={{ fontSize: 'var(--text-xs)', color: 'var(--color-fg-subtle)' }}
-          >
-            {agent.site ?? 'no site'} · {agent.os ?? 'unknown OS'}
-            {agent.arch ? `/${agent.arch}` : ''} · {agent.agentVersion ?? 'version unknown'} ·{' '}
-            {/* The address it paired from. Stored since the table existed and
-                never shown, which left "which box is this?" to be answered by
-                guessing at hostnames. An agent known only through a proxy has
-                none here: this server never saw it. */}
-            {agent.pairedIp ? `${agent.pairedIp} · ` : ''}
-            {lastSeen(agent, now)}
-          </div>
           {agent.isLocal && agent.networkMode && <Vantage mode={agent.networkMode} />}
         </div>
 
@@ -1020,6 +1033,33 @@ export function AgentRow({
             </>
           )}
         </div>
+      </div>
+
+      {/*
+        Under the buttons, not beside the name.
+
+        It was in the title block, which is the narrow column: on a card the
+        width of the fleet screen it wrapped to three lines and pushed the
+        name away from the buttons that act on it. None of it is identity —
+        it is what the machine turned out to be — so it belongs after the row
+        of things you can do, where it reads as a caption.
+      */}
+      <div
+        className="tabular"
+        style={{
+          marginTop: 'var(--space-2)',
+          fontSize: 'var(--text-xs)',
+          color: 'var(--color-fg-subtle)',
+        }}
+      >
+        {agent.site ?? 'no site'} · {agent.os ?? 'unknown OS'}
+        {agent.arch ? `/${agent.arch}` : ''} · {agent.agentVersion ?? 'version unknown'} ·{' '}
+        {/* The address it paired from. Stored since the table existed and
+          never shown, which left "which box is this?" to be answered by
+          guessing at hostnames. An agent known only through a proxy has
+          none here: this server never saw it. */}
+        {agent.pairedIp ? `${agent.pairedIp} · ` : ''}
+        {lastSeen(agent, now)}
       </div>
 
       {open && agent.controls.length > 0 && (
@@ -1194,6 +1234,34 @@ export function AgentRow({
             Revoke “{agent.name}”? Its key is revoked too, so it stops reporting immediately and
             must be paired again.
           </Banner>
+
+          {relay && zone.length > 0 && (
+            <label
+              style={{
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: 'var(--space-2)',
+                marginTop: 'var(--space-2)',
+                fontSize: 'var(--text-sm)',
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={alsoZone}
+                onChange={(e) => setAlsoZone(e.target.checked)}
+                style={{ marginTop: 3 }}
+              />
+              <span>
+                Also remove the {zone.length} agent{zone.length === 1 ? '' : 's'} behind it.{' '}
+                <span style={{ color: 'var(--color-fg-subtle)' }}>
+                  They are listed here only because this relay declares them. Left in place they
+                  stop being refreshed and stay for ever — enrolled in appearance, unreachable in
+                  fact, and with no key here to revoke. Keep them only if another relay is about to
+                  take over the same zone.
+                </span>
+              </span>
+            </label>
+          )}
           <div style={{ display: 'flex', gap: 'var(--space-2)', marginTop: 'var(--space-2)' }}>
             <Button variant="danger" busy={revoke.isPending} onClick={() => revoke.mutate()}>
               Revoke it
