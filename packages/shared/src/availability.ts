@@ -42,6 +42,45 @@ export type AvailabilitySample = {
   agentId?: string | null
 }
 
+/**
+ * One bucket of a continuous aggregate, as `checks_1m`/`_5m`/`_1h` store it.
+ *
+ * The second way into this module, and the reason it takes intervals rather
+ * than points. A year of raw checks is exactly what the aggregates exist to
+ * avoid reading, but an aggregate has no timestamps left — only counts. So a
+ * bucket arrives as an interval with a mixture in it, and the duration is
+ * apportioned by that mixture.
+ *
+ * ── What the aggregate cannot answer ──────────────────────────────────────
+ * Two things are gone by the time a bucket exists, and both are named here
+ * rather than quietly approximated:
+ *
+ * - **Which agent.** `checks_1m` groups by `control_id` alone, so several
+ *   agents covering one control are already merged. The OR rule therefore
+ *   applies only to the raw path. In practice the merge is close to an OR —
+ *   a failure from any agent lands in `down_samples` — but it is a count, not
+ *   a timeline, so it cannot say the control was down *for* that time.
+ * - **When, inside the bucket.** Nine checks passed and one failed; where in
+ *   the hour is information the aggregation threw away. A tenth of the hour is
+ *   the estimator that neither invents an outage nor hides one, and the
+ *   endpoint says which resolution it used so the reader knows how sharp the
+ *   answer is.
+ */
+export type AvailabilityBucket = {
+  /** Bucket start, epoch milliseconds. */
+  from: number
+  /** Bucket end, epoch milliseconds. */
+  to: number
+  samples: number
+  /** `ok_samples`. */
+  ok: number
+  degraded: number
+  /** `down_samples`, which already folds `partial` in. */
+  down: number
+  maintenance: number
+  unknown: number
+}
+
 export type TimeWindow = {
   /** Epoch milliseconds, inclusive. */
   from: number
@@ -60,7 +99,22 @@ export type AvailabilityInput = {
    * the window is wide.
    */
   intervalMs: number
-  samples: readonly AvailabilitySample[]
+  /**
+   * Raw checks. Exactly one of `samples` and `buckets` is given.
+   *
+   * This is the sharp path: every rule applies, including the debounce and the
+   * OR across agents, because the timestamps are still there.
+   */
+  samples?: readonly AvailabilitySample[]
+  /**
+   * Aggregate buckets, for windows too wide to read raw.
+   *
+   * `intervalMs` is ignored on this path — a bucket already states its own
+   * span, and there is no staleness to infer when the aggregate has a row for
+   * every period it covers. A period the aggregate has no row for is unknown,
+   * which is what a gap between buckets means.
+   */
+  buckets?: readonly AvailabilityBucket[]
   /**
    * Periods removed from the calculation entirely — planned maintenance.
    *
@@ -220,9 +274,19 @@ function durationOutside(from: number, to: number, exclusions: readonly TimeWind
 type Segment = {
   from: number
   to: number
-  failing: boolean
-  excluded: boolean
-  unknown: boolean
+  /** Share of this interval that was failing, 0 to 1. */
+  downFraction: number
+  maintenanceFraction: number
+  unknownFraction: number
+  /**
+   * The interval carries one state rather than a mixture.
+   *
+   * True for anything built from raw checks, false for an aggregate bucket in
+   * which some checks passed and others failed. Only a definite interval can
+   * take part in the debounce, because only a definite interval still knows
+   * that its failures were consecutive.
+   */
+  definite: boolean
   /**
    * This segment is a missing heartbeat rather than an observed failure.
    *
@@ -236,8 +300,52 @@ type Segment = {
   fromSilence: boolean
 }
 
+/**
+ * Aggregate buckets, turned into intervals with a mixture in each.
+ *
+ * Straightforward next to the sample path, and that asymmetry is the point: a
+ * bucket already *is* an interval, whereas a point sample has to be given one
+ * by guessing how long it speaks for. Everything downstream sees the same
+ * shape, so the four rules live in one place rather than being reimplemented
+ * per resolution — which is exactly how a percentage ends up meaning one thing
+ * for a day and another for a year.
+ */
+function segmentsFromBuckets(
+  buckets: readonly AvailabilityBucket[],
+  window: TimeWindow,
+): Segment[] {
+  const segments: Segment[] = []
+
+  for (const bucket of buckets) {
+    const from = Math.max(bucket.from, window.from)
+    const to = Math.min(bucket.to, window.to)
+    if (to <= from || bucket.samples <= 0) continue
+
+    const total = bucket.samples
+    const downFraction = bucket.down / total
+    const maintenanceFraction = bucket.maintenance / total
+    const unknownFraction = bucket.unknown / total
+
+    segments.push({
+      from,
+      to,
+      downFraction,
+      maintenanceFraction,
+      unknownFraction,
+      // A bucket whose checks all said the same thing has lost nothing to the
+      // aggregation, so it may still take part in the debounce. A mixed one
+      // has, and says so.
+      definite: downFraction === 1 || downFraction === 0,
+      fromSilence: false,
+    })
+  }
+
+  return segments.sort((a, b) => a.from - b.from)
+}
+
 export function computeAvailability(input: AvailabilityInput): AvailabilityResult {
-  const { window, intervalMs, samples } = input
+  const { window, intervalMs } = input
+  const samples = input.samples ?? []
   const debounce = Math.max(1, input.debounce ?? DEFAULT_DEBOUNCE)
   const silenceIsDown = input.silence === 'down'
   const graceMs = input.graceMs ?? intervalMs
@@ -250,9 +358,10 @@ export function computeAvailability(input: AvailabilityInput): AvailabilityResul
   const maxGapMs = input.maxGapMs ?? (silenceIsDown ? intervalMs + graceMs : intervalMs * 2)
   /** What a stretch with no live sample is, for this control. */
   const silent = {
-    failing: silenceIsDown,
-    excluded: false,
-    unknown: !silenceIsDown,
+    downFraction: silenceIsDown ? 1 : 0,
+    maintenanceFraction: 0,
+    unknownFraction: silenceIsDown ? 0 : 1,
+    definite: true,
     fromSilence: silenceIsDown,
   }
   const exclusions = normaliseWindows(input.exclusions ?? [], window)
@@ -281,6 +390,10 @@ export function computeAvailability(input: AvailabilityInput): AvailabilityResul
   const relevant = samples
     .filter((s) => s.ts < window.to && s.ts >= window.from - maxGapMs)
     .sort((a, b) => a.ts - b.ts)
+
+  if (input.buckets) {
+    return count(segmentsFromBuckets(input.buckets, window))
+  }
 
   if (relevant.length === 0) return empty
 
@@ -341,14 +454,18 @@ export function computeAvailability(input: AvailabilityInput): AvailabilityResul
      */
     const allUnknown = live.every((s) => isUnknown(s.status))
 
+    const failing = live.some((s) => isFailing(s.status)) || (allUnknown && silenceIsDown)
+    // Every live agent has to agree it is planned work; one that is measuring
+    // a real outage during a maintenance window is still measuring one.
+    const excluded = !failing && live.every((s) => isExcluded(s.status))
+
     segments.push({
       from: at,
       to,
-      failing: live.some((s) => isFailing(s.status)) || (allUnknown && silenceIsDown),
-      // Every live agent has to agree it is planned work; one that is measuring
-      // a real outage during a maintenance window is still measuring one.
-      excluded: live.every((s) => isExcluded(s.status)),
-      unknown: allUnknown && !silenceIsDown,
+      downFraction: failing ? 1 : 0,
+      maintenanceFraction: excluded ? 1 : 0,
+      unknownFraction: !failing && !excluded && allUnknown ? 1 : 0,
+      definite: true,
       fromSilence: allUnknown && silenceIsDown,
     })
 
@@ -357,87 +474,125 @@ export function computeAvailability(input: AvailabilityInput): AvailabilityResul
     }
   }
 
-  /*
-   * ── The debounce, applied to runs rather than to points ───────────────────
+  /**
+   * The counting, shared by both paths.
    *
-   * A maximal run of consecutive failing segments counts as an outage only if
-   * it holds for `debounce` checks. Shorter runs are flapping and are credited
-   * as available — which is the whole point of the setting, and also why the
-   * run has to be identified before any duration is added up.
+   * Defined once and called from each, because the four rules are the whole
+   * point of this module: a resolution that carried its own copy of them is
+   * how a percentage comes to mean one thing for a day and another for a
+   * year.
    */
-  const failingRuns: { start: number; end: number; length: number }[] = []
-  let run: { start: number; end: number; length: number } | null = null
-  for (const segment of segments) {
-    if (segment.unknown || segment.excluded) {
-      // Neither confirms nor breaks a run: nothing was observed, so nothing is
-      // known about whether the failure continued.
-      continue
-    }
-    if (segment.failing) {
-      if (run) {
-        run.end = segment.to
-        run.length += 1
-      } else {
-        run = { start: segment.from, end: segment.to, length: 1 }
+  function count(segments: Segment[]): AvailabilityResult {
+    /*
+     * ── The debounce, applied to runs rather than to points ───────────────────
+     *
+     * A maximal run of consecutive failing segments counts as an outage only if
+     * it holds for `debounce` checks. Shorter runs are flapping and are credited
+     * as available — which is the whole point of the setting, and also why the
+     * run has to be identified before any duration is added up.
+     */
+    const failingRuns: { start: number; end: number; length: number }[] = []
+    let run: { start: number; end: number; length: number } | null = null
+    for (const segment of segments) {
+      if (segment.unknownFraction === 1 || segment.maintenanceFraction === 1) {
+        // Neither confirms nor breaks a run: nothing was observed, so nothing is
+        // known about whether the failure continued.
+        continue
       }
-    } else if (run) {
-      failingRuns.push(run)
-      run = null
+      /*
+       * Only a *wholly* failing interval can join a run.
+       *
+       * An interval that is part failing and part not is an aggregate bucket —
+       * an hour in which some checks failed and others did not. The flapping the
+       * debounce exists to absorb has already been absorbed by the aggregation,
+       * and the bucket no longer carries the timestamps that would say whether
+       * the failures were consecutive. Putting it through a count of consecutive
+       * checks would be applying a rule to information that is no longer there.
+       */
+      if (segment.definite && segment.downFraction === 1) {
+        if (run) {
+          run.end = segment.to
+          run.length += 1
+        } else {
+          run = { start: segment.from, end: segment.to, length: 1 }
+        }
+      } else if (run) {
+        failingRuns.push(run)
+        run = null
+      }
+    }
+    if (run) failingRuns.push(run)
+
+    const confirmed = failingRuns.filter((r) => r.length >= debounce)
+
+    let upMs = 0
+    let downMs = 0
+    /*
+     * Samples whose *status* was `maintenance`, as opposed to time inside a
+     * declared window. Two ways of saying the same thing — one scheduled ahead,
+     * one observed — and both leave the denominator.
+     */
+    let maintenanceMs = 0
+
+    for (const segment of segments) {
+      // What is left of this segment once the declared windows are removed.
+      const span = durationOutside(segment.from, segment.to, exclusions)
+      if (span <= 0) continue
+
+      maintenanceMs += span * segment.maintenanceFraction
+
+      /*
+       * The interval's duration, apportioned by what was seen in it.
+       *
+       * For a raw check the fractions are 0 or 1 and this is the same arithmetic
+       * as before. For an aggregate bucket it is the only honest estimator
+       * available: the bucket says nine checks passed and one failed, and where
+       * inside the hour the failure fell is information the aggregation threw
+       * away. Ten per cent of the hour is the answer that neither invents an
+       * outage nor hides one.
+       */
+      const failing =
+        // A missing heartbeat is already time-bounded by `graceMs`; putting it
+        // through a count of consecutive checks that never happened would discard
+        // every silence there is. A fractional interval never had a run to be in.
+        segment.fromSilence ||
+        !segment.definite ||
+        confirmed.some((r) => segment.from >= r.start && segment.to <= r.end)
+
+      const measured = span * (1 - segment.maintenanceFraction - segment.unknownFraction)
+      const down = span * segment.downFraction
+
+      if (failing) {
+        downMs += down
+        upMs += measured - down
+      } else {
+        // The debounce credited it: flapping, and the time counts as available.
+        upMs += measured
+      }
+    }
+
+    /*
+     * The three totals are derived from the window rather than accumulated
+     * segment by segment, so they add up to it by construction.
+     *
+     * Accumulating them separately is how a rounding of nothing turns into a
+     * denominator that is not the window — and the one thing a reader is entitled
+     * to assume about these four numbers is that they account for the period.
+     */
+    const outsideExclusions = durationOutside(window.from, window.to, exclusions)
+    const observedMs = upMs + downMs
+    const excludedMs = windowMs - outsideExclusions + maintenanceMs
+    const unknownMs = Math.max(0, outsideExclusions - observedMs - maintenanceMs)
+
+    return {
+      uptimePct: observedMs > 0 ? (100 * upMs) / observedMs : null,
+      upMs,
+      downMs,
+      observedMs,
+      excludedMs,
+      unknownMs,
     }
   }
-  if (run) failingRuns.push(run)
 
-  const confirmed = failingRuns.filter((r) => r.length >= debounce)
-
-  let upMs = 0
-  let downMs = 0
-  /*
-   * Samples whose *status* was `maintenance`, as opposed to time inside a
-   * declared window. Two ways of saying the same thing — one scheduled ahead,
-   * one observed — and both leave the denominator.
-   */
-  let maintenanceMs = 0
-
-  for (const segment of segments) {
-    // What is left of this segment once the declared windows are removed.
-    const span = durationOutside(segment.from, segment.to, exclusions)
-    if (span <= 0) continue
-
-    if (segment.unknown) continue
-    if (segment.excluded) {
-      maintenanceMs += span
-      continue
-    }
-
-    const counted =
-      segment.failing &&
-      // A missing heartbeat is already time-bounded by `graceMs`; putting it
-      // through a count of consecutive checks that never happened would discard
-      // every silence there is.
-      (segment.fromSilence || confirmed.some((r) => segment.from >= r.start && segment.to <= r.end))
-    if (counted) downMs += span
-    else upMs += span
-  }
-
-  /*
-   * The three totals are derived from the window rather than accumulated
-   * segment by segment, so they add up to it by construction.
-   *
-   * Accumulating them separately is how a rounding of nothing turns into a
-   * denominator that is not the window — and the one thing a reader is entitled
-   * to assume about these four numbers is that they account for the period.
-   */
-  const outsideExclusions = durationOutside(window.from, window.to, exclusions)
-  const observedMs = upMs + downMs
-  const excludedMs = windowMs - outsideExclusions + maintenanceMs
-  const unknownMs = Math.max(0, outsideExclusions - observedMs - maintenanceMs)
-
-  return {
-    uptimePct: observedMs > 0 ? (100 * upMs) / observedMs : null,
-    upMs,
-    downMs,
-    observedMs,
-    excludedMs,
-    unknownMs,
-  }
+  return count(segments)
 }

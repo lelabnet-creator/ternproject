@@ -313,6 +313,119 @@ describe('a push control, where silence is the signal', () => {
   })
 })
 
+describe('the aggregate path', () => {
+  /** An hourly bucket, as `checks_1h` stores one. */
+  const bucket = (hour: number, counts: Partial<Record<'ok' | 'down' | 'unknown', number>>) => ({
+    from: at(hour * 60),
+    to: at((hour + 1) * 60),
+    samples: (counts.ok ?? 0) + (counts.down ?? 0) + (counts.unknown ?? 0),
+    ok: counts.ok ?? 0,
+    degraded: 0,
+    down: counts.down ?? 0,
+    maintenance: 0,
+    unknown: counts.unknown ?? 0,
+  })
+
+  const DAY = { from: at(0), to: at(24 * 60) }
+
+  it('apportions a bucket by what was seen in it', () => {
+    /*
+     * The whole reason this module takes intervals rather than points. A year
+     * of raw checks is what the aggregates exist to avoid reading, and an
+     * aggregate has no timestamps left — only counts. Six of sixty checks
+     * failed in that hour, so six minutes of it were unavailable. Where inside
+     * the hour is information the aggregation threw away, and a tenth of the
+     * hour is the estimator that neither invents an outage nor hides one.
+     */
+    const result = computeAvailability({
+      window: DAY,
+      intervalMs: MINUTE,
+      buckets: [
+        ...[...Array(23)].map((_, h) => bucket(h, { ok: 60 })),
+        bucket(23, { ok: 54, down: 6 }),
+      ],
+    })
+
+    expect(result.downMs).toBe(6 * MINUTE)
+    expect(result.observedMs).toBe(24 * 60 * MINUTE)
+  })
+
+  it('agrees with the raw path when the buckets are unmixed', () => {
+    /*
+     * The property that makes one module rather than two worth having: at any
+     * resolution, an outage that fell cleanly inside its buckets costs the same
+     * time. A percentage that meant one thing for a day and another for a year
+     * is the failure this pins.
+     */
+    const fromBuckets = computeAvailability({
+      window: DAY,
+      intervalMs: MINUTE,
+      buckets: [
+        ...[...Array(10)].map((_, h) => bucket(h, { ok: 60 })),
+        bucket(10, { down: 60 }),
+        bucket(11, { down: 60 }),
+        ...[...Array(12)].map((_, h) => bucket(h + 12, { ok: 60 })),
+      ],
+    })
+
+    expect(fromBuckets.downMs).toBe(2 * 60 * MINUTE)
+    expect(fromBuckets.uptimePct).toBeCloseTo((100 * 22) / 24, 6)
+  })
+
+  it('does not put a mixed bucket through the debounce', () => {
+    /*
+     * A bucket with some failures and some successes has already absorbed the
+     * flapping the debounce exists to catch, and no longer carries the
+     * timestamps that would say whether the failures were consecutive. Applying
+     * a count of consecutive checks to it would be applying a rule to
+     * information that is not there — and with the default of two, a single
+     * mixed bucket would be silently discarded.
+     */
+    const result = computeAvailability({
+      window: DAY,
+      intervalMs: MINUTE,
+      buckets: [
+        ...[...Array(23)].map((_, h) => bucket(h, { ok: 60 })),
+        bucket(23, { ok: 59, down: 1 }),
+      ],
+    })
+    expect(result.downMs).toBe(MINUTE)
+  })
+
+  it('still debounces a bucket that failed outright', () => {
+    // Unmixed, so nothing was lost to the aggregation and the rule still has
+    // the information it needs. One failed hour alone is flapping at this
+    // resolution, exactly as one failed check is at the raw one.
+    const result = computeAvailability({
+      window: DAY,
+      intervalMs: MINUTE,
+      buckets: [...[...Array(23)].map((_, h) => bucket(h, { ok: 60 })), bucket(23, { down: 60 })],
+    })
+    expect(result.downMs).toBe(0)
+  })
+
+  it('treats an hour the aggregate has no row for as unknown', () => {
+    const result = computeAvailability({
+      window: DAY,
+      intervalMs: MINUTE,
+      buckets: [...Array(20)].map((_, h) => bucket(h, { ok: 60 })),
+    })
+    expect(result.unknownMs).toBe(4 * 60 * MINUTE)
+    expect(result.observedMs).toBe(20 * 60 * MINUTE)
+  })
+
+  it('excludes planned maintenance from a bucket that overlaps it', () => {
+    const result = computeAvailability({
+      window: DAY,
+      intervalMs: MINUTE,
+      buckets: [...Array(24)].map((_, h) => bucket(h, { ok: 60 })),
+      exclusions: [{ from: at(2 * 60), to: at(4 * 60) }],
+    })
+    expect(result.excludedMs).toBe(2 * 60 * MINUTE)
+    expect(result.observedMs).toBe(22 * 60 * MINUTE)
+  })
+})
+
 describe('time nobody observed', () => {
   it('leaves the denominator rather than being guessed', () => {
     /*

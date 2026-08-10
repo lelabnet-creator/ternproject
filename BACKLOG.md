@@ -56,12 +56,12 @@ précision qu'il n'a pas.
       maintenances. Aucun accès base ici — c'est ce qui le rend testable.
 
       Fait : `packages/shared/src/availability.ts`, 17 tests. Vérifié avec
-                  l'index seul. Deux décisions écrites en chemin — `degraded` compte comme
-                  disponible (les agrégats ne comptaient que `operational`, donc un service
-                  lent baissait l'uptime publié), et le temps que personne n'a observé quitte
-                  le dénominateur au lieu d'être deviné dans un sens ou dans l'autre.
-                  Le sous-chemin `@tern/shared/availability` reste à ajouter au point 4 :
-                  `packages/shared/package.json` porte un travail en cours non commité.
+                      l'index seul. Deux décisions écrites en chemin — `degraded` compte comme
+                      disponible (les agrégats ne comptaient que `operational`, donc un service
+                      lent baissait l'uptime publié), et le temps que personne n'a observé quitte
+                      le dénominateur au lieu d'être deviné dans un sens ou dans l'autre.
+                      Le sous-chemin `@tern/shared/availability` reste à ajouter au point 4 :
+                      `packages/shared/package.json` porte un travail en cours non commité.
 
 - [x] **2. Le cas `push`.** Pas d'échec au sens classique : l'indisponibilité
       commence à `expectedIntervalS` + grâce après le dernier battement reçu, et
@@ -69,23 +69,39 @@ précision qu'il n'a pas.
       écrire pourquoi. Se raccorder à la balayeuse de péremption qui existe déjà.
 
       Fait : `silence: 'down'` et `graceMs`, 6 tests de plus (23 au total).
-          La grâce vaut un intervalle plein par défaut, donc le seuil effectif est
-          deux fois l'intervalle — **le nombre exact** de `sweepStaleControls`
-          (`expected_interval_s * 2`). Deux seuils pour une même question, c'est
-          ainsi qu'une pastille et un pourcentage finissent par ne pas dire la même
-          chose de la même minute.
+              La grâce vaut un intervalle plein par défaut, donc le seuil effectif est
+              deux fois l'intervalle — **le nombre exact** de `sweepStaleControls`
+              (`expected_interval_s * 2`). Deux seuils pour une même question, c'est
+              ainsi qu'une pastille et un pourcentage finissent par ne pas dire la même
+              chose de la même minute.
 
-          Une tension levée plutôt que contournée : la balayeuse écrit `unknown`,
-          jamais `down`, et elle a raison — mais elle répond à « que dit la pastille
-          maintenant », où déclarer une panne publique sur un battement manqué
-          transforme chaque redémarrage d'agent en incident. Le calcul répond à « ce
-          que la période **a été** », où une heure de silence inexpliqué d'un travail
-          censé rapporter toutes les cinq minutes n'est pas du temps à retirer de
-          l'arithmétique. La pastille reste prudente, le pourcentage reste honnête.
+              Une tension levée plutôt que contournée : la balayeuse écrit `unknown`,
+              jamais `down`, et elle a raison — mais elle répond à « que dit la pastille
+              maintenant », où déclarer une panne publique sur un battement manqué
+              transforme chaque redémarrage d'agent en incident. Le calcul répond à « ce
+              que la période **a été** », où une heure de silence inexpliqué d'un travail
+              censé rapporter toutes les cinq minutes n'est pas du temps à retirer de
+              l'arithmétique. La pastille reste prudente, le pourcentage reste honnête.
 
-          Le marqueur `unknown` de la balayeuse compte comme silence pour un `push` :
-          le laisser dans le seau « inconnu » ferait annuler par la preuve du silence
-          le silence lui-même. Le câblage effectif se fait au point 3.
+              Le marqueur `unknown` de la balayeuse compte comme silence pour un `push` :
+              le laisser dans le seau « inconnu » ferait annuler par la preuve du silence
+              le silence lui-même. Le câblage effectif se fait au point 3.
+
+- [x] **3a. Le module prend des intervalles, pas des points** (option A, décidée
+      après avoir buté sur le point 3). Les agrégats ne gardent pas d'instants —
+      seulement des compteurs — et `checks_1m` groupe par `control_id` seul,
+      donc la dimension agent que la règle OR réclame est déjà écrasée. Les deux
+      ne se branchaient pas l'un sur l'autre.
+
+      Fait : un check brut devient un intervalle à état plein, un seau d'agrégat
+          un intervalle fractionnaire, et un seul compteur sert les deux. 6 tests de
+          plus (29). Les 23 précédents passent **inchangés** : le chemin « points »
+          est devenu un constructeur d'intervalles, pas une autre sémantique.
+
+          Deux limites nommées plutôt qu'approximées : le OR entre agents ne vaut
+          que sur le chemin brut, et un seau mixte ne passe pas le debounce — le
+          battement y a déjà été absorbé par l'agrégation, et les instants qui
+          diraient si les échecs étaient consécutifs n'existent plus.
 
 - [ ] **3. L'endpoint.** Granularités jour / semaine / mois / année, bornes de
       début et de fin, un contrôle ou tous. Il annonce la résolution employée.
