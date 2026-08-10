@@ -1,194 +1,56 @@
-# Backlog — le taux de disponibilité
+# Backlog
 
-Le sujet précédent (poser un relais depuis l'interface) est terminé, fusionné et
-tagué `v0.1.20` ; son détail est dans l'historique git.
+Le sujet précédent — **le taux de disponibilité** — est terminé, fusionné et
+tagué `v0.1.21`. Le détail de chaque point est dans l'historique git ; ce qui
+suit est ce qu'il faut savoir sans le lire.
 
-Celui-ci part d'un défaut mesurable. `GET /public/:slug/uptime.json`
-(`apps/api/src/routes/status.ts:438`) calcule aujourd'hui :
+## Ce que la 0.1.21 a changé
 
-```sql
-round(100.0 * sum(a.ok_samples) / sum(a.samples), 4)
-```
+Le chiffre publié était `sum(ok_samples) / sum(samples)` — un ratio de points.
+Il est désormais pondéré par la durée, et **il change de sens** : une panne coûte
+le temps qu'elle a duré, et non un nombre de checks qui dépendait de la fréquence
+de sondage.
 
-C'est **check-weighted** : un ratio de points, pas de durée. Deux conséquences
-qu'un lecteur de la page ne peut pas deviner.
+Quatre règles, dans `packages/shared/src/availability.ts`, délibérément loin de
+tout SQL — chacune est une décision que quelqu'un contestera un jour, et toutes
+se testent sans base, sans horloge et sans serveur de test :
 
-- Un contrôle sondé toutes les 10 s et un autre toutes les 5 min pèsent le même
-  pourcentage pour une panne de même durée.
-- Changer l'intervalle d'un contrôle réécrit rétroactivement le sens de son
-  historique, sans que rien ne le dise.
+- **Anti-flapping** à 2 échecs consécutifs, la panne datée du **premier**.
+- **Contrôles `push`** : le silence est l'indisponibilité, après l'intervalle
+  déclaré plus un intervalle de grâce — le même seuil que `sweepStaleControls`.
+- **Maintenances** : quittent le dénominateur, et seulement pour leur durée
+  réelle (`actual_*` avant `scheduled_*`).
+- **Plusieurs agents** : OR, jamais une moyenne.
 
-Ce qui est demandé est un passage en **time-weighted**, plus quatre règles qui
-n'existent nulle part : anti-flapping, cas `push`, exclusion des maintenances,
-et OR entre agents d'un même contrôle.
+Deux décisions qui changent aussi ce que le nombre veut dire : `degraded` compte
+comme disponible, et le temps que personne n'a observé quitte le dénominateur au
+lieu d'être deviné.
 
-## Ce qui est déjà vrai — à ne pas refaire
+Le module prend des **intervalles** et non des points : un check brut est un
+intervalle à état plein, un seau d'agrégat un intervalle fractionnaire. Un seul
+compteur sert les deux — sinon une résolution finit par porter sa propre copie
+des règles, et le pourcentage veut dire une chose pour un jour et une autre pour
+une année.
 
-- **Les agrégats continus existent** : `checks_1m`, `checks_5m`, `checks_1h`
-  (`packages/db/sql/0001_timescale.sql`), avec leurs politiques de rafraîchis-
-  sement. Le calcul doit s'appuyer dessus, pas sur la table brute.
-- **La table `maintenances` existe** (`packages/db/src/schema/incidents.ts:96`),
-  avec `maintenance_controls` pour la portée. Aucune migration à créer : il
-  manque l'**exclusion dans le calcul**, pas l'entité.
-- **Les deux widgets existent** et consomment déjà cet endpoint : `uptime-ribbon`
-  et `availability-calendar` (`apps/web/src/charts/registry.ts`).
-- **Un contrôle peut avoir plusieurs agents** : `control_agents` est une table de
-  jonction (`packages/db/src/schema/controls.ts:140`). C'est ce que « plusieurs
-  sondes sur un même monitor » désigne ici.
-- **La rétention borne déjà la fenêtre** : `clampToRetention` refuse de publier
-  au-delà de ce que le locataire garde.
+## Ce qui reste ouvert
 
-## Une limite à écrire, pas à contourner
-
-Un agrégat horaire ne connaît pas l'instant d'une bascule. Le time-weighting sur
-`checks_1h` est donc exact à l'heure près, pas à la seconde. Pour les fenêtres
-courtes (jour), le calcul descend sur `checks_1m` ; au-delà il reste horaire, et
-**l'endpoint dit laquelle il a utilisée** plutôt que de laisser croire à une
-précision qu'il n'a pas.
-
-## À faire
-
-- [x] **1. La fonction de calcul, isolée et testée.** Un module pur qui prend une
-      série de points (`ts`, `status`, `agentId`) et une liste de fenêtres
-      d'exclusion, et rend une durée disponible / durée totale. Il porte les
-      quatre règles : time-weighting, debounce à 2 échecs consécutifs avec
-      antidatage au **premier** échec de la série, OR entre agents, exclusion des
-      maintenances. Aucun accès base ici — c'est ce qui le rend testable.
-
-      Fait : `packages/shared/src/availability.ts`, 17 tests. Vérifié avec
-                                      l'index seul. Deux décisions écrites en chemin — `degraded` compte comme
-                                      disponible (les agrégats ne comptaient que `operational`, donc un service
-                                      lent baissait l'uptime publié), et le temps que personne n'a observé quitte
-                                      le dénominateur au lieu d'être deviné dans un sens ou dans l'autre.
-                                      Le sous-chemin `@tern/shared/availability` reste à ajouter au point 4 :
-                                      `packages/shared/package.json` porte un travail en cours non commité.
-
-- [x] **2. Le cas `push`.** Pas d'échec au sens classique : l'indisponibilité
-      commence à `expectedIntervalS` + grâce après le dernier battement reçu, et
-      court jusqu'au suivant. La grâce est configurable ; choisir un défaut et
-      écrire pourquoi. Se raccorder à la balayeuse de péremption qui existe déjà.
-
-      Fait : `silence: 'down'` et `graceMs`, 6 tests de plus (23 au total).
-                              La grâce vaut un intervalle plein par défaut, donc le seuil effectif est
-                              deux fois l'intervalle — **le nombre exact** de `sweepStaleControls`
-                              (`expected_interval_s * 2`). Deux seuils pour une même question, c'est
-                              ainsi qu'une pastille et un pourcentage finissent par ne pas dire la même
-                              chose de la même minute.
-
-                              Une tension levée plutôt que contournée : la balayeuse écrit `unknown`,
-                              jamais `down`, et elle a raison — mais elle répond à « que dit la pastille
-                              maintenant », où déclarer une panne publique sur un battement manqué
-                              transforme chaque redémarrage d'agent en incident. Le calcul répond à « ce
-                              que la période **a été** », où une heure de silence inexpliqué d'un travail
-                              censé rapporter toutes les cinq minutes n'est pas du temps à retirer de
-                              l'arithmétique. La pastille reste prudente, le pourcentage reste honnête.
-
-                              Le marqueur `unknown` de la balayeuse compte comme silence pour un `push` :
-                              le laisser dans le seau « inconnu » ferait annuler par la preuve du silence
-                              le silence lui-même. Le câblage effectif se fait au point 3.
-
-- [x] **3a. Le module prend des intervalles, pas des points** (option A, décidée
-      après avoir buté sur le point 3). Les agrégats ne gardent pas d'instants —
-      seulement des compteurs — et `checks_1m` groupe par `control_id` seul,
-      donc la dimension agent que la règle OR réclame est déjà écrasée. Les deux
-      ne se branchaient pas l'un sur l'autre.
-
-      Fait : un check brut devient un intervalle à état plein, un seau d'agrégat
-                          un intervalle fractionnaire, et un seul compteur sert les deux. 6 tests de
-                          plus (29). Les 23 précédents passent **inchangés** : le chemin « points »
-                          est devenu un constructeur d'intervalles, pas une autre sémantique.
-
-                          Deux limites nommées plutôt qu'approximées : le OR entre agents ne vaut
-                          que sur le chemin brut, et un seau mixte ne passe pas le debounce — le
-                          battement y a déjà été absorbé par l'agrégation, et les instants qui
-                          diraient si les échecs étaient consécutifs n'existent plus.
-
-- [x] **3. L'endpoint.** Granularités jour / semaine / mois / année, bornes de
-      début et de fin, un contrôle ou tous. Il annonce la résolution employée.
-      Arrondi à 2–3 décimales, et sous le seuil d'incertitude dû à la fréquence
-      de sondage il publie `100%` plutôt qu'un `99,997%` trompeur — le seuil se
-      déduit de l'intervalle, pas d'une constante magique.
-
-      Fait : `uptime.json` lit désormais les seaux bruts et laisse
-                      `computeAvailability` les pondérer par la durée. `resolution` est dans la
-                      réponse. `publishedUptime` arrondit à trois décimales et publie `100`
-                      sous le seuil résoluble, seuil dérivé de la série (temps observé ÷ nombre
-                      de mesures) et non d'une constante. Les maintenances sont exclues, en
-                      prenant `actual_*` avant `scheduled_*` — sinon une fenêtre annoncée deux
-                      heures et finie en vingt minutes retirerait deux heures du dénominateur,
-                      et le chiffre s'améliorerait à force de sur-annoncer.
-
-                      **Non livré, et il faut le dire** : les bornes `from`/`to` arbitraires et
-                      le regroupement calendaire semaine/mois/année. L'endpoint garde son
-                      `period` existant (24h/7d/30d/90d/1y), qui portait déjà le choix de
-                      résolution. Le regroupement reste journalier — c'est ce que consomment le
-                      ruban et le calendrier, donc rien n'est bloqué ; c'est un ajout séparable.
-
-                      `uptime.json` n'avait **aucun test** — l'endpoint qui publie le nombre dont
-                      tout le ruban est fait. Un test d'intégration écrit maintenant de vrais
-                      checks, rafraîchit le vrai agrégat continu et lit le vrai endpoint : sans
-                      lui, une requête malformée passe au vert.
-
-- [x] **4. Le câblage.** Le ruban prend une valeur par jour, le calendrier une
-      grille de 20 semaines. Les deux consomment déjà l'endpoint : vérifier que
-      le changement de sémantique ne casse pas leur lecture, et que le libellé
-      dit « time-weighted » là où un lecteur pourrait supposer l'autre.
-
-      Fait, et un défaut trouvé en le vérifiant : le chiffre sous le ruban était
-              une **moyenne simple des pourcentages journaliers**, ce qui défaisait au
-              dernier pas ce que les chiffres journaliers venaient d'être corrigés pour
-              faire. Un jour où l'agent n'a rapporté que deux heures pesait autant qu'un
-              jour complet — donc le premier jour partiel après le retour d'un agent, un
-              jour court et souvent mauvais, déplaçait le chiffre de tête autant qu'une
-              semaine calme entière. Pondéré par `samples`, extrait en `weightedUptime`
-              et testé (4 tests), dont celui qui vérifie que rien ne bouge dans le cas
-              ordinaire où tous les jours sont également couverts.
-
-              `resolution` est typée côté client. Le calendrier n'avait pas le défaut :
-              il colore par statut sans moyenne globale. Le libellé des deux locales dit
-              désormais « pondérée par la durée, pas par le nombre de checks ».
-
-- [x] **5. Les paliers.** Les libellés d'affichage suivent la table des « nines »
-      (99 / 99,9 / 99,95 / 99,99 / 99,999). Un palier est une étiquette, pas une
-      promesse : ne pas inventer de SLA là où le produit n'en a pas.
-
-      Fait : `AVAILABILITY_TIERS` et `availabilityTier`, 4 tests. Le palier
-          s'affiche sous le ruban en chiffres — « ≥ 99,9 % » — et non en mots :
-          « trois neuf » ou « atteint 99,9 % » glissent vers ce qui sonne comme un
-          engagement. `99.95` est dans la table bien que ce ne soit pas un nombre
-          entier de neuf : c'est le chiffre que beaucoup de contrats nomment, et
-          l'omettre arrondirait un 99,96 % à « 99,9 % » en perdant la distinction qui
-          compte le plus. Sous 99, la réponse est `null` et non un palier de zéro —
-          inventer « un neuf » habillerait un mauvais mois en catégorie.
-
-- [x] **6. La documentation.** `docs/data-model.md` pour la règle de calcul et
-      ses quatre cas, `docs/user-guide.md` pour ce que le lecteur de la page
-      voit changer. Dire explicitement que le chiffre publié change de sens à
-      cette version, et dans quel sens.
-
-      Fait : `docs/data-model.md` porte la règle, ses quatre cas avec le pourquoi
-      de chacun, ce que les agrégats ne peuvent pas répondre, et la différence
-      entre ce qui est calculé et ce qui est publié. `docs/user-guide.md` a une
-      section qui dit au lecteur de la page ce qui bouge et dans quel sens —
-      lent ne compte plus comme cassé (la plupart des pages montent un peu), le
-      temps non mesuré n'est plus compté comme bon, un push silencieux compte
-      désormais contre vous.
-
-## Hors périmètre
-
-- Pondération différente entre types de sondes d'un même contrôle : OR simple.
-- Réglage du seuil de debounce dans l'interface : défaut codé, 2.
+- **Bornes `from`/`to` arbitraires** et regroupement calendaire semaine / mois /
+  année sur `uptime.json`. Le regroupement est journalier, ce que consomment le
+  ruban et le calendrier — rien n'est bloqué, c'est un ajout séparable.
+- **Le OR entre agents ne vaut que sur le chemin brut.** Les agrégats groupent
+  par `control_id` seul : la dimension agent est déjà écrasée quand un seau
+  existe.
+- **La recette VM avec isolement réel** reste à jouer (scripts dans `.vm-lab/`).
+- **Le service worker** sert un bundle périmé après une mise à jour.
 
 ## Règles de la boucle
 
 - Un point à la fois, dans l'ordre, entièrement.
 - Vérification avant de cocher : `pnpm typecheck`, `lint`, `format`, `test` ; et
   pour l'agent `cargo test`, `cargo fmt --check`, `cargo clippy -- -D warnings`.
-  `pnpm format` **avant** de commiter.
+  `pnpm format` **avant** de commiter — et après la dernière édition, pas avant.
 - Commiter le point seul, **en nommant les chemins**. Jamais `git add -A`, jamais
-  un répertoire : l'arbre contient un travail en cours de Jacques
-  (`TenantStyle` / `custom-style`, 28 fichiers) qui ne doit pas bouger. Vérifier
-  chaque commit isolément avec `git stash push --keep-index -u`.
+  un répertoire. Vérifier chaque commit isolément avec
+  `git stash push --keep-index -u`, et **dépiler avant d'en empiler une autre**.
 - Si un point repose sur une prémisse fausse, arrêter et l'expliquer plutôt que
   d'improviser.
-- Quand les six sont cochés : fusionner dans `main`, pousser, taguer `v0.1.21`.
