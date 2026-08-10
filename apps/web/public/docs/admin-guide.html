@@ -425,7 +425,7 @@ footer {
 <li class="level-3"><a href="#the-agent-container-restarts-or-never-reports">The agent container restarts, or never reports</a></li>
 <li class="level-3"><a href="#the-public-page-trails-or-has-gaps">The public page trails, or has gaps</a></li>
 <li class="level-3"><a href="#mail-does-not-arrive">Mail does not arrive</a></li>
-<li class="level-3"><a href="#install-sh-returns-html">/install.sh returns HTML</a></li>
+<li class="level-3"><a href="#install-sh-or-badge-returns-html">/install.sh or /badge/… returns HTML</a></li>
 <li class="level-3"><a href="#passkeys-are-not-offered">Passkeys are not offered</a></li>
 <li class="level-3"><a href="#starting-over">Starting over</a></li>
 <li class="level-2"><a href="#known-limitations-that-affect-operations"><svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3" /><path d="M12 9v4" /><path d="M12 17h.01" /></svg>Known limitations that affect operations</a></li>
@@ -863,9 +863,17 @@ tern-agent run --once</code></pre></div>
 
 <p>Check which layer is sending. If the tenant has SMTP settings, they are what is used; if it does not, the environment variables are — and on a wizard-installed instance those are unset, so nothing goes anywhere. The test button exercises the real path. Password recovery deliberately reports success either way, so as not to reveal whether an address exists, which means the process log is where the failure is recorded.</p>
 
-<h3 id="install-sh-returns-html"><a class="anchor" href="#install-sh-returns-html"><code>/install.sh</code> returns HTML</a></h3>
+<h3 id="install-sh-or-badge-returns-html"><a class="anchor" href="#install-sh-or-badge-returns-html"><code>/install.sh</code> or <code>/badge/…</code> returns HTML</a></h3>
 
 <p>The reverse proxy is not routing it to the API. See <a href="#behind-a-reverse-proxy">behind a reverse proxy</a>.</p>
+
+<p>Four paths live <strong>outside</strong> <code>/api/</code> and are served by the API all the same: <code>/install.sh</code>, <code>/install.ps1</code>, <code>/badge/…</code> and <code>/health</code>. A proxy configured to forward only <code>/api/</code> sends the rest to the web app, which answers every unknown path with the single-page shell — so the installer pipes an HTML document into <code>sh</code>, and a badge embedded in a README renders as a broken image. Both fail in a way that points anywhere except at the proxy.</p>
+
+<p>The quickest check, from anywhere that can reach the instance:</p>
+
+<div class="scroll-x"><pre data-language="sh"><code>curl -sI https://status.example.com/badge/&lt;slug&gt;.svg | head -1</code></pre></div>
+
+<p><code>content-type: image/svg+xml</code> is right. <code>text/html</code> is the proxy.</p>
 
 <h3 id="passkeys-are-not-offered"><a class="anchor" href="#passkeys-are-not-offered">Passkeys are not offered</a></h3>
 

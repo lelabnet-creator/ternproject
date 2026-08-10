@@ -689,10 +689,25 @@ real path. Password recovery deliberately reports success either way, so as not
 to reveal whether an address exists, which means the process log is where the
 failure is recorded.
 
-### `/install.sh` returns HTML
+### `/install.sh` or `/badge/…` returns HTML
 
 The reverse proxy is not routing it to the API. See
 [behind a reverse proxy](#behind-a-reverse-proxy).
+
+Four paths live **outside** `/api/` and are served by the API all the same:
+`/install.sh`, `/install.ps1`, `/badge/…` and `/health`. A proxy configured to
+forward only `/api/` sends the rest to the web app, which answers every unknown
+path with the single-page shell — so the installer pipes an HTML document into
+`sh`, and a badge embedded in a README renders as a broken image. Both fail in a
+way that points anywhere except at the proxy.
+
+The quickest check, from anywhere that can reach the instance:
+
+```sh
+curl -sI https://status.example.com/badge/<slug>.svg | head -1
+```
+
+`content-type: image/svg+xml` is right. `text/html` is the proxy.
 
 ### Passkeys are not offered
 
