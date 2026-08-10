@@ -261,6 +261,126 @@ const routes: FastifyPluginAsyncZod = async (app) => {
    * ever — reporting a machine that no longer exists is worse than reporting
    * none.
    */
+  /**
+   * A relay asking whether a code issued here is good for its zone.
+   *
+   * ── The problem it solves ───────────────────────────────────────────────
+   *
+   * A machine with no route to TERN could only be paired with a PIN minted on
+   * the relay itself, by `tern-proxy pin`. That is one ssh session and one
+   * terminal more than anybody expects, and it meant the admin could never
+   * hand out a command that worked as pasted: the one value it needed was the
+   * one value it could not know.
+   *
+   * ── Why this does not give the zone a way in ────────────────────────────
+   *
+   * The property that makes a zone safe is not where the code comes from, it
+   * is what the agent ends up holding: a key issued by the relay, valid at the
+   * relay, worth nothing upstream. That is unchanged here. The code is
+   * redeemed *by the relay*, over the relay's own authenticated connection,
+   * and the answer carries no key at all — the relay mints its own and the
+   * agent never learns this server exists.
+   *
+   * So the request is authenticated as the relay, refused for anything that is
+   * not a proxy, and the code is claimed in the same conditional UPDATE the
+   * ordinary pairing uses: two machines redeeming one single-use code at the
+   * same moment must not both succeed.
+   *
+   * No agent row is written here. The relay declares its zone on its own
+   * schedule through `/agent/zone`, which is the one place a zone agent is
+   * created — two writers for the same row is how a machine ends up listed
+   * twice.
+   */
+  app.post(
+    '/agent/zone/redeem',
+    {
+      schema: {
+        body: z.object({ code: z.string().min(4).max(32) }),
+        response: { 200: z.object({ tenantSlug: z.string() }) },
+      },
+    },
+    async (req) => {
+      const key = await authenticateApiKey(app, req, 'ingest')
+      if (!key) throw app.httpErrors.unauthorized('Invalid or missing API key')
+
+      const [proxy] = await app.db
+        .select()
+        .from(schema.agents)
+        .where(eq(schema.agents.apiKeyId, key.id))
+        .limit(1)
+
+      if (!proxy) throw app.httpErrors.notFound('No agent holds this key')
+      if (proxy.role !== 'proxy') {
+        throw app.httpErrors.forbidden('Only a proxy redeems a code for a zone')
+      }
+
+      const codeHash = hashToken(normalisePin(req.body.code))
+      const [pairing] = await app.db
+        .select()
+        .from(schema.pairingCodes)
+        .where(
+          and(eq(schema.pairingCodes.codeHash, codeHash), isNull(schema.pairingCodes.revokedAt)),
+        )
+        .limit(1)
+
+      // The same single answer as everywhere else: wrong, expired and spent
+      // are indistinguishable, or a guesser learns which codes exist.
+      const invalid = () => app.httpErrors.unauthorized('Invalid or expired pairing code')
+      if (!pairing) {
+        await audit(app, { action: 'agent.pair.failed', actorLabel: 'unknown code', ip: req.ip })
+        throw invalid()
+      }
+
+      // A code belongs to one tenant, and a relay to one tenant. Crossing them
+      // would let a relay redeem a code minted for somebody else's page.
+      if (pairing.tenantId !== proxy.tenantId) throw invalid()
+
+      if (
+        pairing.expiresAt.getTime() < Date.now() ||
+        pairing.usedCount >= pairing.maxUses ||
+        pairing.failedAttempts >= MAX_FAILED_ATTEMPTS
+      ) {
+        await audit(app, {
+          action: 'agent.pair.failed',
+          tenantId: pairing.tenantId,
+          target: pairing.id,
+          ip: req.ip,
+        })
+        throw invalid()
+      }
+
+      const claimed = await app.db
+        .update(schema.pairingCodes)
+        .set({ usedCount: sql`${schema.pairingCodes.usedCount} + 1`, consumedAt: new Date() })
+        .where(
+          and(
+            eq(schema.pairingCodes.id, pairing.id),
+            sql`${schema.pairingCodes.usedCount} < ${schema.pairingCodes.maxUses}`,
+          ),
+        )
+        .returning({ id: schema.pairingCodes.id })
+
+      if (claimed.length === 0) throw invalid()
+
+      const [tenant] = await app.db
+        .select({ slug: schema.tenants.slug })
+        .from(schema.tenants)
+        .where(eq(schema.tenants.id, pairing.tenantId))
+        .limit(1)
+      if (!tenant) throw invalid()
+
+      await audit(app, {
+        action: 'agent.zone.redeemed',
+        tenantId: pairing.tenantId,
+        actorLabel: proxy.name,
+        target: pairing.id,
+        ip: req.ip,
+      })
+
+      return { tenantSlug: tenant.slug }
+    },
+  )
+
   app.post(
     '/agent/zone',
     {

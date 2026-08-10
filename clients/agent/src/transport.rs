@@ -236,6 +236,45 @@ impl Client {
         response.json().await.context("unexpected jobs response")
     }
 
+    /// Asks the server whether a code it issued is good for this zone.
+    ///
+    /// For the relay alone, over the relay's own key. What comes back is a
+    /// yes and a tenant name — never a key: the agent that presented the code
+    /// receives one minted here, valid here, worth nothing upstream. That is
+    /// the property that makes a zone safe, and it is why redeeming a code
+    /// this way changes nothing about it.
+    ///
+    /// The alternative was what the product shipped: a code that could only be
+    /// minted on the relay itself, which meant the admin could never print a
+    /// command that worked as pasted — the one value it needed was the one
+    /// value it could not know.
+    pub async fn redeem_zone_code(&self, api_key: &str, code: &str) -> Result<String> {
+        let response = self
+            .http
+            .post(format!("{}/api/v1/agent/zone/redeem", self.base_url))
+            .bearer_auth(api_key)
+            .json(&serde_json::json!({ "code": code }))
+            .send()
+            .await
+            .context("could not reach the server")?;
+
+        if !response.status().is_success() {
+            bail!("the server refused the code ({})", response.status());
+        }
+
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Redeemed {
+            tenant_slug: String,
+        }
+
+        let body: Redeemed = response
+            .json()
+            .await
+            .context("unexpected response to a zone redemption")?;
+        Ok(body.tenant_slug)
+    }
+
     /// Fetches one of the server's public files, verbatim.
     ///
     /// For the relay, and for one purpose: a machine inside a zone has no route

@@ -583,21 +583,52 @@ async fn pair(State(state): State<AppState>, Json(body): Json<PairBody>) -> impl
     let now = std::time::SystemTime::now();
     let candidate = hash(&body.code.trim().to_uppercase());
 
-    let Some(index) = inner
+    match inner
         .pins
         .iter()
         .position(|pin| pin.hash == candidate && !pin.used && pin.expires_at > now)
-    else {
-        // One answer for wrong, expired and used, exactly as the server does:
-        // distinguishing them tells a guesser which codes exist.
-        return (
-            StatusCode::UNAUTHORIZED,
-            Json(json!({ "message": "Invalid or expired pairing code" })),
-        )
-            .into_response();
-    };
+    {
+        Some(index) => inner.pins[index].used = true,
+        None => {
+            /*
+             * Not one of ours — so ask the server whether it is one of its own,
+             * minted for this zone.
+             *
+             * This is what lets the admin print a command that works as pasted.
+             * A code used to have to be minted on this machine, by
+             * `tern-proxy pin`, which meant one ssh session more than anybody
+             * expects and a value the admin could never know.
+             *
+             * It gives the zone nothing: what comes back is a yes, never a key.
+             * The agent still receives a key minted below, valid here and worth
+             * nothing upstream, which is the property that makes a zone safe.
+             *
+             * Upstream being unreachable falls through to the same refusal as a
+             * wrong code. A relay whose server is down cannot tell a good code
+             * from a bad one, and inventing an answer either way is worse than
+             * saying no.
+             */
+            let key = inner.config.api_key.clone();
+            let raw = body.code.trim().to_string();
+            drop(inner);
 
-    inner.pins[index].used = true;
+            match state.client.redeem_zone_code(&key, &raw).await {
+                Ok(tenant) => {
+                    info!(%tenant, "the server accepted a code for this zone");
+                }
+                Err(error) => {
+                    info!(%error, "no local PIN matched and the server refused the code");
+                    return (
+                        StatusCode::UNAUTHORIZED,
+                        Json(json!({ "message": "Invalid or expired pairing code" })),
+                    )
+                        .into_response();
+                }
+            }
+
+            inner = state.inner.lock().await;
+        }
+    }
 
     let name = body.hostname.clone().unwrap_or_else(|| "agent".to_string());
     let key = format!("ternp_{}", crate::transport::random_token(24));

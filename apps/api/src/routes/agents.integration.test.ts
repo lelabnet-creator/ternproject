@@ -862,4 +862,68 @@ describe('a proxy declaring its zone', () => {
     })
     expect(attempt.statusCode).toBe(401)
   })
+
+  /**
+   * A relay redeeming, for a machine that cannot reach this server at all.
+   *
+   * Before this, a code for such a machine could only be minted on the relay
+   * itself. The admin could therefore never print a command that worked as
+   * pasted: the one value it needed was the one value it could not know.
+   *
+   * What must stay true is not where the code comes from but what the agent
+   * ends up holding — a key minted by the relay, worth nothing here. Nothing
+   * in this exchange carries a key, which is what these cases pin.
+   */
+  describe('redeeming a code for a zone', () => {
+    const redeemFor = (key: string, code: string) =>
+      fx.app.inject({
+        method: 'POST',
+        url: '/api/v1/agent/zone/redeem',
+        headers: { authorization: `Bearer ${key}` },
+        payload: { code },
+      })
+
+    it('answers a relay with the tenant, and with no key', async () => {
+      const proxy = await pairAs('proxy/0.1.0')
+      const cookie = await login(fx.app, fx.users.admin.email)
+      const { pin } = await createPin(cookie)
+
+      const answer = await redeemFor(proxy.key, pin)
+      expect(answer.statusCode).toBe(200)
+      expect(answer.json().tenantSlug).toBe(fx.slug)
+      // The whole security argument in one assertion: an agent in the zone must
+      // never come away holding something this server would accept.
+      expect(JSON.stringify(answer.json())).not.toContain('apiKey')
+    })
+
+    it('spends the code, so a second machine cannot reuse it', async () => {
+      const proxy = await pairAs('proxy/0.1.0')
+      const cookie = await login(fx.app, fx.users.admin.email)
+      const { pin } = await createPin(cookie)
+
+      expect((await redeemFor(proxy.key, pin)).statusCode).toBe(200)
+      expect((await redeemFor(proxy.key, pin)).statusCode).toBe(401)
+      // And it is spent for the ordinary path too — one code, one machine,
+      // whichever door it walks through.
+      expect((await redeem(pin, {})).statusCode).toBe(401)
+    })
+
+    it('is closed to anything that is not a relay', async () => {
+      // An ordinary agent redeeming codes would be a way to enrol machines
+      // nobody added, from a key that was only ever meant to push points.
+      const agent = await pairAs('0.1.16')
+      const cookie = await login(fx.app, fx.users.admin.email)
+      const { pin } = await createPin(cookie)
+
+      expect((await redeemFor(agent.key, pin)).statusCode).toBe(403)
+      expect((await redeemFor('ternp_not_a_key', pin)).statusCode).toBe(401)
+    })
+
+    it('says the same thing to a wrong code as to a spent one', async () => {
+      const proxy = await pairAs('proxy/0.1.0')
+      const wrong = await redeemFor(proxy.key, 'ZZZZ-ZZZZ')
+      expect(wrong.statusCode).toBe(401)
+      expect(wrong.json().message).toBe('Invalid or expired pairing code')
+    })
+  })
 })
