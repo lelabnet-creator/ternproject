@@ -26,7 +26,7 @@ use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use axum::extract::{ConnectInfo, Path as AxumPath, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
@@ -106,10 +106,98 @@ fn default_forward_interval() -> u64 {
     10
 }
 
+/// The port a relay serves its zone on, unless told otherwise.
+pub const ZONE_PORT: u16 = 8787;
+
 fn default_listen() -> String {
-    // Loopback by default: a relay that binds every interface the moment it is
-    // installed is a decision the operator should make, not inherit.
-    "127.0.0.1:8787".to_string()
+    // Only for a config file written before `listen` existed, or one that lost
+    // the field. A relay being installed today gets a reachable address from
+    // `listen_address`, because loopback here is the one value that cannot do
+    // the job — see below.
+    format!("127.0.0.1:{ZONE_PORT}")
+}
+
+/// The address to write into a new `proxy.toml`.
+///
+/// Loopback used to be the default, on the reasoning that binding every
+/// interface is a decision an operator should take rather than inherit. That
+/// reasoning was sound and the conclusion was wrong: nothing outside the
+/// machine can reach `127.0.0.1`, so a relay installed with that default served
+/// nobody, and the command `tern-proxy pin` printed could not work on the
+/// machine it was written for. The failure arrived one step later, on somebody
+/// else's terminal, as a connection refused.
+///
+/// `0.0.0.0` is the other easy answer and it is no better: it binds networks
+/// nobody asked about, and it still leaves "which address do I give an agent"
+/// unanswered — a config file that says `0.0.0.0` tells a reader nothing.
+///
+/// So one concrete address. By default the one on the interface that already
+/// carries traffic to TERN, which is the interface a single-homed relay has.
+/// `--interface` names another, for the ordinary two-legged case: one card
+/// facing the zone, one facing out.
+pub fn listen_address(interface: Option<&str>, upstream: &str, port: u16) -> Result<String> {
+    if let Some(name) = interface {
+        let address = interface_v4(name)?;
+        return Ok(format!("{address}:{port}"));
+    }
+
+    // The interface facing upstream, found by asking the routing table rather
+    // than by guessing at names — `eth0` is not a thing on most systems now.
+    if let Some(address) = outbound_address(upstream) {
+        if !address.is_loopback() {
+            return Ok(format!("{address}:{port}"));
+        }
+    }
+
+    // Upstream on this very machine, or unreachable while installing. Take the
+    // first address that is not loopback: still better than a value that is
+    // known not to work.
+    if let Some(address) = first_routable_v4() {
+        return Ok(format!("{address}:{port}"));
+    }
+
+    bail!(
+        "could not find an address for the agents in this zone to reach. \
+         Name one with --listen <host:port>, or an interface with --interface <name>."
+    )
+}
+
+/// The IPv4 address of one named interface.
+fn interface_v4(name: &str) -> Result<std::net::Ipv4Addr> {
+    let interfaces =
+        if_addrs::get_if_addrs().context("could not read this machine's interfaces")?;
+
+    for interface in &interfaces {
+        if interface.name != name {
+            continue;
+        }
+        if let std::net::IpAddr::V4(address) = interface.ip() {
+            return Ok(address);
+        }
+    }
+
+    // The available names, because the failure is almost always a typo or a
+    // guess at a name from another machine, and a bare refusal sends the reader
+    // to `ip addr` in another window.
+    let mut names: Vec<&str> = interfaces.iter().map(|i| i.name.as_str()).collect();
+    names.sort_unstable();
+    names.dedup();
+    bail!(
+        "no IPv4 address on interface {name}. This machine has: {}",
+        names.join(", ")
+    )
+}
+
+fn first_routable_v4() -> Option<std::net::Ipv4Addr> {
+    let interfaces = if_addrs::get_if_addrs().ok()?;
+    interfaces
+        .iter()
+        .find_map(|interface| match interface.ip() {
+            std::net::IpAddr::V4(address) if !address.is_loopback() && !address.is_link_local() => {
+                Some(address)
+            }
+            _ => None,
+        })
 }
 
 fn default_refresh() -> u64 {
@@ -818,9 +906,17 @@ pub async fn init(
     pin: &str,
     config_path: &Path,
     listen: Option<String>,
+    interface: Option<String>,
     forward_interval: Option<u64>,
     forward: Option<Forward>,
 ) -> Result<()> {
+    // Resolved before pairing, so a machine whose address cannot be worked out
+    // fails without having consumed a single-use PIN.
+    let listen = match listen {
+        Some(explicit) => explicit,
+        None => listen_address(interface.as_deref(), server, ZONE_PORT)?,
+    };
+
     let client = Client::new(server)?;
     let response = client
         .pair(&PairRequest {
@@ -838,7 +934,7 @@ pub async fn init(
     let config = ProxyConfig {
         server: server.trim_end_matches('/').to_string(),
         api_key: response.api_key,
-        listen: listen.unwrap_or_else(default_listen),
+        listen,
         refresh_s: default_refresh(),
         forward_interval_s: forward_interval.unwrap_or_else(default_forward_interval),
         forward: forward.unwrap_or_default(),
@@ -1144,6 +1240,53 @@ mod tests {
         let chosen = zone_address("192.168.64.1:8787", None);
         assert_eq!(chosen.authority, "192.168.64.1:8787");
         assert_eq!(chosen.caveat, None);
+    }
+
+    /// The address written into a fresh `proxy.toml` has to be one an agent on
+    /// another machine can dial.
+    ///
+    /// This is the defect the change exists for: the old default was
+    /// `127.0.0.1:8787`, so a relay installed from the one-liner served nobody
+    /// and the command it printed could not work anywhere it was meant to be
+    /// run. It failed one step later, on a different terminal, as a connection
+    /// refused with nothing to connect it back to this decision.
+    #[test]
+    fn a_new_relay_is_given_an_address_its_zone_can_reach() {
+        // Any upstream will do: what is being asked of the routing table is
+        // which of this machine's addresses faces outward, and every non-local
+        // destination gives the same answer.
+        let listen = listen_address(None, "https://example.com", ZONE_PORT)
+            .expect("this machine has a network");
+
+        let (host, port) = listen.rsplit_once(':').expect("host:port");
+        assert_eq!(port, ZONE_PORT.to_string());
+
+        let address: std::net::Ipv4Addr = host.parse().expect("a bare IPv4 address");
+        assert!(!address.is_loopback(), "{listen} would serve nobody");
+        assert!(
+            !address.is_unspecified(),
+            "{listen} names every interface, which tells a reader nothing"
+        );
+    }
+
+    /// A named interface wins, and an unknown one says what does exist.
+    #[test]
+    fn an_interface_can_be_named_and_a_wrong_name_is_helpful() {
+        // Loopback is the one interface every machine has under the same name,
+        // which is what makes it usable in a test — and it is deliberately the
+        // one case the default refuses, so naming it proves the option is
+        // honoured rather than second-guessed.
+        let listen =
+            listen_address(Some("lo"), "https://example.com", 9999).expect("lo exists everywhere");
+        assert_eq!(listen, "127.0.0.1:9999");
+
+        let error = listen_address(Some("nexistepas0"), "https://example.com", 8787)
+            .expect_err("an interface that is not there");
+        let message = error.to_string();
+        assert!(message.contains("nexistepas0"), "{message}");
+        // The names it does have: the mistake is nearly always a name borrowed
+        // from another machine, and a bare refusal sends the reader elsewhere.
+        assert!(message.contains("lo"), "{message}");
     }
 
     /// The passthrough, against a server that actually answers.

@@ -56,9 +56,14 @@ enum Command {
         pin: String,
         #[arg(long)]
         config: Option<PathBuf>,
-        /// host:port to listen on for the agents in this zone.
+        /// host:port to listen on for the agents in this zone. Overrides
+        /// --interface.
         #[arg(long)]
         listen: Option<String>,
+        /// Serve the zone on this interface's address. Without it, the one that
+        /// already carries traffic to TERN.
+        #[arg(long)]
+        interface: Option<String>,
         /// Seconds points wait before being carried upstream. Default 10.
         #[arg(long)]
         forward_interval: Option<u64>,
@@ -123,11 +128,21 @@ async fn main() -> Result<()> {
             pin,
             config,
             listen,
+            interface,
             forward_interval,
             forward,
         } => {
             let path = config.unwrap_or_else(default_config);
-            proxy::init(&server, &pin, &path, listen, forward_interval, forward).await
+            proxy::init(
+                &server,
+                &pin,
+                &path,
+                listen,
+                interface,
+                forward_interval,
+                forward,
+            )
+            .await
         }
 
         Command::Run {

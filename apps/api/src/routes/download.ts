@@ -143,12 +143,14 @@ function shellScript(): string {
 #   --dir <path>    where to put the binary
 #   --no-service    install and pair, but do not register for boot
 #   --proxy         install tern-proxy instead
+#   --interface <n> the interface a relay serves its zone on (with --proxy)
 set -eu
 
 SERVER="${base()}"
 PIN=""
 DEST="\${TERN_INSTALL_DIR:-}"
 BIN="tern-agent"
+IFACE=""
 SERVICE=1
 
 while [ $# -gt 0 ]; do
@@ -161,6 +163,11 @@ while [ $# -gt 0 ]; do
     --server) SERVER="\${2:-}"; shift 2 ;;
     --dir) DEST="\${2:-}"; shift 2 ;;
     --proxy) BIN="tern-proxy"; shift ;;
+    # A relay with two cards - one facing the zone, one facing out - cannot be
+    # guessed at. Without this flag the default is the interface that already
+    # carries traffic to TERN, which is right for a single-homed machine and
+    # wrong for the other shape.
+    --interface) IFACE="\${2:-}"; shift 2 ;;
     --no-service) SERVICE=0; shift ;;
     *) echo "Unknown option: $1" >&2; exit 2 ;;
   esac
@@ -264,7 +271,12 @@ mkdir -p "$CONF_DIR" "$STATE_DIR"
 # the address it will serve on, so it walks the same path from this line down.
 if [ -n "$PIN" ]; then
   echo
-  "$DEST/$BIN" $JOIN --server "$SERVER" --pin "$PIN" --config "$CONF"
+  # Only the relay has an interface to choose; tern-agent would refuse the flag.
+  if [ "$BIN" = "tern-proxy" ] && [ -n "$IFACE" ]; then
+    "$DEST/$BIN" $JOIN --server "$SERVER" --pin "$PIN" --config "$CONF" --interface "$IFACE"
+  else
+    "$DEST/$BIN" $JOIN --server "$SERVER" --pin "$PIN" --config "$CONF"
+  fi
 else
   echo
   echo "Next: $DEST/$BIN $JOIN --server $SERVER --pin <PIN> --config $CONF"
