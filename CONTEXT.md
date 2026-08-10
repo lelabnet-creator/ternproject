@@ -2,27 +2,26 @@
 
 ## Current Task
 
-Rien en cours. `v0.1.15` est taguée. Elle apporte `sh setup.sh --upgrade-only`
-et `--check` : redéployer l'image sur la configuration en place, ou savoir si une
-plus récente existe — sans question, donc par ssh et depuis cron. Vert : 772
-tests JS, 75 côté installateur, 54 côté agent.
+Rien en cours. `v0.1.16` est taguée. Deux corrections tirées de l'usage : un
+relais s'installe désormais sur une adresse que sa zone peut joindre, et le mode
+`custom` d'une page part d'un exemple au lieu de trois champs vides. Vert : 776
+tests JS, 56 côté agent, 75 côté installateur.
 
 ## Key Decisions
 
-- `setup.sh` passait déjà `"$@"` depuis toujours ; c'est `tern-setup` qui ne
-  lisait aucun argument et les ignorait en silence. Il refuse désormais une
-  option inconnue plutôt que de dérouler une installation complète.
-- Les versions sont lues sur l'image, par le label OCI et `docker inspect
-  --format` : ce binaire n'a ni client HTTP ni parseur JSON, délibérément. La
-  version en service vient du **conteneur**, pas de la référence.
-- `--check` interroge `:latest` et non la référence configurée — épinglée, une
-  instance se comparerait à elle-même et se dirait à jour pour toujours.
-  `--upgrade-only` respecte l'épinglage, et le dit.
+- `listen` d'un `proxy.toml` neuf porte l'adresse de l'interface qui parle déjà
+  à TERN, lue dans la table de routage. `--interface` en désigne une autre.
+  Loopback ne servait personne ; `0.0.0.0` n'aurait rien dit à un lecteur.
+- Le document d'exemple vit dans `@tern/shared/custom-document`, d'où la démo
+  **et** l'éditeur le tirent. Un exemple qui diverge de la démo serait pire que
+  pas d'exemple : la démo est où l'on regarde d'abord.
+- Le brouillon n'est pré-rempli qu'une fois, gardé par un `ref` : qui vide les
+  trois champs délibérément ne doit pas les voir se réécrire.
 
 ## Next Steps
 
-- La recette VM avec un **isolement réel** (pare-feu bloquant TERN depuis la
-  machine de zone) reste à jouer ; elle refermerait le septième point de
-  `deploy-tests/ubuntu/proxy-0.1.12/`.
+- La recette VM avec un **isolement réel** reste à jouer. Les deux scripts sont
+  écrits (`.vm-lab/zone-firewall.sh`, `check-connectivity.sh`) et une mesure
+  d'avant-coupure est prise ; il manque l'appairage du relais.
 - Le service worker sert un bundle périmé après une mise à jour.
 - Aucun test serveur pour HTTP, TCP, DNS ; `ping` couvert par son seul checksum.
