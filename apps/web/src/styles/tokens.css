@@ -1260,3 +1260,22 @@ a.tern-target {
   font-weight: 600;
   text-decoration: none;
 }
+
+/*
+ * The paging region on a phone, bounded so the dots under it are never below
+ * the fold. See `GroupPanes` for the arithmetic behind 62.
+ *
+ * Two declarations, and that is the whole reason this lives in CSS rather than
+ * inline: `dvh` is what a phone actually shows, `vh` is what it shows with the
+ * browser bars hidden, and a browser that does not know `dvh` has to keep the
+ * older value. Inline styles cannot express that — one object, one `height`.
+ */
+.pane-track {
+  height: clamp(16rem, 62vh, 40rem);
+}
+
+@supports (height: 1dvh) {
+  .pane-track {
+    height: clamp(16rem, 62dvh, 40rem);
+  }
+}

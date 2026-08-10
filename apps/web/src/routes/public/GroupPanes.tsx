@@ -93,7 +93,32 @@ export function GroupPanes({ groups }: { groups: PaneGroup[] }) {
           scrollbarWidth: 'none',
           // The panes are siblings on one row; each takes the full width.
           gap: 0,
+          /*
+           * Bounded, so the dots are never below the fold.
+           *
+           * A page indicator you have to scroll to reach has stopped
+           * indicating: by the time it is on screen the reader has already
+           * gone past the pane it describes, and nothing ever told them there
+           * were four more. So the paging region takes a share of the viewport
+           * and the dots sit immediately under it.
+           *
+           * The arithmetic behind 62: the bar is ~56px, the notice about 60,
+           * the dots 44, and the margins around them perhaps 40 — roughly
+           * 200px of chrome. On the shortest phone this product will meet
+           * (~640px) that leaves 440, and 62dvh of 640 is 397. It fits, with
+           * room, and it keeps fitting as the viewport grows.
+           *
+           * The height itself is in `tokens.css`, as `.pane-track`, because it
+           * needs `dvh` with a `vh` fallback and that is a cascade, not a
+           * value. Inline styles are one object: writing `height` twice simply
+           * discards the first, so a browser without `dvh` would be left with
+           * no height at all rather than the older one. `dvh` matters here —
+           * on a phone `vh` is measured with the browser bars hidden, so a
+           * `vh`-sized region is taller than what is visible and pushes the
+           * dots off exactly the screen they exist to sit on.
+           */
         }}
+        className="pane-track"
       >
         {groups.map((group, index) => (
           <section
@@ -108,6 +133,14 @@ export function GroupPanes({ groups }: { groups: PaneGroup[] }) {
               flex: '0 0 100%',
               scrollSnapAlign: 'start',
               minWidth: 0,
+              /*
+               * Each pane carries its own scrollbar rather than the page
+               * carrying one for all of them. A group with twenty components
+               * scrolls inside its pane; the dots do not move, and neither
+               * does the pane beside it.
+               */
+              overflowY: 'auto',
+              overscrollBehaviorY: 'contain',
             }}
           >
             {group.name && (
