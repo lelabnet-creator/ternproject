@@ -142,6 +142,7 @@ function shellScript(): string {
 #                   a relay, for a machine with no route to TERN itself
 #   --dir <path>    where to put the binary
 #   --no-service    install and pair, but do not register for boot
+#   --force         replace an existing config instead of keeping its probes
 #   --proxy         install tern-proxy instead
 #   --interface <n> the interface a relay serves its zone on (with --proxy)
 #   --port <n>      the port a relay serves its zone on (with --proxy)
@@ -154,6 +155,7 @@ BIN="tern-agent"
 IFACE=""
 ZPORT=""
 SERVICE=1
+FORCE=0
 # Whether a supervisor took it, decided where that is known rather than
 # inferred at the end from the shape of the machine.
 STARTED=0
@@ -177,6 +179,7 @@ while [ $# -gt 0 ]; do
     # worked out by the relay, so this is usually the whole of what changes.
     --port) ZPORT="\${2:-}"; shift 2 ;;
     --no-service) SERVICE=0; shift ;;
+    --force) FORCE=1; shift ;;
     *) echo "Unknown option: $1" >&2; exit 2 ;;
   esac
 done
@@ -382,6 +385,10 @@ if [ -n "$PIN" ]; then
   # refuse both flags. Built up rather than branched three ways, so the two can
   # be combined without a fourth arm.
   EXTRA=""
+  # Passed through rather than reimplemented here: the binary is the thing that
+  # knows what a config holds and what replacing one costs, and it names each
+  # probe it is about to drop.
+  [ "$FORCE" = 1 ] && [ "$BIN" = "tern-agent" ] && EXTRA="$EXTRA --force"
   if [ "$BIN" = "tern-proxy" ]; then
     [ -n "$IFACE" ] && EXTRA="$EXTRA --interface $IFACE"
     [ -n "$ZPORT" ] && EXTRA="$EXTRA --port $ZPORT"

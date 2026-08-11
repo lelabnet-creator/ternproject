@@ -41,6 +41,22 @@ enum Command {
         /// Print the key instead of writing it anywhere.
         #[arg(long)]
         print_only: bool,
+        /*
+         * Replace the file rather than update it.
+         *
+         * Pairing normally keeps what it finds and writes only the key, because
+         * probes written on the host belong to whoever wrote them. That is the
+         * right default and the wrong one for the case it cannot tell apart: a
+         * config left behind by a previous tenant, a different server, or an
+         * experiment nobody wants back. `--force` is how somebody says which of
+         * the two this is.
+         *
+         * A flag and not a prompt: this runs inside `install.sh`, piped into
+         * `sh`, with no terminal to answer from.
+         */
+        /// Overwrite the existing config instead of keeping its probes.
+        #[arg(long)]
+        force: bool,
     },
 
     /// Run the configured probes on a schedule, pushing each result.
@@ -163,6 +179,7 @@ async fn main() -> Result<()> {
             pin,
             config,
             print_only,
+            force,
         } => {
             let client = Client::new(&server)?;
             let response = client
@@ -214,7 +231,7 @@ async fn main() -> Result<()> {
              * else, while probes are the operator's and are not ours to
              * discard.
              */
-            if path.exists() {
+            if path.exists() && !force {
                 match Config::load(&path) {
                     Ok(mut existing) => {
                         existing.api_key = response.api_key;
@@ -245,6 +262,20 @@ async fn main() -> Result<()> {
                         println!("  export TERN_API_KEY={}", response.api_key);
                         return Ok(());
                     }
+                }
+            }
+
+            // Said, because it is destructive and silence would be the worst
+            // way to find out. Named rather than counted: "3 probes removed"
+            // does not tell somebody whether the one they wrote is among them.
+            if force && path.exists() {
+                if let Ok(previous) = Config::load(&path) {
+                    println!("Replacing {} (--force).", path.display());
+                    for entry in &previous.probes {
+                        println!("  - dropping probe {}", entry.control_key);
+                    }
+                } else {
+                    println!("Replacing {} (--force).", path.display());
                 }
             }
 
@@ -680,6 +711,29 @@ port = 9000
         );
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// `--force` is a flag and not a prompt, and that is not a shortcut.
+    ///
+    /// This runs inside `install.sh`, piped into `sh`, with no terminal to
+    /// answer a question from. A confirmation there hangs forever, which is how
+    /// an installer stops being pipeable.
+    #[test]
+    fn forcing_is_expressible_without_a_terminal() {
+        let cli = Cli::try_parse_from([
+            "tern-agent",
+            "pair",
+            "--server",
+            "http://relay:38787",
+            "--pin",
+            "AAAA-BBBB",
+            "--force",
+        ])
+        .unwrap();
+        match cli.command {
+            Command::Pair { force, .. } => assert!(force),
+            _ => panic!("wrong command"),
+        }
     }
 
     /// And the flag still works, because every message this product prints

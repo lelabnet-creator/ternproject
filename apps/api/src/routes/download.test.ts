@@ -197,6 +197,24 @@ describe('the shell installer', () => {
     expect(claims).toHaveLength(4)
   })
 
+  it('can be told to replace a config instead of keeping it', () => {
+    /*
+     * Pairing keeps what it finds and writes only the key, because probes
+     * written on the host belong to whoever wrote them. `--force` is how
+     * somebody says this file is a leftover — a previous tenant, a different
+     * server, an experiment nobody wants back.
+     *
+     * Passed through rather than reimplemented in shell: the binary knows what
+     * a config holds and names each probe it is about to drop.
+     */
+    expect(script).toContain('--force) FORCE=1')
+    expect(script).toMatch(/FORCE" = 1 \].*EXTRA --force/)
+
+    // A relay's init writes its own config outright, so the flag would be a
+    // promise this script could not keep for that role.
+    expect(script).toMatch(/\[ "\$BIN" = "tern-agent" \] && EXTRA/)
+  })
+
   it('can be told not to touch the boot configuration', () => {
     expect(script).toContain('--no-service')
   })
