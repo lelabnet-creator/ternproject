@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import * as Icons from 'lucide-react'
+import { Tabs } from '../../components/Tabs'
 import { adminApi, ApiError, type Agent } from '../../lib/adminApi'
 import { AgentGalaxy, freshnessOf } from '../../charts/AgentGalaxy'
 import {
@@ -400,6 +401,7 @@ export function PairCommands({
   relay,
   via,
   port,
+  os,
 }: {
   origin: string
   pin: string
@@ -423,6 +425,15 @@ export function PairCommands({
    * the three would fail at whichever step it forgot.
    */
   via?: string
+  /**
+   * Which command to show first.
+   *
+   * Defaults to what the operator picked last time, because a machine estate is
+   * rarely mixed in equal parts: someone installing on Windows is almost
+   * certainly about to do it again. Passed explicitly only by the tests, which
+   * have no click to make.
+   */
+  os?: InstallOs
 }) {
   const from = via ?? origin
   const server = via ? ` --server ${via}` : ''
@@ -430,21 +441,77 @@ export function PairCommands({
   const zonePort = relay && port && port !== ZONE_PORT ? ` --port ${port}` : ''
   const zonePortPs = relay && port && port !== ZONE_PORT ? ` -Port ${port}` : ''
 
+  const [chosen, setChosen] = useState<InstallOs>(os ?? rememberedOs)
+
+  const unix = `curl -fsSL ${from}/install.sh | sh -s --${relay ? ' --proxy' : ''}${server} --pin ${pin}${zonePort}`
+  // A param script, so it is invoked as a script block — `| iex` would run it
+  // with no arguments and never see the PIN.
+  const windows = `& ([scriptblock]::Create((irm ${from}/install.ps1)))${relay ? ' -Proxy' : ''}${serverPs} -Pin ${pin}${zonePortPs}`
+
   return (
-    <>
-      <CodeBlock label="Linux or macOS" copyable>
-        {`curl -fsSL ${from}/install.sh | sh -s --${relay ? ' --proxy' : ''}${server} --pin ${pin}${zonePort}`}
-      </CodeBlock>
-
-      <div style={{ height: 'var(--space-2)' }} />
-
-      <CodeBlock label="Windows, in PowerShell" copyable>
-        {/* A param script, so it is invoked as a script block — `| iex` would
-            run it with no arguments and never see the PIN. */}
-        {`& ([scriptblock]::Create((irm ${from}/install.ps1)))${relay ? ' -Proxy' : ''}${serverPs} -Pin ${pin}${zonePortPs}`}
-      </CodeBlock>
-    </>
+    <Tabs
+      label="Which system you are installing on"
+      tabs={[
+        { id: 'unix', label: 'Linux or macOS' },
+        { id: 'windows', label: 'Windows' },
+      ]}
+      active={chosen}
+      onChange={(id) => {
+        const next = id as InstallOs
+        setChosen(next)
+        rememberOs(next)
+      }}
+    >
+      {/*
+        Both commands stay in the document, and the one not chosen is `hidden`.
+        Two lines of text cost nothing to keep, and it means the page can be
+        searched for "install.ps1" and found — a reader who knows what they are
+        looking for should not have to guess which tab hides it. `hidden` is not
+        merely visual: the browser takes it out of the tab order and out of what
+        a screen reader walks, so the inactive command cannot be reached by
+        accident and copied by mistake.
+      */}
+      <div hidden={chosen !== 'unix'}>
+        <CodeBlock copyable>{unix}</CodeBlock>
+      </div>
+      <div hidden={chosen !== 'windows'}>
+        <CodeBlock label="In PowerShell" copyable>
+          {windows}
+        </CodeBlock>
+      </div>
+    </Tabs>
   )
+}
+
+export type InstallOs = 'unix' | 'windows'
+
+const OS_KEY = 'tern.install-os'
+
+/**
+ * The last system an install command was copied for.
+ *
+ * Read once at module load rather than per render: it never changes except
+ * through `rememberOs`, and reading `localStorage` is synchronous work on a
+ * path that runs while someone is waiting to paste a line.
+ */
+const rememberedOs: InstallOs = readOs()
+
+function readOs(): InstallOs {
+  try {
+    return localStorage.getItem(OS_KEY) === 'windows' ? 'windows' : 'unix'
+  } catch {
+    // Storage disabled, or a server render. Linux is the right default for a
+    // tool whose agents mostly run on it.
+    return 'unix'
+  }
+}
+
+function rememberOs(os: InstallOs) {
+  try {
+    localStorage.setItem(OS_KEY, os)
+  } catch {
+    // A preference that cannot be saved is not worth failing a render over.
+  }
 }
 
 /**

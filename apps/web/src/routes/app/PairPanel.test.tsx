@@ -104,6 +104,40 @@ describe('the one-liners', () => {
     expect(relay.match(/--proxy/g)).toHaveLength(1)
     expect(relay.match(/-Proxy/g)).toHaveLength(1)
   })
+
+  /*
+   * The two commands are alternatives, not a checklist, so they are tabs. What
+   * that must not cost: the one you are not looking at is still in the page —
+   * `hidden`, not deleted — so it can be found by searching, and so this file
+   * can keep asserting both without driving a click.
+   */
+  it('offers the two systems as tabs, one of them chosen', () => {
+    expect(agent).toContain('role="tablist"')
+    expect(agent).toContain('Linux or macOS')
+    expect(agent).toContain('Windows')
+    expect(agent.match(/aria-selected="true"/g)).toHaveLength(1)
+  })
+
+  it('shows the chosen command and hides the other', () => {
+    const unix = renderToStaticMarkup(
+      <PairCommands origin="https://status.example.com" pin="4K7Q-92XB" relay={false} os="unix" />,
+    )
+    const windows = renderToStaticMarkup(
+      <PairCommands
+        origin="https://status.example.com"
+        pin="4K7Q-92XB"
+        relay={false}
+        os="windows"
+      />,
+    )
+
+    // The hidden attribute lands on the panel holding the command *not* chosen.
+    // Anchored on the script name so this reads as "PowerShell is the hidden
+    // one", which is the thing that would break.
+    expect(unix).toMatch(/<div hidden="">.*install\.ps1/s)
+    expect(unix).not.toMatch(/<div hidden="">.*install\.sh.*<\/div>.*install\.ps1/s)
+    expect(windows).toMatch(/<div hidden="">.*install\.sh/s)
+  })
 })
 
 /**
