@@ -1337,38 +1337,54 @@ export function AgentMenu({
             boxShadow: 'var(--shadow-card)',
           }}
         >
+          {/*
+            Folded away, because a relay on a machine with four interfaces put
+            four rows and four buttons above every action in this menu — and
+            the actions are what the menu is opened for. Addresses are looked up
+            occasionally and acted on rarely, so they get one line until asked.
+
+            A `<details>` rather than another piece of state: the browser
+            already knows how to open and close one, announces it as expanded or
+            collapsed, and keeps working with the keyboard without anything
+            here having to arrange it.
+          */}
           {addresses.length > 0 && (
-            <div style={{ padding: 'var(--space-1) var(--space-2)' }}>
-              <div
+            <details style={{ padding: 'var(--space-1) var(--space-2)' }}>
+              <summary
                 style={{
-                  fontSize: 'var(--text-xs)',
-                  color: 'var(--color-fg-subtle)',
-                  marginBottom: 'var(--space-1)',
+                  fontSize: 'var(--text-sm)',
+                  cursor: 'pointer',
+                  padding: '4px 0',
+                  listStyle: 'revert',
                 }}
               >
-                {addresses.length === 1 ? 'Address' : 'Addresses'}
+                {addresses.length === 1 ? 'Address' : `Addresses (${addresses.length})`}
+              </summary>
+              <div style={{ marginTop: 'var(--space-1)' }}>
+                {addresses.map((a) => (
+                  <div
+                    key={a.ip}
+                    className="tabular"
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: 'var(--space-2)',
+                      fontSize: 'var(--text-sm)',
+                      padding: '2px 0',
+                    }}
+                  >
+                    <span>
+                      {a.ip}
+                      {a.note && (
+                        <span style={{ color: 'var(--color-fg-subtle)' }}> · {a.note}</span>
+                      )}
+                    </span>
+                    <CopyButton value={a.ip} size="sm" />
+                  </div>
+                ))}
               </div>
-              {addresses.map((a) => (
-                <div
-                  key={a.ip}
-                  className="tabular"
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    gap: 'var(--space-2)',
-                    fontSize: 'var(--text-sm)',
-                    padding: '2px 0',
-                  }}
-                >
-                  <span>
-                    {a.ip}
-                    {a.note && <span style={{ color: 'var(--color-fg-subtle)' }}> · {a.note}</span>}
-                  </span>
-                  <CopyButton value={a.ip} size="sm" />
-                </div>
-              ))}
-            </div>
+            </details>
           )}
 
           {pageAddress && (
