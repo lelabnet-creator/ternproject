@@ -25,9 +25,16 @@ fonctionne de bout en bout, preuves à l'appui.
 
 ## À faire
 
-- [ ] **1. Accès et socle.** Un cookie admin qui fonctionne sur l'instance
+- [x] **1. Accès et socle.** Un cookie admin qui fonctionne sur l'instance
       choisie ; l'instance joignable depuis le LAN ; l'IP LAN de l'hôte établie
       et notée. Trace : la réponse d'`instance.json` et du login.
+
+      Fait. Instance de **dev** (API `http://192.168.1.144:3011`, tenant `acme`),
+      pas 28999 qui est la prod de Jacques ni 28994 dont le login est cassé.
+      Login `admin@acme.example` / `tern-demo-password` (seed du dépôt) → HTTP
+      200. IP hôte pour le banc = `192.168.1.144` (bridge br0) ; `.170` porte le
+      relais de prod à ne pas toucher. `install.sh` servi en HTTP 200. Trace :
+      `deploy-tests/e2e-2026-08-11/01-socle.txt`.
 
 - [ ] **2. Les trois VM debout.** `boot` des trois, SSH répond, adresse LAN
       obtenue pour chacune. Trace : `uname -a` et `ip -4 addr` des trois.

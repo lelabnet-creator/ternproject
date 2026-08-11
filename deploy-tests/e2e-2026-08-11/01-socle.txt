@@ -1,0 +1,17 @@
+Point 1 — Accès et socle — 2026-08-11
+
+Instance retenue : instance de DÉVELOPPEMENT (API http://192.168.1.144:3011), tenant "acme".
+Raison : 28999 = tern-prod (instance de Jacques, interdite). 28994/lab2 : login refusé
+(mot de passe env non appliqué, tenant null). L'instance de dev est seedée, ses
+identifiants sont publics dans packages/db/src/seed.ts, et l'API écoute sur le LAN.
+
+Identifiants admin : admin@acme.example / tern-demo-password (seed du dépôt).
+Login : HTTP 200, cookie obtenu.
+
+Réseau :
+  br0  = 192.168.1.144/24  -> réseau des VM du banc (IP hôte joignable depuis les VM)
+  eno1 = 192.168.1.170/24  -> porte le relais de PROD de Jacques (:38787) — NE PAS TOUCHER
+  IP hôte pour le banc : 192.168.1.144
+  Serveur pour les agents : http://192.168.1.144:3011
+
+install.sh servi par l'API : HTTP 200, 23167 octets, content-type text/x-shellscript.
