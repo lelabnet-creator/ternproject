@@ -102,6 +102,17 @@ fonctionne de bout en bout, preuves à l'appui.
       seule avec sa preuve. Ne pas améliorer pour améliorer : corriger ce que
       les tests réels ont montré cassé ou trompeur.
 
+      Fait. **Bug réel corrigé** : `default_path()`/`default_config()` étaient
+      relatifs (`agent.toml`/`proxy.toml`) — un `pair`/`run`/`doctor` sans
+      `--config` visait le cwd et divergeait du fichier du service, d'où des 401
+      en boucle sur une config qu'on croyait fraîche (probable cause du «never
+      reported» initial). Corrigés en chemin XDG absolu, identique au CONF_DIR
+      de l'installeur ; validé en réel (le pair écrit désormais dans
+      `~/.config/tern/agent.toml`, clé HTTP 200). Test unitaire ajouté (74
+      tests agent). Récupération des jobs (300 s) et logs silencieux du relais :
+      analysés, documentés, non corrigés (choix défendables). Traces :
+      `06-logs-analyse.txt`, `06-defaultpath-fix.txt`.
+
 - [ ] **7. Le Tutoriel.** `docs/tutorial.md` — du zéro à une page qui monitore,
       dans l'ordre vécu : instance, premier agent, relais, agent isolé, premiers
       contrôles, lecture de la page. Avec les vraies sorties de terminal et

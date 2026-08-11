@@ -1,0 +1,66 @@
+===== LOGS ubuntu (tern-agent) =====
+Aug 11 11:15:49 ubuntu tern-agent[20484]: 2026-08-11T11:15:49.934645Z  INFO tern_agent::runner: probed control=e2e-dns kind="dns" status=Operational latency_ms=Some(0)
+Aug 11 11:15:57 ubuntu tern-agent[20484]: 2026-08-11T11:15:57.776108Z  INFO tern_agent::runner: probed control=e2e-docker kind="docker" status=Operational latency_ms=Some(0)
+Aug 11 11:15:58 ubuntu tern-agent[20484]: 2026-08-11T11:15:58.721449Z  INFO tern_agent::runner: probed control=e2e-cert kind="cert" status=Down latency_ms=None
+Aug 11 11:16:02 ubuntu tern-agent[20484]: 2026-08-11T11:16:02.530974Z  INFO tern_agent::runner: probed control=e2e-ws kind="websocket" status=Operational latency_ms=Some(0)
+Aug 11 11:16:06 ubuntu tern-agent[20484]: 2026-08-11T11:16:06.274755Z  INFO tern_agent::runner: probed control=e2e-http kind="http" status=Operational latency_ms=Some(1)
+Aug 11 11:16:07 ubuntu tern-agent[20484]: 2026-08-11T11:16:07.144296Z  INFO tern_agent::runner: probed control=e2e-file kind="file" status=Operational latency_ms=Some(0)
+Aug 11 11:16:12 ubuntu tern-agent[20484]: 2026-08-11T11:16:12.009329Z  INFO tern_agent::runner: probed control=e2e-uptime kind="uptime" status=Operational latency_ms=Some(0)
+Aug 11 11:16:15 ubuntu tern-agent[20484]: 2026-08-11T11:16:15.830220Z  INFO tern_agent::runner: probed control=e2e-tcp kind="tcp" status=Operational latency_ms=Some(1)
+Aug 11 11:16:19 ubuntu tern-agent[20484]: 2026-08-11T11:16:19.724070Z  INFO tern_agent::runner: probed control=e2e-dir kind="directory" status=Operational latency_ms=Some(0)
+Aug 11 11:16:21 ubuntu tern-agent[20484]: 2026-08-11T11:16:21.694975Z  INFO tern_agent::runner: probed control=e2e-dns kind="dns" status=Operational latency_ms=Some(1)
+Aug 11 11:16:21 ubuntu tern-agent[20484]: 2026-08-11T11:16:21.946809Z  INFO tern_agent::runner: probed control=e2e-ping kind="ping" status=Operational latency_ms=Some(0)
+Aug 11 11:16:30 ubuntu tern-agent[20484]: 2026-08-11T11:16:30.390161Z  INFO tern_agent::runner: probed control=e2e-docker kind="docker" status=Operational latency_ms=Some(0)
+Aug 11 11:16:31 ubuntu tern-agent[20484]: 2026-08-11T11:16:31.352284Z  INFO tern_agent::runner: probed control=e2e-cert kind="cert" status=Down latency_ms=None
+Aug 11 11:16:34 ubuntu tern-agent[20484]: 2026-08-11T11:16:34.472404Z  INFO tern_agent::runner: probed control=e2e-ws kind="websocket" status=Operational latency_ms=Some(0)
+Aug 11 11:16:37 ubuntu tern-agent[20484]: 2026-08-11T11:16:37.248181Z  INFO tern_agent::runner: probed control=e2e-http kind="http" status=Operational latency_ms=Some(1)
+Aug 11 11:16:39 ubuntu tern-agent[20484]: 2026-08-11T11:16:39.016844Z  INFO tern_agent::runner: probed control=e2e-file kind="file" status=Operational latency_ms=Some(0)
+Aug 11 11:16:44 ubuntu tern-agent[20484]: 2026-08-11T11:16:44.967621Z  INFO tern_agent::runner: probed control=e2e-uptime kind="uptime" status=Operational latency_ms=Some(0)
+Aug 11 11:16:48 ubuntu tern-agent[20484]: 2026-08-11T11:16:48.523571Z  INFO tern_agent::runner: probed control=e2e-tcp kind="tcp" status=Operational latency_ms=Some(0)
+
+===== LOGS rocky (tern-proxy) =====
+Aug 11 10:46:04 rocky systemd[5048]: Started TERN relay.
+Aug 11 10:46:04 rocky tern-proxy[5104]: 2026-08-11T10:46:04.990559Z  INFO tern_agent::proxy: assignment loaded jobs=0 tenant=acme
+Aug 11 10:46:04 rocky tern-proxy[5104]: 2026-08-11T10:46:04.990633Z  INFO tern_agent::proxy: proxy listening listen=192.168.1.157:38787 upstream=http://192.168.1.144:3011
+Aug 11 10:47:10 rocky tern-proxy[5104]: 2026-08-11T10:47:10.717136Z  INFO tern_agent::proxy: the server accepted a code for this zone tenant=acme
+Aug 11 10:47:10 rocky tern-proxy[5104]: 2026-08-11T10:47:10.717357Z  INFO tern_agent::proxy: paired a local agent agent=arch os=Some("linux") arch=Some("x86_64") version=Some("0.1.0")
+
+===== LOGS arch (tern-agent) =====
+Aug 11 10:47:10 arch systemd[945]: Started TERN agent.
+Aug 11 10:47:10 arch tern-agent[987]: 2026-08-11T10:47:10.881214Z  INFO tern_agent::runner: agent started probes=0 server=http://192.168.1.157:38787
+Aug 11 10:47:10 arch tern-agent[987]: 2026-08-11T10:47:10.881464Z  INFO tern_agent::runner: nothing assigned yet — waiting for the server to hand something over
+
+
+═══════════════════════════════════════════════════════════════════
+ANALYSE — récupération des jobs, gestion des erreurs, qualité des logs
+═══════════════════════════════════════════════════════════════════
+
+1) RÉCUPÉRATION DES JOBS
+   - Cadence : REFRESH_EVERY = 300 s (runner.rs). Un contrôle nouvellement
+     assigné n'est pris qu'au prochain refresh (jusqu'à 5 min). Observé : il a
+     fallu redémarrer le service ubuntu pour prendre les jobs immédiatement.
+   - Au démarrage, l'agent refresh tout de suite (bon) puis toutes les 300 s.
+   - Sur 401/erreur réseau : garde l'assignation en mémoire et continue
+     ("using the config as it stands") — comportement correct, pas de perte.
+   - OBSERVATION (non bloquant) : 300 s est lent pour la réactivité. Piste :
+     intervalle plus court ou déclenchement sur événement. Laissé tel quel
+     (configurable, défaut défendable) — documenté, pas corrigé.
+
+2) GESTION DES ERREURS
+   - 401 clé invalide vs serveur injoignable : DISTINGUÉS (deux messages
+     différents). Actionnable.
+   - BUG RÉEL CORRIGÉ : default_path()/default_config() renvoyaient un chemin
+     RELATIF ("agent.toml"). Un `pair`/`run`/`doctor` sans --config visait le
+     cwd, divergeant du fichier du service (~/.config/tern/agent.toml) → clé
+     périmée, 401 en boucle, sur une config qu'on croyait fraîche. Corrigé :
+     chemin XDG absolu, identique au CONF_DIR de l'installeur. Validé en réel
+     (06-defaultpath-fix.txt). C'est vraisemblablement la cause du symptôme
+     "never reported" initial lorsqu'un ré-appairage manuel était tenté.
+
+3) QUALITÉ DES LOGS
+   - Agent : EXCELLENTE. Chaque sonde loggée (control, kind, status, latency),
+     corrélable, niveau INFO adéquat.
+   - Relais : correcte mais SILENCIEUSE sur l'activité périodique (heartbeat et
+     déclaration de zone réussis non loggés). On ne peut confirmer la
+     déclaration qu'en regardant le serveur. Amélioration possible (log debug),
+     non bloquant, non corrigé.

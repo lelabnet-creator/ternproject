@@ -1,0 +1,6 @@
+✓ Paired as "ubuntu" on tenant acme
+Wrote /home/tern/.config/tern/agent.toml (readable only by you).
+  --- où le fichier a-t-il été écrit ? ---
+    cwd relatif: ls: cannot access '/home/tern/agent.toml': No such file or directory
+    XDG: -rw------- 1 tern tern 527 Aug 11 11:18 /home/tern/.config/tern/agent.toml
+  --- clé du fichier XDG testée : HTTP 200
