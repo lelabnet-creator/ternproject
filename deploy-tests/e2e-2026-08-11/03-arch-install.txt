@@ -1,0 +1,26 @@
+  ✓ Picking the binary for this machine
+  ✓ Downloading
+  ✓ Pairing
+  ✓ Registering to start at boot
+Note: /home/tern/.local/bin is not on your PATH.
+
+✓ Paired as "arch" on tenant acme
+
+Wrote /home/tern/.config/tern/agent.toml (readable only by you).
+The server assigned no probes — add a [[probes]] section yourself.
+Then: /home/tern/.local/bin/tern-agent run --config /home/tern/.config/tern/agent.toml
+
+Created symlink '/home/tern/.config/systemd/user/default.target.wants/tern-agent.service' → '/home/tern/.config/systemd/user/tern-agent.service'.
+✓ Registered as a systemd user service — starts at boot.
+  Status: systemctl --user status tern-agent
+  Logs:   journalctl --user -u tern-agent -f
+
+Note: ping checks need raw sockets. If they fail, either:
+  sudo setcap cap_net_raw+ep /home/tern/.local/bin/tern-agent
+  — or check that /proc/sys/net/ipv4/ping_group_range covers your group.
+
+Check it end to end: TERN_ALLOW_PLAIN_HTTP=1 /home/tern/.local/bin/tern-agent doctor --config /home/tern/.config/tern/agent.toml
+
+  ─────────────────────────────────────────────────────────
+  ✓ Running now, and again after a reboot.
+  ─────────────────────────────────────────────────────────

@@ -51,6 +51,17 @@ fonctionne de bout en bout, preuves à l'appui.
       0.1.25 a corrigé : la clé écrite dans un `agent.toml` existant, le
       récapitulatif final, `--force`.
 
+      Fait, et **trois corrections vues en production réelle** : sur ubuntu,
+      « Updated /home/tern/.config/tern/agent.toml with the new key » (le fix du
+      401 — `doctor` confirme « credential accepté pour tenant acme ») ; le
+      cadre d'instructions du relais affiche la bonne adresse
+      `192.168.1.157:38787` ; le récapitulatif final encadré « Running now, and
+      again after a reboot » sur les trois. Agent ubuntu et relais rocky
+      vivants ; agent arch **isolé** (REJECT vers l'instance, HTTP 000)
+      installé via le relais uniquement et rattaché à sa zone
+      (`parent=27a71778…`). Binaires musl reconstruits depuis le code courant et
+      servis par l'API. Traces : `03-*.txt`.
+
 - [ ] **4. Trois battements.** Les trois lignes vivantes dans `GET /agents` —
       l'agent, le relais (heartbeat propre depuis ce cycle), et l'agent de zone
       remonté par la déclaration du relais. Trace : la réponse API et les logs

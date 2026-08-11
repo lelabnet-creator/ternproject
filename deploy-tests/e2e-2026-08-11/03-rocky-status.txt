@@ -1,0 +1,12 @@
+=== relais rocky : service, écoute, logs ===
+active
+--- écoute 38787 ? ---
+LISTEN 0      128    192.168.1.157:38787      0.0.0.0:*   
+  install.sh via relais: HTTP 200
+--- logs ---
+Hint: You are currently not seeing messages from the system.
+      Users in groups 'adm', 'systemd-journal', 'wheel' can see all messages.
+      Pass -q to turn off this notice.
+Aug 11 10:46:04 rocky systemd[5048]: Started TERN relay.
+Aug 11 10:46:04 rocky tern-proxy[5104]: 2026-08-11T10:46:04.990559Z  INFO tern_agent::proxy: assignment loaded jobs=0 tenant=acme
+Aug 11 10:46:04 rocky tern-proxy[5104]: 2026-08-11T10:46:04.990633Z  INFO tern_agent::proxy: proxy listening listen=192.168.1.157:38787 upstream=http://192.168.1.144:3011

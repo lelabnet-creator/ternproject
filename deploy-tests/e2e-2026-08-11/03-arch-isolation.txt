@@ -1,0 +1,9 @@
+=== arch : connectivité AVANT isolement ===
+  instance 192.168.1.144:3011 : HTTP 200
+  relais 192.168.1.157:38787 : HTTP 200
+=== isolement : bloquer l'instance, garder le relais ===
+  règle REJECT vers 192.168.1.144 posée
+=== arch : connectivité APRÈS isolement ===
+  instance 192.168.1.144:3011 : HTTP 000
+injoignable (attendu)
+  relais 192.168.1.157:38787 : HTTP 200

@@ -1,0 +1,18 @@
+=== service + doctor + logs ubuntu ===
+active
+--- doctor ---
+[ok  ] config: /home/tern/.config/tern/agent.toml — 0 probe(s), interval 60s
+[ok  ] permissions: 600 — the key is readable only by its owner
+[ok  ] queue: /home/tern/.config/tern/agent.queue.json — empty, nothing waiting
+[ok  ] server: http://192.168.1.144:3011 answered in 5 ms
+[ok  ] credential: accepted for tenant acme — 0 job(s) assigned
+[ok  ] assignment: the config matches what the server assigns
+[ok  ] dns: 192.168.1.144 → 192.168.1.144 in 0 ms
+[ok  ] clock: system clock reads 2026, plausible
+--- 6 dernières lignes de log ---
+Aug 11 10:45:16 ubuntu systemd[1476]: Stopping tern-agent.service - TERN agent...
+Aug 11 10:45:16 ubuntu tern-agent[13471]: 2026-08-11T10:45:16.715375Z  INFO tern_agent::runner: stopping — the queue is on disk pending=0
+Aug 11 10:45:16 ubuntu systemd[1476]: Stopped tern-agent.service - TERN agent.
+Aug 11 10:45:16 ubuntu systemd[1476]: Started tern-agent.service - TERN agent.
+Aug 11 10:45:16 ubuntu tern-agent[13924]: 2026-08-11T10:45:16.739268Z  INFO tern_agent::runner: agent started probes=0 server=http://192.168.1.144:3011
+Aug 11 10:45:16 ubuntu tern-agent[13924]: 2026-08-11T10:45:16.739311Z  INFO tern_agent::runner: nothing assigned yet — waiting for the server to hand something over

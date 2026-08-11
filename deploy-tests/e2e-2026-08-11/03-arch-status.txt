@@ -1,0 +1,6 @@
+=== agent arch : service + logs (via le relais) ===
+active
+--- logs ---
+Aug 11 10:47:10 arch systemd[945]: Started TERN agent.
+Aug 11 10:47:10 arch tern-agent[987]: 2026-08-11T10:47:10.881214Z  INFO tern_agent::runner: agent started probes=0 server=http://192.168.1.157:38787
+Aug 11 10:47:10 arch tern-agent[987]: 2026-08-11T10:47:10.881464Z  INFO tern_agent::runner: nothing assigned yet — waiting for the server to hand something over

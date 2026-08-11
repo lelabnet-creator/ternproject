@@ -1,0 +1,44 @@
+  ✓ Picking the binary for this machine
+  ✓ Downloading
+  ✓ Pairing
+  ✓ Registering to start at boot
+
+✓ Proxy paired with acme as "tern-proxy"
+  0 probe(s) will be served to agents in this zone
+  Forwarding every 10s
+  Wrote /home/tern/.config/tern/proxy.toml (readable only by you)
+
+Next:
+  /home/tern/.local/bin/tern-proxy run --config /home/tern/.config/tern/proxy.toml
+
+
+┌─ To add an agent on a machine in this zone ─────────────
+│
+│  1. Open the admin, go to Agents → Add an agent, and choose
+│     An agent behind a relay. It shows a PIN, good for five
+│     minutes, and renews it on its own when it runs out.
+│
+│  2. Run this on the isolated machine, with that PIN in place
+│     of PIN:
+│
+│     curl -fsSL http://192.168.1.157:38787/install.sh | sh -s -- \
+│       --server http://192.168.1.157:38787 --pin PIN
+│
+└────────────────────────────────────────────────────────
+
+If this relay cannot reach TERN at that moment, the admin cannot mint
+one either — the code is redeemed through this relay. Mint it here:
+      /home/tern/.local/bin/tern-proxy pin --config /home/tern/.config/tern/proxy.toml
+
+Created symlink /home/tern/.config/systemd/user/default.target.wants/tern-proxy.service → /home/tern/.config/systemd/user/tern-proxy.service.
+✓ Registered as a systemd user service — starts at boot.
+  Status: systemctl --user status tern-proxy
+  Logs:   journalctl --user -u tern-proxy -f
+
+Check it: /home/tern/.local/bin/tern-proxy status --config /home/tern/.config/tern/proxy.toml
+
+The command to run on a machine in this zone was printed above.
+
+  ─────────────────────────────────────────────────────────
+  ✓ Running now, and again after a reboot.
+  ─────────────────────────────────────────────────────────
