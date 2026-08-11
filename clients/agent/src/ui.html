@@ -103,10 +103,100 @@
         font-size: 0.8rem;
         text-align: center;
       }
+      /* The sign-in panel is narrower than the dashboard: it holds one field,
+         and a full-width form for one field reads as an unfinished page. */
+      #gate {
+        max-width: 22rem;
+      }
+      form {
+        display: grid;
+        gap: 0.5rem;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 1rem;
+        margin: 0 0 1rem;
+      }
+      label {
+        font-size: 0.85rem;
+        color: var(--muted);
+      }
+      input {
+        font: inherit;
+        padding: 0.6rem 0.7rem;
+        border-radius: 6px;
+        border: 1px solid var(--border);
+        background: var(--bg);
+        color: var(--fg);
+        /* 16px minimum, or iOS zooms the whole page on focus. */
+        font-size: 16px;
+        min-height: 44px;
+        box-sizing: border-box;
+        width: 100%;
+      }
+      button {
+        font: inherit;
+        font-weight: 600;
+        padding: 0.6rem 0.9rem;
+        border-radius: 6px;
+        border: 1px solid var(--border);
+        background: var(--bg);
+        color: var(--fg);
+        cursor: pointer;
+        min-height: 44px;
+      }
+      form .sub {
+        margin: 0;
+      }
+      #logout {
+        background: none;
+        border: 0;
+        color: var(--muted);
+        font-size: 0.8rem;
+        text-decoration: underline;
+        min-height: auto;
+        padding: 0;
+        cursor: pointer;
+      }
     </style>
   </head>
   <body>
-    <main>
+    <!--
+      The sign-in panel, and the page behind it.
+
+      Both are in the document from the start and one is hidden, rather than the
+      server choosing between two documents. The page holds no figures of its
+      own — every value arrives from `state.json`, which is what is actually
+      guarded — so there is nothing here to withhold, and this way the form can
+      say what it is guarding instead of a browser dialog saying nothing.
+    -->
+    <main id="gate" hidden>
+      <h1><span class="dot" style="background: var(--warn)"></span>tern-agent</h1>
+      <p class="sub">This agent's page is password protected.</p>
+      <form id="signin">
+        <label for="password">Password</label>
+        <!--
+          One field, because there is one account. Basic auth insisted on a
+          username and then ignored it, which taught the reader something untrue
+          about what guards their machine.
+        -->
+        <input
+          type="password"
+          id="password"
+          name="password"
+          autocomplete="current-password"
+          autofocus
+          required
+        />
+        <button type="submit">Sign in</button>
+        <p class="sub bad" id="failed-signin" role="alert" hidden></p>
+      </form>
+      <footer>
+        Set with <code>tern-agent ui</code>, which prints it once. Run it again for a new one.
+      </footer>
+    </main>
+
+    <main id="dash" hidden>
       <h1><span class="dot" id="dot"></span><span id="role">tern-agent</span></h1>
       <p class="sub" id="version">…</p>
 
@@ -147,7 +237,10 @@
         </dl>
       </section>
 
-      <footer id="foot">Refreshing every 5 s.</footer>
+      <footer>
+        <span id="foot">Refreshing every 5 s.</span>
+        <button type="button" id="logout" hidden>Sign out</button>
+      </footer>
     </main>
 
     <script>
@@ -192,9 +285,67 @@
         return ['ok', 'reporting normally']
       }
 
+      /*
+       * Which of the two panels is on screen.
+       *
+       * Driven by what `state.json` answers rather than by anything this page
+       * decides: a 401 is the server saying "sign in", and the moment a session
+       * exists the same request starts returning figures. Nothing here tracks
+       * whether it thinks it is signed in, so nothing here can be wrong about it.
+       */
+      function show(which) {
+        $('gate').hidden = which !== 'gate'
+        $('dash').hidden = which !== 'dash'
+      }
+
+      $('signin').addEventListener('submit', async (event) => {
+        event.preventDefault()
+        const error = $('failed-signin')
+        error.hidden = true
+
+        const response = await fetch('login', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ password: $('password').value }),
+        }).catch(() => null)
+
+        if (response && response.ok) {
+          $('password').value = ''
+          refresh()
+          return
+        }
+
+        // The two refusals are different things to do next, so they are
+        // different sentences. Being locked out is not a wrong password, and
+        // being told it was would send somebody hunting for a typo.
+        error.textContent =
+          response && response.status === 429
+            ? 'Too many attempts. Wait a minute, then try again.'
+            : 'That password was not right.'
+        error.hidden = false
+        $('password').focus()
+        $('password').select()
+      })
+
+      $('logout').addEventListener('click', async () => {
+        await fetch('logout', { method: 'POST' }).catch(() => {})
+        show('gate')
+        $('password').focus()
+      })
+
       async function refresh() {
         try {
-          const state = await (await fetch('state.json', { cache: 'no-store' })).json()
+          const response = await fetch('state.json', { cache: 'no-store' })
+          if (response.status === 401) {
+            show('gate')
+            return
+          }
+          const state = await response.json()
+          show('dash')
+          // Only where there is a session to end: an agent with no password
+          // has nothing to sign out of, and offering it would be a button that
+          // does nothing anyone can see.
+          $('logout').hidden = !state.guarded
           const [tone, words] = verdict(state)
 
           $('dot').style.background = `var(--${tone})`

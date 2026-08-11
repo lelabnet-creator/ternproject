@@ -26,12 +26,32 @@
 //! default" is exactly one config line. A page that was safe only through its
 //! binding would become unsafe silently.
 //!
-//! Basic auth rather than a form: no session, no cookie, no CSRF surface, and
-//! the browser remembers it. The hash is salted SHA-256, which is the right
-//! strength for a credential that guards a read-only local page and is not
-//! reused anywhere — and it is deliberately not the argon2 the server uses,
-//! because that would put a password-hashing dependency in a binary built for
-//! size to protect a page on the loopback interface.
+//! A form on the page, not Basic auth. Basic was chosen first for what it
+//! avoids — no session, no cookie, no CSRF surface — and those are real, but it
+//! pays for them with a browser dialog that cannot be styled, cannot say what
+//! this page is, cannot explain that the username is ignored, and is cleared
+//! only by closing the browser. For a page whose whole job is to be legible to
+//! somebody checking on a machine, that is the wrong trade.
+//!
+//! So the costs come back and are paid explicitly:
+//!
+//! - **Session**: a random token held in memory, so every restart signs
+//!   everyone out. Nothing about it is written to disk.
+//! - **Cookie**: `HttpOnly`, `SameSite=Strict`, and `Path=/`. Strict is what
+//!   removes most of what CSRF would mean here.
+//! - **CSRF**: what is left is very little, because there is nothing to forge.
+//!   The page is read-only — no endpoint changes anything about the agent — and
+//!   the only writes are signing in and out. `SameSite=Strict` stops a foreign
+//!   page from carrying the cookie at all.
+//! - **Guessing**: a form invites a script where a browser dialog discouraged
+//!   one, so failures are counted and the door shuts for a while. See
+//!   `Attempts`.
+//!
+//! The hash is salted SHA-256, which is the right strength for a credential
+//! that guards a read-only local page and is not reused anywhere — and it is
+//! deliberately not the argon2 the server uses, because that would put a
+//! password-hashing dependency in a binary built for size to protect a page on
+//! the loopback interface.
 
 use std::sync::Arc;
 use std::time::Instant;
@@ -81,6 +101,49 @@ pub struct UiState {
     pub snapshot: Mutex<Snapshot>,
     started: Instant,
     credential: Option<Credential>,
+    /// Live session tokens. In memory only: a restart signs everyone out, and
+    /// nothing about who was signed in survives on disk.
+    sessions: Mutex<Vec<String>>,
+    attempts: Mutex<Attempts>,
+}
+
+/// How many passwords have been got wrong lately, and whether to keep listening.
+///
+/// A browser dialog discouraged scripted guessing simply by being awkward. A
+/// form does not, so the counting has to be explicit. Five wrong answers and the
+/// door stays shut for a minute — long enough that guessing a generated
+/// twelve-character password stops being a plan, short enough that somebody who
+/// mistyped theirs is not locked out of their own machine for the afternoon.
+///
+/// Counted per process, not per caller: distinguishing callers would mean
+/// trusting an address, and the whole point is that this may be exposed.
+#[derive(Debug)]
+struct Attempts {
+    failures: u32,
+    locked_until: Option<Instant>,
+}
+
+const MAX_FAILURES: u32 = 5;
+const LOCKOUT: std::time::Duration = std::time::Duration::from_secs(60);
+
+impl Attempts {
+    fn locked(&self) -> bool {
+        self.locked_until
+            .is_some_and(|until| Instant::now() < until)
+    }
+
+    fn fail(&mut self) {
+        self.failures += 1;
+        if self.failures >= MAX_FAILURES {
+            self.failures = 0;
+            self.locked_until = Some(Instant::now() + LOCKOUT);
+        }
+    }
+
+    fn succeed(&mut self) {
+        self.failures = 0;
+        self.locked_until = None;
+    }
 }
 
 /// The stored form of the UI password: a salt and a hash, never the password.
@@ -132,7 +195,21 @@ impl UiState {
             snapshot: Mutex::new(Snapshot::default()),
             started: Instant::now(),
             credential,
+            sessions: Mutex::new(Vec::new()),
+            attempts: Mutex::new(Attempts {
+                failures: 0,
+                locked_until: None,
+            }),
         })
+    }
+
+    /// Whether this page is guarded at all.
+    ///
+    /// An agent nobody set a password on serves its page open, on loopback,
+    /// which is what makes the feature findable. Setting a password turns the
+    /// check on; `tern-agent ui --listen` warns when a wider binding has none.
+    pub fn guarded(&self) -> bool {
+        self.credential.is_some()
     }
 
     /// Hands the runner a snapshot to mutate, stamping the uptime as it goes.
@@ -148,6 +225,8 @@ pub async fn serve(state: Arc<UiState>, listen: &str) -> anyhow::Result<()> {
     let app = Router::new()
         .route("/", get(page))
         .route("/state.json", get(state_json))
+        .route("/login", axum::routing::post(login))
+        .route("/logout", axum::routing::post(logout))
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind(listen).await?;
@@ -156,82 +235,148 @@ pub async fn serve(state: Arc<UiState>, listen: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Basic auth, or nothing when no password is set.
-///
-/// Returning `None` for "no credential configured" rather than refusing: an
-/// agent that has never been given a password serves its page on loopback, and
-/// demanding one nobody has set would make the feature undiscoverable. Setting
-/// a password is what turns the check on, and `--listen` on anything but
-/// loopback warns when there is none.
-fn authorised(state: &UiState, headers: &header::HeaderMap) -> bool {
-    let Some(credential) = &state.credential else {
+const COOKIE: &str = "tern_ui";
+
+/// Whether this request carries a live session, or the page needs no one.
+async fn authorised(state: &UiState, headers: &header::HeaderMap) -> bool {
+    if state.credential.is_none() {
         return true;
-    };
-
-    let Some(value) = headers
-        .get(header::AUTHORIZATION)
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.strip_prefix("Basic "))
-    else {
+    }
+    let Some(token) = session_cookie(headers) else {
         return false;
     };
-
-    let Some(decoded) = decode_base64(value) else {
-        return false;
-    };
-    // `user:password`; the user part is ignored, because there is one account.
-    let Some((_, password)) = decoded.split_once(':') else {
-        return false;
-    };
-    credential.matches(password)
+    let sessions = state.sessions.lock().await;
+    // Constant-time per candidate, for the same reason the password comparison
+    // is: a token found one character at a time is a token found.
+    sessions.iter().any(|known| constant_eq(known, &token))
 }
 
-fn unauthorised() -> Response {
+/// The session token from the request's cookies, if there is one.
+///
+/// Hand-parsed because the alternative is a cookie crate in a binary built for
+/// size, to read one name. Splitting on `;` then on the first `=` is the whole
+/// of the format that matters here.
+fn session_cookie(headers: &header::HeaderMap) -> Option<String> {
+    let raw = headers.get(header::COOKIE)?.to_str().ok()?;
+    raw.split(';')
+        .filter_map(|pair| pair.split_once('='))
+        .find(|(name, _)| name.trim() == COOKIE)
+        .map(|(_, value)| value.trim().to_string())
+}
+
+fn constant_eq(a: &str, b: &str) -> bool {
+    let (a, b) = (a.as_bytes(), b.as_bytes());
+    a.len() == b.len() && a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
+}
+
+#[derive(Deserialize)]
+struct LoginBody {
+    password: String,
+}
+
+/// Exchanges the password for a session.
+///
+/// One field, because there is one account. The username Basic auth insisted on
+/// was always ignored, and asking for something that is not read is how a form
+/// teaches somebody the wrong thing about what guards their machine.
+async fn login(State(state): State<Arc<UiState>>, Json(body): Json<LoginBody>) -> Response {
+    let Some(credential) = &state.credential else {
+        // Nothing is set, so nothing can be signed into. Said plainly rather
+        // than answering "ok" to any password, which would be a lie the caller
+        // could reasonably act on.
+        return (StatusCode::NO_CONTENT, "").into_response();
+    };
+
+    {
+        let attempts = state.attempts.lock().await;
+        if attempts.locked() {
+            return (
+                StatusCode::TOO_MANY_REQUESTS,
+                "Too many attempts. Try again in a minute.\n",
+            )
+                .into_response();
+        }
+    }
+
+    if !credential.matches(&body.password) {
+        state.attempts.lock().await.fail();
+        // The same answer whether the password was wrong or the page has no
+        // password at all is not needed here — but the *delay* matters more
+        // than the wording, and the lockout above is what provides it.
+        return (StatusCode::UNAUTHORIZED, "Wrong password.\n").into_response();
+    }
+
+    state.attempts.lock().await.succeed();
+    let token = crate::transport::random_token(24);
+    state.sessions.lock().await.push(token.clone());
+
     (
-        StatusCode::UNAUTHORIZED,
-        [(header::WWW_AUTHENTICATE, "Basic realm=\"tern-agent\"")],
-        "Authentication required.\n",
+        StatusCode::NO_CONTENT,
+        [(
+            header::SET_COOKIE,
+            // No `Secure`: this page is plain HTTP by design — it is served by
+            // an agent that has no certificate and no name to put one on — and
+            // marking the cookie Secure would stop the browser sending it at
+            // all. `HttpOnly` keeps it away from scripts; `Strict` keeps it
+            // away from other origins, which is what stands in for CSRF tokens
+            // on a page that changes nothing.
+            format!("{COOKIE}={token}; HttpOnly; SameSite=Strict; Path=/"),
+        )],
+    )
+        .into_response()
+}
+
+/// Ends this session, and only this one.
+async fn logout(State(state): State<Arc<UiState>>, headers: header::HeaderMap) -> Response {
+    if let Some(token) = session_cookie(&headers) {
+        state.sessions.lock().await.retain(|known| *known != token);
+    }
+    (
+        StatusCode::NO_CONTENT,
+        [(
+            header::SET_COOKIE,
+            format!("{COOKIE}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0"),
+        )],
     )
         .into_response()
 }
 
 async fn state_json(State(state): State<Arc<UiState>>, headers: header::HeaderMap) -> Response {
-    if !authorised(&state, &headers) {
-        return unauthorised();
+    if !authorised(&state, &headers).await {
+        // No `WWW-Authenticate`: that header is what summons the browser dialog
+        // this page exists to replace. A bare 401 is what the page reads to
+        // know it should show its own form.
+        return (StatusCode::UNAUTHORIZED, "Sign in.\n").into_response();
     }
     let snapshot = state.snapshot.lock().await.clone();
-    Json(snapshot).into_response()
-}
 
-async fn page(State(state): State<Arc<UiState>>, headers: header::HeaderMap) -> Response {
-    if !authorised(&state, &headers) {
-        return unauthorised();
+    /// The figures, plus the one thing about the page itself the page needs.
+    ///
+    /// Whether there is a password at all is not part of an agent's state, but
+    /// it decides whether "Sign out" means anything — and without it the page
+    /// offered to end a session that was never begun.
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Body {
+        #[serde(flatten)]
+        snapshot: Snapshot,
+        guarded: bool,
     }
 
+    Json(Body {
+        snapshot,
+        guarded: state.guarded(),
+    })
+    .into_response()
+}
+
+/// The page itself, served to anyone who asks.
+///
+/// It carries no data — every figure arrives from `state.json`, which is
+/// guarded — so there is nothing here to protect, and serving it unguarded is
+/// what lets it show its own sign-in form instead of a browser dialog.
+async fn page(State(_state): State<Arc<UiState>>) -> Response {
     ([(header::CONTENT_TYPE, "text/html; charset=utf-8")], PAGE).into_response()
-}
-
-/// Minimal base64, because one decode does not justify a dependency in a
-/// binary built with `opt-level = "z"`.
-fn decode_base64(input: &str) -> Option<String> {
-    const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-
-    let mut bits = 0u32;
-    let mut count = 0;
-    let mut out = Vec::new();
-    for byte in input.bytes() {
-        if byte == b'=' {
-            break;
-        }
-        let value = TABLE.iter().position(|c| *c == byte)? as u32;
-        bits = (bits << 6) | value;
-        count += 6;
-        if count >= 8 {
-            count -= 8;
-            out.push((bits >> count) as u8);
-        }
-    }
-    String::from_utf8(out).ok()
 }
 
 /// The page itself.
@@ -265,34 +410,76 @@ mod tests {
         assert_ne!(a.hash, b.hash);
     }
 
-    #[test]
-    fn basic_auth_is_read_the_way_a_browser_writes_it() {
-        // "tern:hunter2", as a browser encodes it.
-        assert_eq!(
-            decode_base64("dGVybjpodW50ZXIy").as_deref(),
-            Some("tern:hunter2")
-        );
-        // A password containing a colon still works: only the first one splits.
-        let decoded = decode_base64("dGVybjphOmI=").unwrap();
-        assert_eq!(decoded.split_once(':').unwrap().1, "a:b");
+    fn with_cookie(raw: &str) -> header::HeaderMap {
+        let mut headers = header::HeaderMap::new();
+        headers.insert(header::COOKIE, raw.parse().unwrap());
+        headers
     }
 
-    #[test]
-    fn no_password_configured_serves_the_page() {
+    #[tokio::test]
+    async fn no_password_configured_serves_the_page() {
         /*
-         * Deliberate, and the comment on `authorised` says why: an agent that
-         * has never been given one serves on loopback, because demanding a
-         * password nobody set would make the page undiscoverable. Pinned here
-         * so that turning it into a refusal is a decision somebody makes on
-         * purpose rather than a tidy-looking edit.
+         * Deliberate, and the comment on `guarded` says why: an agent that has
+         * never been given one serves on loopback, because demanding a password
+         * nobody set would make the page undiscoverable. Pinned here so that
+         * turning it into a refusal is a decision somebody makes on purpose
+         * rather than a tidy-looking edit.
          */
         let state = UiState::new(None);
-        assert!(authorised(&state, &header::HeaderMap::new()));
+        assert!(authorised(&state, &header::HeaderMap::new()).await);
+    }
+
+    #[tokio::test]
+    async fn a_configured_password_refuses_a_request_with_no_session() {
+        let state = UiState::new(Some(Credential::create("secret")));
+        assert!(!authorised(&state, &header::HeaderMap::new()).await);
+        assert!(!authorised(&state, &with_cookie("tern_ui=made-up")).await);
+    }
+
+    #[tokio::test]
+    async fn a_session_token_is_accepted_until_it_is_dropped() {
+        let state = UiState::new(Some(Credential::create("secret")));
+        state.sessions.lock().await.push("token-abc".to_string());
+
+        assert!(authorised(&state, &with_cookie("tern_ui=token-abc")).await);
+        // Beside other cookies, which is how it will actually arrive.
+        assert!(authorised(&state, &with_cookie("theme=dark; tern_ui=token-abc; x=1")).await);
+
+        state.sessions.lock().await.clear();
+        assert!(!authorised(&state, &with_cookie("tern_ui=token-abc")).await);
     }
 
     #[test]
-    fn a_configured_password_refuses_an_empty_request() {
-        let state = UiState::new(Some(Credential::create("secret")));
-        assert!(!authorised(&state, &header::HeaderMap::new()));
+    fn a_cookie_header_is_read_the_way_a_browser_writes_it() {
+        assert_eq!(
+            session_cookie(&with_cookie("tern_ui=abc")).as_deref(),
+            Some("abc")
+        );
+        // Spaces after the separator, and a name that merely starts the same.
+        assert_eq!(
+            session_cookie(&with_cookie("a=1; tern_ui_other=no; tern_ui=yes")).as_deref(),
+            Some("yes")
+        );
+        assert_eq!(session_cookie(&with_cookie("a=1; b=2")), None);
+    }
+
+    /// The reason a form needs something a browser dialog did not.
+    #[test]
+    fn guessing_shuts_the_door() {
+        let mut attempts = Attempts {
+            failures: 0,
+            locked_until: None,
+        };
+        for _ in 0..MAX_FAILURES - 1 {
+            attempts.fail();
+            assert!(!attempts.locked(), "still open below the limit");
+        }
+        attempts.fail();
+        assert!(attempts.locked(), "shut once the limit is reached");
+
+        // And a correct password reopens it, so somebody who mistyped theirs
+        // four times is not made to wait once they get it right.
+        attempts.succeed();
+        assert!(!attempts.locked());
     }
 }
