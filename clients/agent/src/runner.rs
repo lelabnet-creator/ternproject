@@ -417,7 +417,18 @@ pub async fn run(
             // A failure is a warning and nothing more. The server being briefly
             // unreachable is the moment an agent must keep going, not the
             // moment it should start treating its own liveness as an error.
-            match client.heartbeat(&config.api_key).await {
+            // Recomputed each beat rather than cached: an address can change
+            // under an agent — DHCP, a new interface, a machine that moved —
+            // and a stale one is a link the console offers to nowhere.
+            let ui_address = config
+                .ui
+                .as_ref()
+                .and_then(|settings| settings.reachable_address(&config.server));
+
+            match client
+                .heartbeat(&config.api_key, ui_address.as_deref())
+                .await
+            {
                 Ok(()) => {
                     ui.update(|snapshot| {
                         snapshot.last_heartbeat_ok_s = Some(0);

@@ -8,7 +8,7 @@ Object.defineProperty(globalThis, 'window', {
   configurable: true,
 })
 
-const { AgentRow, rootsOf, zonesOf, zoneBehind } = await import('./FleetScreen')
+const { AgentRow, AgentMenu, rootsOf, zonesOf, zoneBehind } = await import('./FleetScreen')
 
 /**
  * A relay and the machines behind it.
@@ -31,6 +31,7 @@ function agent(over: Partial<Agent> & { id: string; name: string }): Agent {
     pairedIp: null,
     zoneAddress: null,
     zoneAddresses: [],
+    uiAddress: null,
     status: 'active',
     lastSeenAt: new Date().toISOString(),
     pairedAt: new Date().toISOString(),
@@ -196,5 +197,52 @@ describe('a relay with nobody behind it', () => {
     expect(html).toContain('Empty zone')
     expect(html).toContain('tern-proxy pin')
     expect(html).not.toContain('never paired these')
+  })
+})
+
+/**
+ * The link to an agent's own page.
+ *
+ * It used to be built from `pairedIp` and a fixed port, and was wrong three
+ * ways at once: that field holds the address a connection *arrived from* as
+ * this server saw it — a bridge gateway when TERN runs in a container — the
+ * port was assumed, and the link was offered for relays, which serve no page,
+ * and for agents whose page had never been switched on. The machine reports
+ * the answer now, and reports nothing when there is nothing to open.
+ */
+describe('opening an agent page', () => {
+  // Opened, because a closed menu renders none of this — and assertions
+  // against nothing pass while proving nothing.
+  function menuFor(over: Partial<Agent>) {
+    return render(
+      <AgentMenu
+        agent={agent({ id: 'x', name: 'box', ...over })}
+        canWrite={true}
+        revoked={false}
+        onRename={() => {}}
+        onRevoke={() => {}}
+        defaultOpen
+      />,
+    )
+  }
+
+  it('uses the address the agent reported, port and all', () => {
+    const html = menuFor({ uiAddress: '10.4.0.9:38788' })
+    expect(html).toContain('http://10.4.0.9:38788/')
+    expect(html).toContain('Open the agent')
+  })
+
+  it('offers nothing when the agent reported no page', () => {
+    // The page is off, or on loopback. Either way there is nothing to open.
+    const html = menuFor({ uiAddress: null, pairedIp: '192.168.64.1' })
+    expect(html).not.toContain('Open the agent')
+    // And above all: never the address this server saw the connection from.
+    expect(html).not.toContain('http://192.168.64.1:38788/')
+  })
+
+  it('never invents a port from the paired address', () => {
+    // The exact shape of the bug: a container bridge gateway offered as a link.
+    const html = menuFor({ uiAddress: null, pairedIp: '192.168.64.1', role: 'proxy' })
+    expect(html).not.toContain('192.168.64.1:38788')
   })
 })

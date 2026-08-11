@@ -162,6 +162,13 @@
       "when": 1786458129518,
       "tag": "0022_lucky_agent_brand",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1786461357149,
+      "tag": "0023_giant_nicolaos",
+      "breakpoints": true
     }
   ]
 }

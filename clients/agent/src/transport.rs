@@ -332,11 +332,20 @@ impl Client {
     /// Deliberately its own endpoint rather than a reuse of `jobs`: liveness
     /// should not cost an assignment download, and it has to keep working when
     /// the operator has asked for no refreshing at all.
-    pub async fn heartbeat(&self, api_key: &str) -> Result<()> {
+    ///
+    /// It carries one optional thing: where this agent's own page can be
+    /// reached, when it has one and it is reachable. The server cannot work
+    /// that out — the address it sees a connection arrive from is a source
+    /// address, and with TERN in a container that is a bridge gateway on the
+    /// host, meaningless anywhere else. The machine is the only thing that
+    /// knows which of its interfaces faces the server, so the machine is what
+    /// says it.
+    pub async fn heartbeat(&self, api_key: &str, ui_address: Option<&str>) -> Result<()> {
         let response = self
             .http
             .post(format!("{}/api/v1/agent/heartbeat", self.base_url))
             .bearer_auth(api_key)
+            .json(&serde_json::json!({ "uiAddress": ui_address }))
             .send()
             .await
             .context("could not reach the server")?;

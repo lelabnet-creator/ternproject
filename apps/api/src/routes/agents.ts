@@ -225,12 +225,38 @@ const routes: FastifyPluginAsyncZod = async (app) => {
    */
   app.post(
     '/agent/heartbeat',
-    { schema: { response: { 200: z.object({ ok: z.boolean() }) } } },
+    {
+      schema: {
+        /*
+         * Optional, and it has to be: an agent from before this existed sends
+         * no body at all, and a heartbeat that started refusing those would
+         * take a whole fleet quiet on upgrade — the one failure a monitoring
+         * tool can least afford, because the screen just shows it as silence.
+         */
+        body: z
+          .object({
+            /**
+             * Where the agent's own page can be reached, as the agent works it
+             * out. Explicitly nullable: null says "there is no page, or it is
+             * on loopback", which must clear whatever was stored.
+             */
+            uiAddress: z.string().max(255).nullable().optional(),
+          })
+          // `nullish`, not `optional`. An agent from before this existed posts
+          // with no body at all, which arrives here as null rather than as
+          // undefined — and `optional()` alone rejected it with a 400. Every
+          // deployed agent would have gone quiet the moment the server was
+          // upgraded, which the two heartbeat tests caught and which is the
+          // entire reason they assert a bodiless call.
+          .nullish(),
+        response: { 200: z.object({ ok: z.boolean() }) },
+      },
+    },
     async (req) => {
       const key = await authenticateApiKey(app, req, 'ingest')
       if (!key) throw app.httpErrors.unauthorized('Invalid or missing API key')
 
-      await touchAgent(app, key.id, req.headers['user-agent'])
+      await touchAgent(app, key.id, req.headers['user-agent'], req.body?.uiAddress)
       return { ok: true }
     },
   )
@@ -759,6 +785,14 @@ const routes: FastifyPluginAsyncZod = async (app) => {
               zoneAddress: z.string().nullable(),
               /** Every address it says it can be dialled on. Empty if it never said. */
               zoneAddresses: z.array(z.string()),
+              /**
+               * Where this agent serves its own page, as the agent reports it.
+               *
+               * Null covers every case where there is nothing to open: no page,
+               * a page on loopback, a relay (which serves none), and a zone
+               * agent this server never hears from directly.
+               */
+              uiAddress: z.string().nullable(),
               status: z.string(),
               lastSeenAt: z.string().nullable(),
               pairedAt: z.string(),
@@ -824,6 +858,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
           pairedIp: row.pairedIp,
           zoneAddress: row.zoneAddress,
           zoneAddresses: row.zoneAddresses ?? [],
+          uiAddress: row.uiAddress,
           status: row.status,
           lastSeenAt: row.lastSeenAt?.toISOString() ?? null,
           pairedAt: row.createdAt.toISOString(),

@@ -689,3 +689,115 @@ mod job_tests {
         assert_eq!(gaps, vec!["queue-depth".to_string()]);
     }
 }
+
+impl UiSettings {
+    /// Where this page can be reached from elsewhere, if it can be at all.
+    ///
+    /// Two questions, and the first one settles most cases. A page bound to
+    /// loopback is reachable from exactly one machine — the one serving it — so
+    /// there is no address to give the admin and saying nothing is the honest
+    /// answer. It is also the default, which is deliberate: a monitoring agent
+    /// should not put a port on an interface because somebody forgot to say
+    /// otherwise.
+    ///
+    /// When it is bound wider, the port is known but the host is not: `0.0.0.0`
+    /// means every interface, and which one an operator's browser can use is
+    /// not something the agent can decide. What it *can* say is which of its
+    /// interfaces reaches TERN — the routing table is asked, no packet is sent
+    /// — and that one is a good answer, because the console asking the question
+    /// is served from the machine at the other end of exactly that path.
+    ///
+    /// An explicit host is taken as given: somebody who wrote an address meant
+    /// it, and second-guessing them would be worse than trusting them.
+    pub fn reachable_address(&self, upstream: &str) -> Option<String> {
+        let (host, port) = self.listen.rsplit_once(':')?;
+        let host = host.trim_start_matches('[').trim_end_matches(']');
+
+        if is_loopback_host(host) {
+            return None;
+        }
+
+        if host.is_empty() || host == "0.0.0.0" || host == "*" || host == "::" {
+            let outbound = crate::proxy::outbound_address(upstream)?;
+            if outbound.is_loopback() {
+                return None;
+            }
+            return Some(format!("{outbound}:{port}"));
+        }
+
+        Some(self.listen.clone())
+    }
+}
+
+fn is_loopback_host(host: &str) -> bool {
+    host == "localhost"
+        || host
+            .parse::<std::net::IpAddr>()
+            .map(|ip| ip.is_loopback())
+            .unwrap_or(false)
+}
+
+#[cfg(test)]
+mod ui_address_tests {
+    use super::*;
+
+    fn ui(listen: &str) -> UiSettings {
+        UiSettings {
+            listen: listen.to_string(),
+            credential: None,
+        }
+    }
+
+    /// The default, and the one that matters most.
+    ///
+    /// A page on loopback is reachable from the machine serving it and nowhere
+    /// else, so there is no address to hand the console. Saying nothing is what
+    /// stops it offering a link that cannot work — which is exactly what it did
+    /// when it guessed from the address a connection arrived from.
+    #[test]
+    fn loopback_has_no_address_to_give() {
+        assert_eq!(
+            ui("127.0.0.1:38788").reachable_address("http://x:3000"),
+            None
+        );
+        assert_eq!(
+            ui("localhost:38788").reachable_address("http://x:3000"),
+            None
+        );
+        assert_eq!(ui("[::1]:38788").reachable_address("http://x:3000"), None);
+    }
+
+    /// An address somebody wrote down is taken as written.
+    #[test]
+    fn an_explicit_host_is_trusted() {
+        assert_eq!(
+            ui("192.168.10.4:38788").reachable_address("http://x:3000"),
+            Some("192.168.10.4:38788".to_string())
+        );
+    }
+
+    /// Bound everywhere, the port is known and the host is not — so the
+    /// interface that faces the server is asked for, and the port kept.
+    #[test]
+    fn every_interface_resolves_to_the_one_facing_the_server() {
+        // The upstream is unreachable and deliberately so: a connected UDP
+        // socket asks the routing table, it does not send anything, so this
+        // still yields whichever address would carry the traffic.
+        let resolved = ui("0.0.0.0:39999").reachable_address("http://192.0.2.1:3000");
+        if let Some(address) = resolved {
+            assert!(address.ends_with(":39999"), "kept the port: {address}");
+            assert!(
+                !address.starts_with("0.0.0.0"),
+                "resolved the host: {address}"
+            );
+            assert!(!address.starts_with("127."), "never loopback: {address}");
+        }
+        // None is legitimate on a host with no route at all — an isolated
+        // machine has no address that reaches a server it cannot see.
+    }
+
+    #[test]
+    fn a_listen_string_without_a_port_says_nothing() {
+        assert_eq!(ui("0.0.0.0").reachable_address("http://x:3000"), None);
+    }
+}

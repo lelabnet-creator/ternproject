@@ -474,7 +474,10 @@ fn spawn_refresh(state: AppState, every_s: u64) {
              * that question differently depending on the role was answering a
              * different question.
              */
-            if let Err(error) = state.client.heartbeat(&key).await {
+            // No page, so no address: `tern-proxy` has no `ui` subcommand and
+            // serves nothing about itself. Passing None is what keeps the
+            // console from offering a link to a port nothing listens on.
+            if let Err(error) = state.client.heartbeat(&key, None).await {
                 // A warning and nothing more. A relay whose upstream is down
                 // must keep serving its zone, which is the entire reason it
                 // exists — and the next tick will say so again.

@@ -1220,9 +1220,6 @@ function Vantage({ mode }: { mode: string }) {
   )
 }
 
-/** The port an agent serves its own page on by default. */
-const AGENT_UI_PORT = 38788
-
 /**
  * The overflow menu for one agent — its addresses, and the acts on it.
  *
@@ -1239,20 +1236,27 @@ const AGENT_UI_PORT = 38788
  * address the admin ever saw; offering a dead link to it would be the wrong
  * kind of helpful.
  */
-function AgentMenu({
+export function AgentMenu({
   agent,
   canWrite,
   revoked,
   onRename,
   onRevoke,
+  defaultOpen = false,
 }: {
   agent: Agent
   canWrite: boolean
   revoked: boolean
   onRename: () => void
   onRevoke: () => void
+  /**
+   * Open from the first render. Set only by the tests, which have no click to
+   * make and would otherwise assert against a closed menu — that is, against
+   * nothing, which is how an assertion passes while saying something false.
+   */
+  defaultOpen?: boolean
 }) {
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useState(defaultOpen)
   const menu = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -1288,10 +1292,22 @@ function AgentMenu({
     if (!addresses.some((a) => a.ip === host)) addresses.push({ ip: host, note: 'zone' })
   }
 
-  // The page is reachable only for something this server has an address for and
-  // a route to — an ordinary agent or a relay, never an isolated zone member.
-  const pageHost = agent.pairedIp ?? agent.zoneAddress?.replace(/:\d+$/, '') ?? null
-  const canOpenPage = !agent.isLocal && agent.role !== undefined && Boolean(pageHost)
+  /*
+   * The agent's page, offered only where the agent said there is one to open.
+   *
+   * This used to be guessed from `pairedIp` and a fixed port, and it was wrong
+   * in three separate ways at once. `pairedIp` is the address a connection
+   * *arrived from* as this server saw it — with TERN in a container that is a
+   * bridge gateway on the host, which is why the link read `192.168.64.1`. The
+   * port was assumed rather than known. And it was offered for relays, which
+   * serve no page at all, and for agents whose page had never been turned on.
+   *
+   * So the machine is asked instead: it reports the address on its heartbeat,
+   * having resolved which of its interfaces faces this server, and reports
+   * nothing when the page is off or bound to loopback. One field, and every
+   * case where there is nothing to open answers null by itself.
+   */
+  const pageAddress = agent.uiAddress
 
   return (
     <div ref={menu} style={{ position: 'relative' }}>
@@ -1355,10 +1371,10 @@ function AgentMenu({
             </div>
           )}
 
-          {canOpenPage && (
+          {pageAddress && (
             <a
               role="menuitem"
-              href={`http://${pageHost}:${AGENT_UI_PORT}/`}
+              href={`http://${pageAddress}/`}
               target="_blank"
               rel="noreferrer noopener"
               style={{

@@ -259,6 +259,13 @@ export interface Agent {
   zoneAddress: string | null
   /** Every address a relay says it can be dialled on. Empty if it never said. */
   zoneAddresses: string[]
+  /**
+   * Where this agent serves its own page, as the agent reports it.
+   *
+   * Null whenever there is nothing to open: no page, a page on loopback, a
+   * relay (which serves none), or a zone agent this server never hears from.
+   */
+  uiAddress: string | null
   status: string
   lastSeenAt: string | null
   pairedAt: string

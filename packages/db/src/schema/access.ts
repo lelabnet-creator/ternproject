@@ -157,6 +157,18 @@ export const agents = pgTable(
      * stops this server from guessing — which it did, wrongly, from `pairedIp`.
      */
     zoneAddresses: jsonb().$type<string[]>().notNull().default([]),
+    /**
+     * Where this agent's own page can be reached, as the agent reports it.
+     *
+     * Null when there is no page, or when it is bound to loopback and so
+     * reachable from nowhere else. The agent is the only thing that can answer
+     * this, for the same reason `zoneAddress` exists: `pairedIp` holds the
+     * address a connection *arrived from* as this server saw it, and with TERN
+     * in a container that is a bridge gateway on the host — an address that
+     * means nothing anywhere else. The admin offered exactly that as the link
+     * to an agent's page, which is the mistake this replaces.
+     */
+    uiAddress: text(),
     revokedAt: timestamp({ withTimezone: true }),
     createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
   },
