@@ -62,10 +62,17 @@ fonctionne de bout en bout, preuves à l'appui.
       (`parent=27a71778…`). Binaires musl reconstruits depuis le code courant et
       servis par l'API. Traces : `03-*.txt`.
 
-- [ ] **4. Trois battements.** Les trois lignes vivantes dans `GET /agents` —
+- [x] **4. Trois battements.** Les trois lignes vivantes dans `GET /agents` —
       l'agent, le relais (heartbeat propre depuis ce cycle), et l'agent de zone
       remonté par la déclaration du relais. Trace : la réponse API et les logs
       de chaque machine (`journalctl`).
+
+      Fait. Les trois vivants à <2 min : ubuntu (agent direct), tern-proxy
+      (relais — heartbeat ajouté ce cycle), arch (agent de zone, remonté par la
+      déclaration du relais). Constat pour le point 6 : `refresh_s=300` fait que
+      la zone n'est déclarée que toutes les 5 min, d'où une latence d'apparition
+      d'un agent de zone pouvant atteindre 5 min. Trace :
+      `deploy-tests/e2e-2026-08-11/04-heartbeats.txt`.
 
 - [ ] **5. Tous les genres de contrôle, par l'agent.** Créer via API un contrôle
       par genre — http, tcp, ping, dns, cert, websocket, docker, file,

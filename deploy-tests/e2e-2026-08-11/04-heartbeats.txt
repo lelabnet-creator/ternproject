@@ -1,0 +1,16 @@
+=== ÉTAT DES TROIS BATTEMENTS ===
+  ubuntu       role=agent  lastSeen=2026-08-11T10:50:16.743Z (il y a 113s)
+  tern-proxy   role=proxy  lastSeen=2026-08-11T10:51:04.996Z (il y a 65s)
+  arch         role=agent  lastSeen=2026-08-11T10:50:52.000Z (il y a 78s)
+
+--- Analyse (pour le point 6) ---
+refresh_s du relais = 300 (5 min). La zone n'est déclarée au serveur qu'à cette
+cadence, donc un agent de zone fraîchement appairé n'apparaît vivant côté serveur
+qu'à la prochaine déclaration — jusqu'à 5 min de latence observée (arch resté
+"lastSeen=None" ~3 min après appairage, puis remonté).
+forward_interval_s = 10 : les données/points sont envoyés toutes les 10 s, mais
+la DÉCLARATION de zone est découplée sur le refresh loop (300 s). Piste de
+correction : déclarer la zone plus fréquemment (au moins après un nouvel
+appairage — déjà fait via le spawn immédiat post-pair — et sur un intervalle plus
+court que 300 s pour la fraîcheur des heartbeats des agents de zone).
+Le service systemd de l'agent de zone porte bien TERN_ALLOW_PLAIN_HTTP=1.
