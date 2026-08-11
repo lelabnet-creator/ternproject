@@ -2,30 +2,25 @@
 
 ## Current Task
 
-Rien en cours. `v0.1.25` : la cause des 401 derrière un relais est trouvée et
-corrigée — l'appairage émettait une clé et la jetait quand un `agent.toml`
-existait déjà.
+Rien en cours. `v0.1.26` : correction du chemin de config relatif (cause des 401
+en boucle), trouvée et validée lors d'une validation e2e sur trois VM réelles.
 
 ## Key Decisions
 
-- **L'appairage écrit la clé et laisse le reste.** Refuser le fichier faisait
-  réussir l'appairage, brûler un PIN à usage unique, émettre une clé et la
-  jeter ; l'agent présentait l'ancienne et prenait 401 pour toujours. Une clé
-  est ce que l'appairage produit ; les sondes appartiennent à l'exploitant.
-  `--force` remplace tout, en nommant chaque sonde retirée.
-- **Un chemin de config se tape sans drapeau** sur `run`, `doctor` et `status`.
-  « unexpected argument found » nommait ce qui est faux, pas ce qui serait juste.
-- **`STARTED` est décidé où chaque superviseur le prend**, pas déduit à la fin :
-  autrement l'installeur revendique un démarrage au boot que la branche
-  au-dessus vient d'échouer à créer.
-- Formater après la dernière édition, régénérer le rendu des docs, inspecter les
-  hunks avant d'indexer un fichier partagé.
+- **`default_path()`/`default_config()` étaient relatifs** (`agent.toml`). Un
+  `pair`/`run`/`doctor` sans `--config` visait le cwd et divergeait du fichier
+  du service → 401 en boucle sur une config qu'on croyait fraîche. Corrigés en
+  chemin XDG absolu, cohérent avec le CONF_DIR de l'installeur. euid lu depuis
+  /proc (pas de dépendance libc).
+- **Validation e2e complète** : 3 rôles sur Ubuntu/Rocky/Arch, 11 genres de
+  contrôle (328 points en base), agent de zone isolé via relais. Bilan dans
+  `deploy-tests/e2e-2026-08-11/RESTITUTION.md`. Tutoriel : `docs/tutorial.md`.
 
 ## Next Steps
 
-- **Bouton de reset du mot de passe de l'UI dans la console** : non fait. Demande
-  que le serveur dépose une instruction reprise par l'agent à son prochain
-  `jobs` — un credential qui voyage serveur→agent, à concevoir.
-- Reprendre les textes de `docs/` pour le processus d'ajout d'un agent de zone.
-- Non exercés : l'annonce de `--force` (demande un vrai serveur), les onglets du
-  panneau d'appairage, le rendu de la page locale de l'agent.
+- Cadence de refresh 300 s : réactivité lente (nouvelle assignation, apparition
+  d'un agent de zone). Piste : intervalle plus court ou déclenchement sur
+  événement.
+- Logs du relais silencieux sur l'activité périodique réussie.
+- Reset du mot de passe de l'UI de l'agent depuis la console (canal
+  serveur→agent à concevoir).
