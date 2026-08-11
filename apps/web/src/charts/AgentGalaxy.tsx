@@ -59,6 +59,25 @@ const TONE: Record<Freshness, string> = {
 
 const RING: Record<Freshness, number> = { fresh: 0.42, stale: 0.66, silent: 0.88, revoked: 0.97 }
 
+/**
+ * How wide the sweeping beam is.
+ *
+ * Wide enough to read as a beam at a glance, narrow enough that it never covers
+ * so much of the picture that a dot is hard to see through it.
+ */
+const BEAM_DEGREES = 68
+
+/**
+ * The beam, as a wedge with its leading edge along +x.
+ *
+ * The rotation is left to CSS so it can be stopped for a reader who asked for
+ * less motion — an animation written into the path could not be.
+ */
+function beamWedge(r: number): string {
+  const from = (-BEAM_DEGREES * Math.PI) / 180
+  return `M 0 0 L ${(r * Math.cos(from)).toFixed(2)} ${(r * Math.sin(from)).toFixed(2)} A ${r.toFixed(2)} ${r.toFixed(2)} 0 0 1 ${r.toFixed(2)} 0 Z`
+}
+
 /** Everything the shape and the colour cannot say, for a pointer and a reader. */
 function titleOf(agent: GalaxyAgent & { tone: Freshness }): string {
   const parts = [
@@ -250,7 +269,67 @@ export function AgentGalaxy({
         role="img"
         aria-label={`${agents.length} agents, arranged by site and time since last contact`}
       >
+        <defs>
+          {/*
+            The screen the dots sit on, and the beam that crosses it.
+
+            Both are decoration and are marked as such: the picture already says
+            everything it has to say without them — distance is freshness,
+            colour is state — and a beam that swept over a dot and changed what
+            it meant would be a second encoding nobody asked to read. This adds
+            a surface and a sense that the thing is live, nothing more.
+          */}
+          <radialGradient id="galaxy-screen">
+            <stop offset="0%" stopColor="var(--status-operational)" stopOpacity="0.10" />
+            <stop offset="65%" stopColor="var(--status-operational)" stopOpacity="0.06" />
+            <stop offset="100%" stopColor="var(--status-operational)" stopOpacity="0.02" />
+          </radialGradient>
+          {/*
+            The beam fades behind its leading edge, which is what makes it read
+            as a sweep rather than a spinning slice of pie. In user space, so
+            the stops sit at real coordinates on the wedge rather than in the
+            bounding box of a shape that is not square.
+          */}
+          <linearGradient
+            id="galaxy-beam"
+            gradientUnits="userSpaceOnUse"
+            x1={radius * Math.cos((-BEAM_DEGREES * Math.PI) / 180)}
+            y1={radius * Math.sin((-BEAM_DEGREES * Math.PI) / 180)}
+            x2={radius}
+            y2={0}
+          >
+            <stop offset="0%" stopColor="var(--status-operational)" stopOpacity="0" />
+            <stop offset="100%" stopColor="var(--status-operational)" stopOpacity="0.22" />
+          </linearGradient>
+        </defs>
+
         <g transform={`translate(${radius}, ${radius})`}>
+          {/* The screen, out to the last ring the dots can land on. */}
+          <circle r={radius * RING.revoked} fill="url(#galaxy-screen)" />
+
+          {/*
+            The sweep. `aria-hidden` and no title: a screen reader is given the
+            fleet as a sentence on the `<svg>` itself, and a rotating wedge has
+            nothing to add to it. It stops for anyone who asked for less motion.
+          */}
+          <g className="galaxy-beam" aria-hidden="true">
+            <path
+              d={beamWedge(radius * RING.revoked)}
+              fill="url(#galaxy-beam)"
+              style={{ pointerEvents: 'none' }}
+            />
+            <line
+              x1={0}
+              y1={0}
+              x2={radius * RING.revoked}
+              y2={0}
+              stroke="var(--status-operational)"
+              strokeWidth={1}
+              opacity={0.32}
+              style={{ pointerEvents: 'none' }}
+            />
+          </g>
+
           {/* The rings the encoding refers to, drawn so the distance means
               something rather than looking like scatter. */}
           {(['fresh', 'stale', 'silent'] as const).map((tone) => (

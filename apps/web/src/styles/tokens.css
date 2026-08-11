@@ -1314,3 +1314,33 @@ a.tern-target {
     animation: none;
   }
 }
+
+/*
+ * The radar beam on the fleet picture.
+ *
+ * The rotation lives here rather than in an SVG `animateTransform` for one
+ * reason: it can be switched off. A wedge that turns forever is the kind of
+ * motion that makes some people ill, and the picture loses nothing without it —
+ * everything it encodes is in the positions and the colours. Stopped, the beam
+ * stays as a faint fixed wash, which still gives the plate its surface.
+ *
+ * `transform-box: fill-box` is not used: the group is already translated to the
+ * centre of the plate, so the origin it must turn about is its own 0,0.
+ */
+.galaxy-beam {
+  transform-origin: 0 0;
+  animation: galaxy-sweep 6s linear infinite;
+}
+
+@keyframes galaxy-sweep {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .galaxy-beam {
+    animation: none;
+    opacity: 0.5;
+  }
+}
