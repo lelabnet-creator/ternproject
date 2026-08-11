@@ -1,56 +1,91 @@
-# Backlog
+# Backlog — validation de bout en bout, sur trois machines réelles
 
-Le sujet précédent — **le taux de disponibilité** — est terminé, fusionné et
-tagué `v0.1.21`. Le détail de chaque point est dans l'historique git ; ce qui
-suit est ce qu'il faut savoir sans le lire.
+Mission confiée en autonomie : déployer les trois rôles sur les trois VM du
+banc, vérifier les battements, exercer **tous** les genres de contrôle par
+l'agent, corriger ce qui se révèle défectueux (récupération des jobs, erreurs,
+logs), et en tirer un **Tutoriel** pédagogique. À la fin, l'application
+fonctionne de bout en bout, preuves à l'appui.
 
-## Ce que la 0.1.21 a changé
+## Le banc
 
-Le chiffre publié était `sum(ok_samples) / sum(samples)` — un ratio de points.
-Il est désormais pondéré par la durée, et **il change de sens** : une panne coûte
-le temps qu'elle a duré, et non un nombre de checks qui dépendait de la fréquence
-de sondage.
+| Machine           | Rôle                            | Accès                                                         |
+| ----------------- | ------------------------------- | ------------------------------------------------------------- |
+| ubuntu (ssh 2231) | agent direct                    | `.vm-lab/lab.py` : `boot`, `ssh`, `lan_address`, `screenshot` |
+| rocky (ssh 2232)  | relais (proxy)                  | idem                                                          |
+| arch (ssh 2233)   | agent derrière le relais, isolé | idem + `zone-firewall.sh`                                     |
 
-Quatre règles, dans `packages/shared/src/availability.ts`, délibérément loin de
-tout SQL — chacune est une décision que quelqu'un contestera un jour, et toutes
-se testent sans base, sans horloge et sans serveur de test :
+- Instance offerte : `http://localhost:28999/` (tenant `crisislab`) — depuis les
+  VM : `http://<IP-LAN-hôte>:28999`. Si aucun accès admin n'est possible,
+  utiliser `tern-lab2` (28994) ou provisionner une instance neuve — le choix et
+  sa raison vont dans le bilan.
+- Le relais de Jacques sur `192.168.1.170:38787` existe : **ne pas y toucher**.
+  Le relais du banc vit sur rocky, port 38787 de _sa_ propre adresse.
+- Tout passe par l'API (l'UI consomme la même). Traces dans
+  `deploy-tests/e2e-2026-08-11/` : logs, captures, `resultats.json`.
 
-- **Anti-flapping** à 2 échecs consécutifs, la panne datée du **premier**.
-- **Contrôles `push`** : le silence est l'indisponibilité, après l'intervalle
-  déclaré plus un intervalle de grâce — le même seuil que `sweepStaleControls`.
-- **Maintenances** : quittent le dénominateur, et seulement pour leur durée
-  réelle (`actual_*` avant `scheduled_*`).
-- **Plusieurs agents** : OR, jamais une moyenne.
+## À faire
 
-Deux décisions qui changent aussi ce que le nombre veut dire : `degraded` compte
-comme disponible, et le temps que personne n'a observé quitte le dénominateur au
-lieu d'être deviné.
+- [ ] **1. Accès et socle.** Un cookie admin qui fonctionne sur l'instance
+      choisie ; l'instance joignable depuis le LAN ; l'IP LAN de l'hôte établie
+      et notée. Trace : la réponse d'`instance.json` et du login.
 
-Le module prend des **intervalles** et non des points : un check brut est un
-intervalle à état plein, un seau d'agrégat un intervalle fractionnaire. Un seul
-compteur sert les deux — sinon une résolution finit par porter sa propre copie
-des règles, et le pourcentage veut dire une chose pour un jour et une autre pour
-une année.
+- [ ] **2. Les trois VM debout.** `boot` des trois, SSH répond, adresse LAN
+      obtenue pour chacune. Trace : `uname -a` et `ip -4 addr` des trois.
 
-## Ce qui reste ouvert
+- [ ] **3. Les trois déploiements.** Agent sur ubuntu (PIN admin → install.sh) ;
+      relais sur rocky (`--proxy`, port 38787) ; agent sur arch **isolé**
+      (pare-feu bloquant l'instance, install via le relais uniquement). Les
+      trois enregistrés en service et démarrés. Vérifier au passage ce que la
+      0.1.25 a corrigé : la clé écrite dans un `agent.toml` existant, le
+      récapitulatif final, `--force`.
 
-- **Bornes `from`/`to` arbitraires** et regroupement calendaire semaine / mois /
-  année sur `uptime.json`. Le regroupement est journalier, ce que consomment le
-  ruban et le calendrier — rien n'est bloqué, c'est un ajout séparable.
-- **Le OR entre agents ne vaut que sur le chemin brut.** Les agrégats groupent
-  par `control_id` seul : la dimension agent est déjà écrasée quand un seau
-  existe.
-- **La recette VM avec isolement réel** reste à jouer (scripts dans `.vm-lab/`).
-- **Le service worker** sert un bundle périmé après une mise à jour.
+- [ ] **4. Trois battements.** Les trois lignes vivantes dans `GET /agents` —
+      l'agent, le relais (heartbeat propre depuis ce cycle), et l'agent de zone
+      remonté par la déclaration du relais. Trace : la réponse API et les logs
+      de chaque machine (`journalctl`).
+
+- [ ] **5. Tous les genres de contrôle, par l'agent.** Créer via API un contrôle
+      par genre — http, tcp, ping, dns, cert, websocket, docker, file,
+      directory, uptime, plus un push nourri par script. Cibles locales au banc
+      autant que possible (pas de dépendance à l'extérieur). Assignés à l'agent
+      ubuntu. Vérifier que chaque genre produit des points en base via l'API
+      (`uptime.json`, liste des contrôles, derniers checks) et que les verdicts
+      sont plausibles (un `file` absent doit échouer, un `tcp` ouvert réussir…).
+
+- [ ] **6. Analyse : jobs, erreurs, logs.** Lire les vrais logs des trois rôles.
+      Examiner : la récupération de la liste des jobs par l'agent (cadence,
+      erreurs réseau, 401, changement d'assignation), la gestion d'erreur
+      (messages actionnables ? silences ?), la qualité des logs (niveau, bruit,
+      corrélation). Corriger ce qui est défectueux — chaque correction commitée
+      seule avec sa preuve. Ne pas améliorer pour améliorer : corriger ce que
+      les tests réels ont montré cassé ou trompeur.
+
+- [ ] **7. Le Tutoriel.** `docs/tutorial.md` — du zéro à une page qui monitore,
+      dans l'ordre vécu : instance, premier agent, relais, agent isolé, premiers
+      contrôles, lecture de la page. Avec les vraies sorties de terminal et
+      captures (`screenshot`) prises pendant les points 2–5. Pédagogique :
+      chaque étape dit ce qu'on voit et pourquoi. Régénérer le rendu
+      (`pnpm docs:build`).
+
+- [ ] **8. Bilan.** `deploy-tests/e2e-2026-08-11/resultats.json` + un
+      `RESTITUTION.md` : ce qui marche, ce qui a été corrigé (commits), les
+      hypothèses prises, ce qui reste. L'application fonctionne de bout en
+      bout ou le bilan dit précisément où elle ne le fait pas.
 
 ## Règles de la boucle
 
-- Un point à la fois, dans l'ordre, entièrement.
-- Vérification avant de cocher : `pnpm typecheck`, `lint`, `format`, `test` ; et
-  pour l'agent `cargo test`, `cargo fmt --check`, `cargo clippy -- -D warnings`.
-  `pnpm format` **avant** de commiter — et après la dernière édition, pas avant.
-- Commiter le point seul, **en nommant les chemins**. Jamais `git add -A`, jamais
-  un répertoire. Vérifier chaque commit isolément avec
-  `git stash push --keep-index -u`, et **dépiler avant d'en empiler une autre**.
-- Si un point repose sur une prémisse fausse, arrêter et l'expliquer plutôt que
-  d'improviser.
+- Un point à la fois, dans l'ordre, entièrement. Pas de pause longue entre
+  les tâches ; enchaîner tant que le point n'est pas prouvé.
+- Toute affirmation « ça marche » s'appuie sur une commande réellement exécutée
+  et sa sortie conservée dans `deploy-tests/e2e-2026-08-11/`.
+- Vérification avant de cocher : `pnpm typecheck`, `lint`, `format`, `test` ;
+  et pour l'agent `cargo test`, `cargo fmt --check`,
+  `cargo clippy -- -D warnings`. `pnpm format` après la dernière édition.
+- Commiter chaque correction seule, **en nommant les chemins**, jamais
+  `git add -A` ni un répertoire ; inspecter les hunks des fichiers partagés.
+- Ne pas toucher au relais de Jacques (`192.168.1.170:38787`) ni à sa config.
+- Si un point repose sur une prémisse fausse (VM qui ne boote pas, bridge
+  absent, pas d'accès admin), consigner, choisir le contournement le plus
+  simple, le noter en hypothèse — n'arrêter la boucle que si plus rien n'est
+  faisable.
+- Quand les huit sont cochés : pousser, et la boucle s'arrête sur un rapport.
