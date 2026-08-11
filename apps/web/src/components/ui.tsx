@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
+import { copyText } from '../lib/clipboard'
 
 /**
  * The small set of primitives every admin screen is built from.
@@ -344,12 +345,19 @@ export function CodeBlock({
 }
 
 /**
- * Copy, then say so.
+ * Copy, then say so — or admit it could not.
  *
  * The confirmation is the whole point: a clipboard write is silent, and without
  * a reply the only way to know it worked is to paste somewhere and look. It
  * reverts after two seconds so the button does not sit there claiming a copy
  * from five minutes ago.
+ *
+ * The failure state matters as much. This used to call
+ * `navigator.clipboard.writeText` unguarded, which is `undefined` on any
+ * plain-HTTP origin that is not localhost — the ordinary way to reach a
+ * self-hosted instance on a LAN. Every Copy button in the admin silently did
+ * nothing there. `copyText` falls back to the legacy path, and when even that
+ * refuses the button says so instead of pretending.
  */
 export function CopyButton({
   value,
@@ -362,24 +370,35 @@ export function CopyButton({
   variant?: 'primary' | 'secondary'
   size?: 'sm' | 'md'
 }) {
-  const [copied, setCopied] = useState(false)
+  const [state, setState] = useState<'idle' | 'copied' | 'failed'>('idle')
 
   useEffect(() => {
-    if (!copied) return
-    const timer = setTimeout(() => setCopied(false), 2000)
+    if (state === 'idle') return
+    const timer = setTimeout(() => setState('idle'), state === 'failed' ? 6000 : 2000)
     return () => clearTimeout(timer)
-  }, [copied])
+  }, [state])
 
   return (
-    <Button
-      variant={variant}
-      size={size}
-      onClick={() => {
-        void navigator.clipboard.writeText(value).then(() => setCopied(true))
-      }}
-    >
-      {copied ? 'Copied' : label}
-    </Button>
+    <>
+      <Button
+        variant={variant}
+        size={size}
+        onClick={() => {
+          void copyText(value).then((ok) => setState(ok ? 'copied' : 'failed'))
+        }}
+      >
+        {state === 'copied' ? 'Copied' : state === 'failed' ? 'Select and copy' : label}
+      </Button>
+      {/* Announced, not merely recoloured: the reader who most needs to know a
+          copy failed is the one who cannot see the button change. */}
+      <span role="status" className="visually-hidden">
+        {state === 'copied'
+          ? 'Copied to the clipboard'
+          : state === 'failed'
+            ? 'This browser refused the copy — select the text above and press Ctrl+C.'
+            : ''}
+      </span>
+    </>
   )
 }
 
