@@ -364,3 +364,54 @@ describe('the plain-HTTP allowance', () => {
     expect(() => execFileSync('sh', ['-n', path], { stdio: 'pipe' })).not.toThrow()
   })
 })
+
+/**
+ * Re-running the installer without a PIN, on a machine that already has a config.
+ *
+ * That is how somebody takes a new version, and it is the one path the script
+ * used to half-perform: it replaced the binary, then printed "Next: pair it"
+ * and exited before the supervisor block. The new binary sat on disk while the
+ * old process went on running, and nothing in the output said so — the reader
+ * was sent to mint a PIN they did not need. Found on a real machine, where an
+ * agent kept serving a page from code two releases old.
+ */
+describe('updating rather than installing', () => {
+  const script = shellScript()
+
+  it('tells an update apart from a half-finished install', () => {
+    // A config already there and no PIN: nothing to pair, and the pairing step
+    // must not be ticked as though something had been.
+    expect(script).toContain('elif [ -f "$CONF" ]; then')
+    expect(script).toContain('UPDATED=1')
+    expect(script).toContain('L3="Keeping the existing pairing"')
+  })
+
+  it('still sends a bare machine to pair', () => {
+    // No config and no PIN is the other case, and it is unchanged: there is
+    // nothing to update, and pairing is genuinely what comes next.
+    expect(script).toContain('--pin <PIN> --config $CONF')
+  })
+
+  it('does not exit before the supervisor can restart it', () => {
+    /*
+     * The bug, in one line.
+     *
+     * `[ "$SERVICE" = 1 ] || exit 0` left on an update meant the block that
+     * restarts the service was never reached, so the update never took effect.
+     * The replacement exits only after saying what is still required.
+     */
+    expect(script).not.toContain('[ "$SERVICE" = 1 ] || exit 0')
+    expect(script).toContain('The running process is still the old one')
+  })
+
+  it('says the new version is the one running, once it is', () => {
+    expect(script).toContain('Updated and restarted. The new version is the one running.')
+  })
+
+  it('parses as POSIX sh with all three paths in it', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'tern-install-update-'))
+    const path = join(dir, 'install.sh')
+    writeFileSync(path, script)
+    expect(() => execFileSync('sh', ['-n', path], { stdio: 'pipe' })).not.toThrow()
+  })
+})

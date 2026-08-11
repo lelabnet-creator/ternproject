@@ -150,6 +150,9 @@ set -eu
 
 SERVER="${base()}"
 PIN=""
+# Set when the run turns out to be an update: a binary replaced beside a config
+# that was already here, with nothing to pair.
+UPDATED=0
 DEST="\${TERN_INSTALL_DIR:-}"
 BIN="tern-agent"
 IFACE=""
@@ -397,6 +400,20 @@ if [ -n "$PIN" ]; then
   # would hand the whole string to the binary as one argument.
   "$DEST/$BIN" $JOIN --server "$SERVER" --pin "$PIN" --config "$CONF" $EXTRA
   mark 3 "$OK"
+elif [ -f "$CONF" ]; then
+  # No PIN, but a config is already here: this is an update, not a half-done
+  # install. The binary above has just been replaced; what is still running is
+  # the old one, and saying "next, pair it" here — which is what this used to
+  # say — sends somebody to mint a PIN they do not need, while the process they
+  # came to update carries on unchanged. So it is named as an update, and the
+  # supervisor block below restarts it, which is the step that makes the new
+  # binary the one actually running.
+  # The third step is "Pairing" on an install and is not what just happened
+  # here, so it says what did. A checklist that ticks a step nobody performed
+  # is worse than one that omits it: the reader takes it as done.
+  L3="Keeping the existing pairing"
+  mark 3 "$OK"
+  UPDATED=1
 else
   echo
   echo "Next: $DEST/$BIN $JOIN --server $SERVER --pin <PIN> --config $CONF"
@@ -404,7 +421,16 @@ else
   exit 0
 fi
 
-[ "$SERVICE" = 1 ] || exit 0
+# Without a supervisor there is nobody to restart it, so the one step that makes
+# an update take effect has to be handed over rather than assumed.
+if [ "$SERVICE" != 1 ]; then
+  if [ "$UPDATED" = 1 ]; then
+    echo
+    echo "$OK Replaced $DEST/$BIN. The running process is still the old one —"
+    echo "  restart it for this to take effect."
+  fi
+  exit 0
+fi
 
 mark 4 "$GOING"
 
@@ -674,7 +700,14 @@ if [ "$SERVICE" = 1 ]; then
   echo
   echo "  ─────────────────────────────────────────────────────────"
   if [ "$STARTED" = 1 ]; then
-    echo "  $OK Running now, and again after a reboot."
+    # An update and a first install end the same way — running — but they
+    # answer different questions, and somebody who came to take a new version
+    # wants to read that the new version is the one now running.
+    if [ "$UPDATED" = 1 ]; then
+      echo "  $OK Updated and restarted. The new version is the one running."
+    else
+      echo "  $OK Running now, and again after a reboot."
+    fi
   else
     # Named as the exception it is, with the one command that fixes it. A
     # process nobody restarts is a monitor that stops at the first power cut
