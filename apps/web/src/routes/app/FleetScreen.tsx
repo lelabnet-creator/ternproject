@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import * as Icons from 'lucide-react'
 import { adminApi, ApiError, type Agent } from '../../lib/adminApi'
 import { AgentGalaxy, freshnessOf } from '../../charts/AgentGalaxy'
 import {
@@ -789,7 +790,7 @@ export function PairPanel({ slug, onDone }: { slug: string; onDone: () => void }
               >
                 {pair.data.pin}
               </code>
-              <CopyButton value={pair.data.pin} label="Copy the PIN" />
+              <CopyButton value={pair.data.pin} label="Copy the PIN" size="sm" />
             </div>
           )}
 
@@ -1016,6 +1017,216 @@ function Vantage({ mode }: { mode: string }) {
   )
 }
 
+/** The port an agent serves its own page on by default. */
+const AGENT_UI_PORT = 38788
+
+/**
+ * The overflow menu for one agent — its addresses, and the acts on it.
+ *
+ * The row used to end in a run of buttons: Rename, Revoke, and the caption
+ * carried the paired address in small text below. All of that moves here,
+ * behind one control, for two reasons. The row stayed short and readable; and
+ * the addresses — plural, once a relay reports several — have a place to be
+ * *shown* rather than crammed into a caption that wrapped.
+ *
+ * The page link is the new thing. An agent serves a small status page about
+ * itself (`tern-agent ui`), and from here you can open it — but only when this
+ * server knows an address to reach it on, which is exactly the set that
+ * excludes an isolated zone agent. That machine has no route back and no
+ * address the admin ever saw; offering a dead link to it would be the wrong
+ * kind of helpful.
+ */
+function AgentMenu({
+  agent,
+  canWrite,
+  revoked,
+  onRename,
+  onRevoke,
+}: {
+  agent: Agent
+  canWrite: boolean
+  revoked: boolean
+  onRename: () => void
+  onRevoke: () => void
+}) {
+  const [open, setOpen] = useState(false)
+  const menu = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setOpen(false)
+        menu.current?.querySelector<HTMLButtonElement>('[data-menu-trigger]')?.focus()
+      }
+    }
+    const onDown = (e: PointerEvent) => {
+      if (!menu.current?.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('keydown', onKey)
+    document.addEventListener('pointerdown', onDown)
+    return () => {
+      document.removeEventListener('keydown', onKey)
+      document.removeEventListener('pointerdown', onDown)
+    }
+  }, [open])
+
+  /*
+   * Every address this server knows for the machine, labelled by where it came
+   * from. `pairedIp` is what it connected from; a relay additionally reports the
+   * addresses it serves its zone on. A zone agent behind a relay has neither —
+   * this server never saw it — and its menu simply has no addresses to show,
+   * which is the honest thing.
+   */
+  const addresses: { ip: string; note?: string }[] = []
+  if (agent.pairedIp) addresses.push({ ip: agent.pairedIp })
+  for (const addr of agent.zoneAddresses ?? []) {
+    const host = addr.replace(/:\d+$/, '')
+    if (!addresses.some((a) => a.ip === host)) addresses.push({ ip: host, note: 'zone' })
+  }
+
+  // The page is reachable only for something this server has an address for and
+  // a route to — an ordinary agent or a relay, never an isolated zone member.
+  const pageHost = agent.pairedIp ?? agent.zoneAddress?.replace(/:\d+$/, '') ?? null
+  const canOpenPage = !agent.isLocal && agent.role !== undefined && Boolean(pageHost)
+
+  return (
+    <div ref={menu} style={{ position: 'relative' }}>
+      <Button
+        ariaLabel={`Actions and addresses for ${agent.name}`}
+        ariaPressed={open}
+        onClick={() => setOpen((v) => !v)}
+      >
+        ⋯
+      </Button>
+
+      {open && (
+        <div
+          role="menu"
+          style={{
+            position: 'absolute',
+            top: 'calc(100% + var(--space-1))',
+            right: 0,
+            zIndex: 20,
+            minWidth: '15rem',
+            display: 'grid',
+            gap: 'var(--space-1)',
+            padding: 'var(--space-2)',
+            background: 'var(--color-surface)',
+            border: '1px solid var(--color-border-strong)',
+            borderRadius: 'var(--radius-md)',
+            boxShadow: 'var(--shadow-card)',
+          }}
+        >
+          {addresses.length > 0 && (
+            <div style={{ padding: 'var(--space-1) var(--space-2)' }}>
+              <div
+                style={{
+                  fontSize: 'var(--text-xs)',
+                  color: 'var(--color-fg-subtle)',
+                  marginBottom: 'var(--space-1)',
+                }}
+              >
+                {addresses.length === 1 ? 'Address' : 'Addresses'}
+              </div>
+              {addresses.map((a) => (
+                <div
+                  key={a.ip}
+                  className="tabular"
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: 'var(--space-2)',
+                    fontSize: 'var(--text-sm)',
+                    padding: '2px 0',
+                  }}
+                >
+                  <span>
+                    {a.ip}
+                    {a.note && <span style={{ color: 'var(--color-fg-subtle)' }}> · {a.note}</span>}
+                  </span>
+                  <CopyButton value={a.ip} size="sm" />
+                </div>
+              ))}
+            </div>
+          )}
+
+          {canOpenPage && (
+            <a
+              role="menuitem"
+              href={`http://${pageHost}:${AGENT_UI_PORT}/`}
+              target="_blank"
+              rel="noreferrer noopener"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 'var(--space-2)',
+                minHeight: 36,
+                padding: '0 var(--space-2)',
+                borderRadius: 'var(--radius-sm)',
+                color: 'var(--color-fg)',
+                textDecoration: 'none',
+                fontSize: 'var(--text-sm)',
+              }}
+            >
+              <Icons.ExternalLink size={15} aria-hidden="true" />
+              Open the agent’s page
+            </a>
+          )}
+
+          {canWrite && !revoked && (
+            <>
+              <MenuItem onClick={onRename} icon="Pencil" label="Rename" />
+              {!agent.isLocal && <MenuItem onClick={onRevoke} icon="Ban" label="Revoke" danger />}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** One row in an agent's overflow menu. */
+function MenuItem({
+  onClick,
+  icon,
+  label,
+  danger,
+}: {
+  onClick: () => void
+  icon: keyof typeof Icons
+  label: string
+  danger?: boolean
+}) {
+  const Icon = Icons[icon] as React.ComponentType<{ size?: number }>
+  return (
+    <button
+      type="button"
+      role="menuitem"
+      onClick={onClick}
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 'var(--space-2)',
+        minHeight: 36,
+        padding: '0 var(--space-2)',
+        border: 'none',
+        background: 'none',
+        borderRadius: 'var(--radius-sm)',
+        color: danger ? 'var(--status-down)' : 'var(--color-fg)',
+        font: 'inherit',
+        fontSize: 'var(--text-sm)',
+        textAlign: 'left',
+        cursor: 'pointer',
+      }}
+    >
+      <Icon size={15} aria-hidden="true" />
+      {label}
+    </button>
+  )
+}
+
 /**
  * One machine in the fleet — and, for a relay, the machines behind it.
  *
@@ -1223,19 +1434,16 @@ export function AgentRow({
               {zoneOpen ? '▾' : '▸'} {zone.length === 0 ? 'Empty zone' : `${zone.length} in zone`}
             </Button>
           )}
-          {canWrite && !revoked && (
-            <>
-              <Button onClick={() => setEditing((v) => !v)}>{editing ? 'Cancel' : 'Rename'}</Button>
-              {/* Renaming stays available — it is a label, and an operator
-                  running several instances may well want to say which. Only
-                  revoking is refused. */}
-              {!agent.isLocal && (
-                <Button variant="danger" onClick={() => setConfirming(true)}>
-                  Revoke
-                </Button>
-              )}
-            </>
-          )}
+          {/* Rename, Revoke, the addresses and the page link all live behind one
+              control now, so the row stays short and the addresses have a place
+              to be shown. Editing is still a plain toggle from the menu. */}
+          <AgentMenu
+            agent={agent}
+            canWrite={canWrite}
+            revoked={revoked}
+            onRename={() => setEditing((v) => !v)}
+            onRevoke={() => setConfirming(true)}
+          />
         </div>
       </div>
 
@@ -1258,11 +1466,9 @@ export function AgentRow({
       >
         {agent.site ?? 'no site'} · {agent.os ?? 'unknown OS'}
         {agent.arch ? `/${agent.arch}` : ''} · {agent.agentVersion ?? 'version unknown'} ·{' '}
-        {/* The address it paired from. Stored since the table existed and
-          never shown, which left "which box is this?" to be answered by
-          guessing at hostnames. An agent known only through a proxy has
-          none here: this server never saw it. */}
-        {agent.pairedIp ? `${agent.pairedIp} · ` : ''}
+        {/* The address moved into the menu, where several can be listed. What
+          stays here is what the machine turned out to be, plus when it was last
+          heard from. */}
         {lastSeen(agent, now)}
       </div>
 

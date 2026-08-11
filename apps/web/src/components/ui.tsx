@@ -35,10 +35,14 @@ export function Button({
   busy,
   ariaLabel,
   ariaPressed,
+  size = 'md',
 }: {
   children: ReactNode
   onClick?: () => void
   variant?: 'primary' | 'secondary' | 'danger'
+  /** `sm` for a secondary action sitting next to something — a Copy button by
+   *  a code, an icon in a row. Still tappable, just not the size of a CTA. */
+  size?: 'sm' | 'md'
   type?: 'button' | 'submit'
   disabled?: boolean
   busy?: boolean
@@ -77,8 +81,9 @@ export function Button({
         color: palette.fg,
         border: `1px solid ${palette.border}`,
         borderRadius: 'var(--radius-sm)',
-        padding: '0 var(--space-4)',
-        fontSize: 'var(--text-sm)',
+        padding: size === 'sm' ? '0 var(--space-2)' : '0 var(--space-4)',
+        minHeight: size === 'sm' ? 28 : undefined,
+        fontSize: size === 'sm' ? 'var(--text-xs)' : 'var(--text-sm)',
         fontWeight: 600,
         fontFamily: 'inherit',
         opacity: disabled || busy ? 0.5 : 1,
@@ -331,7 +336,7 @@ export function CodeBlock({
       </pre>
       {copyable && (
         <div style={{ position: 'absolute', top: label ? '1.6rem' : '0.4rem', right: '0.4rem' }}>
-          <CopyButton value={children} />
+          <CopyButton value={children} size="sm" />
         </div>
       )}
     </div>
@@ -350,10 +355,12 @@ export function CopyButton({
   value,
   label = 'Copy',
   variant = 'secondary',
+  size = 'md',
 }: {
   value: string
   label?: string
   variant?: 'primary' | 'secondary'
+  size?: 'sm' | 'md'
 }) {
   const [copied, setCopied] = useState(false)
 
@@ -366,6 +373,7 @@ export function CopyButton({
   return (
     <Button
       variant={variant}
+      size={size}
       onClick={() => {
         void navigator.clipboard.writeText(value).then(() => setCopied(true))
       }}
