@@ -1,0 +1,11 @@
+  e2e-cert     points=10  ok=0   down=10
+  e2e-dir      points=11  ok=11  down=0
+  e2e-dns      points=11  ok=11  down=0
+  e2e-docker   points=11  ok=11  down=0
+  e2e-file     points=10  ok=10  down=0
+  e2e-http     points=10  ok=10  down=0
+  e2e-ping     points=11  ok=6   down=5
+  e2e-push     points=3   ok=3   down=0
+  e2e-tcp      points=11  ok=11  down=0
+  e2e-uptime   points=9   ok=9   down=0
+  e2e-ws       points=11  ok=11  down=0

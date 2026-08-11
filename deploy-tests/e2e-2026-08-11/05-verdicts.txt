@@ -1,0 +1,12 @@
+=== synthèse verdicts (API) ===
+  http        operational  
+  tcp         operational  
+  ping        operational  
+  dns         operational  
+  cert        down         TLS handshake failed
+  websocket   operational  
+  docker      operational  
+  file        operational  
+  directory   operational  
+  uptime      operational  
+  push        operational  

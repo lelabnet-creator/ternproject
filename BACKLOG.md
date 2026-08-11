@@ -82,6 +82,18 @@ fonctionne de bout en bout, preuves à l'appui.
       (`uptime.json`, liste des contrôles, derniers checks) et que les verdicts
       sont plausibles (un `file` absent doit échouer, un `tcp` ouvert réussir…).
 
+      Fait — **11 genres exécutés par l'agent ubuntu, points persistés en base**
+      (table `checks`). operational : http, tcp, ping (après CAP_NET_RAW), dns,
+      websocket, docker, file, directory, uptime, push. `cert` rend `down` («TLS
+      handshake failed») : comportement **correct** — le probe utilise un trust
+      store webpki embarqué et rejette à raison un certificat auto-signé. Cibles
+      montées localement sur ubuntu (TLS s_server, WS python, conteneur docker).
+      Un bug **réel** trouvé en chemin : `default_path()` renvoie un chemin
+      relatif `agent.toml`, si bien qu'un `pair` manuel sans `--config` écrit
+      dans `~/agent.toml` alors que le service lit `~/.config/tern/agent.toml`
+      → clé périmée, 401 en boucle (à corriger au point 6). Migration `0021` non
+      appliquée à la base de dev — appliquée. Traces : `05-*.txt`.
+
 - [ ] **6. Analyse : jobs, erreurs, logs.** Lire les vrais logs des trois rôles.
       Examiner : la récupération de la liste des jobs par l'agent (cadence,
       erreurs réseau, 401, changement d'assignation), la gestion d'erreur
