@@ -386,6 +386,20 @@ describe('updating rather than installing', () => {
     expect(script).toContain('L3="Keeping the existing pairing"')
   })
 
+  it('works out that a relay is a relay, when updating', () => {
+    /*
+     * Measured on a real relay: without this, re-running the installer to take
+     * an update installed a *tern-agent* beside it, printed "next, pair it",
+     * and left the relay it came to update untouched. An update should not
+     * depend on remembering which role a machine holds — the machine says so,
+     * by which config file is there.
+     */
+    expect(script).toContain('[ -f "$CONF_DIR/proxy.toml" ] && [ ! -f "$CONF_DIR/agent.toml" ]')
+    // Only when nothing was asked for: a PIN is somebody adding a role rather
+    // than updating one, and an explicit --proxy is already an answer.
+    expect(script).toMatch(/if \[ -z "\$PIN" \] && \[ "\$BIN" = "tern-agent" \]/)
+  })
+
   it('still sends a bare machine to pair', () => {
     // No config and no PIN is the other case, and it is unchanged: there is
     // nothing to update, and pairing is genuinely what comes next.

@@ -336,6 +336,22 @@ else
   STATE_DIR="\${XDG_STATE_HOME:-$HOME/.local/state}/tern"
 fi
 
+# What this machine already is, when nobody said and there is nothing to pair.
+#
+# Re-running the installer is how an update is taken, and an update should not
+# depend on remembering which of the two roles a machine holds — the machine
+# already says so. A relay that is only a relay has a proxy.toml and no
+# agent.toml, and without this the run installed an *agent* beside it, told the
+# operator to pair, and left the relay it came to update untouched. Measured on
+# a real relay, which is the only place the mistake is visible.
+#
+# Only when nothing was asked for: an explicit --proxy is obeyed, and so is a
+# PIN, which is somebody adding a role rather than updating one.
+if [ -z "$PIN" ] && [ "$BIN" = "tern-agent" ] \
+  && [ -f "$CONF_DIR/proxy.toml" ] && [ ! -f "$CONF_DIR/agent.toml" ]; then
+  BIN=tern-proxy
+fi
+
 # Everything below that differs between the two, decided once.
 #
 # The rest of this script — the download, the service unit, the linger dance —
