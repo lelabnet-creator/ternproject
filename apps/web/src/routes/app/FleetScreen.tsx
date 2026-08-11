@@ -7,6 +7,7 @@ import {
   Button,
   Card,
   CodeBlock,
+  CopyButton,
   EmptyState,
   Field,
   Input,
@@ -548,6 +549,12 @@ export function PairPanel({ slug, onDone }: { slug: string; onDone: () => void }
    * disappearing once one is minted.
    */
   const [role, setRole] = useState<'agent' | 'proxy' | 'zone'>('agent')
+  /*
+   * Which of the two pages a zone code is showing. Opens on the PIN, because
+   * that is the half somebody reads; the command is copied and needs no
+   * looking at.
+   */
+  const [tab, setTab] = useState<'pin' | 'command'>('pin')
   const relay = role === 'proxy'
   const zone = role === 'zone'
 
@@ -700,52 +707,139 @@ export function PairPanel({ slug, onDone }: { slug: string; onDone: () => void }
 
       {pair.data ? (
         <>
-          <p
-            className="measure"
-            style={{
-              margin: '0 0 var(--space-3)',
-              fontSize: 'var(--text-sm)',
-              color: 'var(--color-fg-subtle)',
-            }}
-          >
-            {relay ? (
-              <>
-                Run this on the machine with a route out — the one the isolated network can reach.
-                It fetches the relay from this instance, installs it, pairs, and starts serving.
-              </>
-            ) : zone ? (
-              <>
-                Run this on the isolated machine. Nothing in it touches this server: the script, the
-                binary and the pairing all go through the relay, which is the only thing that
-                machine can reach.
-              </>
-            ) : (
-              <>
-                Run this on the machine to monitor. It fetches the agent from this instance,
-                installs it, and pairs — the agent receives its key <em>and</em> the probes it is
-                meant to run, so there is no config to copy across.
-              </>
-            )}
-          </p>
+          {/*
+            Two pages, for a zone, because the two things this panel hands over
+            are read by different eyes at different moments.
 
-          <PairCommands
-            origin={origin}
-            pin={pair.data.pin}
-            relay={relay}
-            via={zone ? zoneOrigin || undefined : undefined}
-            port={zonePort}
-          />
+            The PIN is typed on another machine, by somebody looking away from
+            this screen and back at it. It wants to be large, alone, and beside
+            the clock saying how long it is still good for. The command is
+            copied rather than read — and it is long, and it buries the PIN in
+            the middle of a URL, which is exactly where a person transcribing it
+            loses it.
 
-          {relay && (
+            Only for a zone: an ordinary agent's command is pasted whole from
+            this instance, and its PIN never has to be read out at all.
+          */}
+          {zone && (
+            <div
+              role="tablist"
+              aria-label="What to hand over"
+              onKeyDown={(event) => {
+                if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
+                event.preventDefault()
+                setTab(tab === 'pin' ? 'command' : 'pin')
+              }}
+              style={{
+                display: 'flex',
+                gap: 'var(--space-1)',
+                borderBottom: '1px solid var(--color-border)',
+                marginBottom: 'var(--space-3)',
+              }}
+            >
+              {(['pin', 'command'] as const).map((id) => (
+                <button
+                  key={id}
+                  role="tab"
+                  aria-selected={tab === id}
+                  tabIndex={tab === id ? 0 : -1}
+                  onClick={() => setTab(id)}
+                  style={{
+                    minHeight: 44,
+                    padding: '0 var(--space-3)',
+                    border: 'none',
+                    borderBottom: `2px solid ${tab === id ? 'var(--color-accent)' : 'transparent'}`,
+                    marginBottom: -1,
+                    background: 'transparent',
+                    color: tab === id ? 'var(--color-fg)' : 'var(--color-fg-muted)',
+                    font: 'inherit',
+                    fontSize: 'var(--text-sm)',
+                    fontWeight: tab === id ? 600 : 500,
+                    cursor: 'pointer',
+                  }}
+                >
+                  {id === 'pin' ? 'The PIN' : 'The command'}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {zone && tab === 'pin' && (
+            <div style={{ display: 'grid', gap: 'var(--space-3)', justifyItems: 'start' }}>
+              <p
+                className="measure"
+                style={{ margin: 0, fontSize: 'var(--text-sm)', color: 'var(--color-fg-subtle)' }}
+              >
+                Type this on the isolated machine, after <code>--pin</code>. The command it belongs
+                in is on the next tab, already carrying it.
+              </p>
+              <code
+                className="tabular"
+                style={{
+                  // Large enough to read from a second screen, and spaced so a
+                  // digit is never mistaken for its neighbour by somebody
+                  // copying it by hand.
+                  fontSize: '2rem',
+                  letterSpacing: '0.12em',
+                  padding: 'var(--space-3) var(--space-4)',
+                  borderRadius: 'var(--radius-md)',
+                  border: '1px solid var(--color-border-strong)',
+                  background: 'var(--color-surface)',
+                }}
+              >
+                {pair.data.pin}
+              </code>
+              <CopyButton value={pair.data.pin} label="Copy the PIN" />
+            </div>
+          )}
+
+          <div hidden={zone && tab === 'pin'}>
             <p
               className="measure"
               style={{
-                margin: 'var(--space-3) 0 0',
+                margin: '0 0 var(--space-3)',
                 fontSize: 'var(--text-sm)',
                 color: 'var(--color-fg-subtle)',
               }}
             >
-              {/*
+              {relay ? (
+                <>
+                  Run this on the machine with a route out — the one the isolated network can reach.
+                  It fetches the relay from this instance, installs it, pairs, and starts serving.
+                </>
+              ) : zone ? (
+                <>
+                  Run this on the isolated machine. Nothing in it touches this server: the script,
+                  the binary and the pairing all go through the relay, which is the only thing that
+                  machine can reach.
+                </>
+              ) : (
+                <>
+                  Run this on the machine to monitor. It fetches the agent from this instance,
+                  installs it, and pairs — the agent receives its key <em>and</em> the probes it is
+                  meant to run, so there is no config to copy across.
+                </>
+              )}
+            </p>
+
+            <PairCommands
+              origin={origin}
+              pin={pair.data.pin}
+              relay={relay}
+              via={zone ? zoneOrigin || undefined : undefined}
+              port={zonePort}
+            />
+
+            {relay && (
+              <p
+                className="measure"
+                style={{
+                  margin: 'var(--space-3) 0 0',
+                  fontSize: 'var(--text-sm)',
+                  color: 'var(--color-fg-subtle)',
+                }}
+              >
+                {/*
                 This paragraph used to say the opposite — that only the relay
                 could mint a code for its own network, and that this server
                 could not. That was true, and it made the third option above
@@ -757,38 +851,39 @@ export function PairPanel({ slug, onDone }: { slug: string; onDone: () => void }
                 unchanged, and that is the part that mattered: a key minted by
                 the relay, worth nothing here.
               */}
-              Once it is running, add machines behind it with{' '}
-              <strong>An agent behind a relay</strong> above. They still never hold a key to this
-              server — the relay redeems the code and issues one of its own.
-            </p>
-          )}
+                Once it is running, add machines behind it with{' '}
+                <strong>An agent behind a relay</strong> above. They still never hold a key to this
+                server — the relay redeems the code and issues one of its own.
+              </p>
+            )}
 
-          <details style={{ marginTop: 'var(--space-3)' }}>
-            <summary
-              style={{
-                cursor: 'pointer',
-                fontSize: 'var(--text-sm)',
-                color: 'var(--color-fg-muted)',
-              }}
-            >
-              {/* Piping a URL into a shell deserves a way out of it. */}
-              Rather not pipe a URL into a shell?
-            </summary>
-            <p
-              className="measure"
-              style={{
-                margin: 'var(--space-2) 0',
-                fontSize: 'var(--text-sm)',
-                color: 'var(--color-fg-subtle)',
-              }}
-            >
-              Open <code>{origin}/install.sh</code> and read it first — it is short and does nothing
-              clever. Or download the binary yourself and pair by hand:
-            </p>
-            <CodeBlock label="by hand">
-              {relay ? pair.data.proxyPairCommand : pair.data.pairCommand}
-            </CodeBlock>
-          </details>
+            <details style={{ marginTop: 'var(--space-3)' }}>
+              <summary
+                style={{
+                  cursor: 'pointer',
+                  fontSize: 'var(--text-sm)',
+                  color: 'var(--color-fg-muted)',
+                }}
+              >
+                {/* Piping a URL into a shell deserves a way out of it. */}
+                Rather not pipe a URL into a shell?
+              </summary>
+              <p
+                className="measure"
+                style={{
+                  margin: 'var(--space-2) 0',
+                  fontSize: 'var(--text-sm)',
+                  color: 'var(--color-fg-subtle)',
+                }}
+              >
+                Open <code>{origin}/install.sh</code> and read it first — it is short and does
+                nothing clever. Or download the binary yourself and pair by hand:
+              </p>
+              <CodeBlock label="by hand">
+                {relay ? pair.data.proxyPairCommand : pair.data.pairCommand}
+              </CodeBlock>
+            </details>
+          </div>
           <p
             className="tabular"
             style={{
