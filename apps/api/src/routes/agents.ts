@@ -595,6 +595,17 @@ const routes: FastifyPluginAsyncZod = async (app) => {
         }),
         response: {
           200: z.object({
+            /**
+             * The code's own id, so the screen showing the PIN can ask whether
+             * it has been redeemed.
+             *
+             * Not a secret, and not a second way in: the PIN is the credential
+             * and this is a row identifier, readable only by someone who
+             * already holds `agent:manage` on the tenant. Without it the admin
+             * had no handle on the code it had just minted, and so no way to
+             * notice the moment it stopped working.
+             */
+            id: z.string(),
             pin: z.string(),
             expiresAt: z.string(),
             maxUses: z.number(),
@@ -617,15 +628,18 @@ const routes: FastifyPluginAsyncZod = async (app) => {
       const pin = generatePin()
       const expiresAt = new Date(Date.now() + req.body.ttlMinutes * 60_000)
 
-      await app.db.insert(schema.pairingCodes).values({
-        tenantId: tenant.id,
-        codeHash: hashToken(normalisePin(pin)),
-        createdBy: req.actor.userId ?? null,
-        expiresAt,
-        maxUses: req.body.maxUses,
-        scopeControlIds: req.body.scopeControlIds,
-        autoRegister: req.body.autoRegister,
-      })
+      const [created] = await app.db
+        .insert(schema.pairingCodes)
+        .values({
+          tenantId: tenant.id,
+          codeHash: hashToken(normalisePin(pin)),
+          createdBy: req.actor.userId ?? null,
+          expiresAt,
+          maxUses: req.body.maxUses,
+          scopeControlIds: req.body.scopeControlIds,
+          autoRegister: req.body.autoRegister,
+        })
+        .returning({ id: schema.pairingCodes.id })
 
       await audit(app, {
         action: 'agent.pairing_code.created',
@@ -636,12 +650,76 @@ const routes: FastifyPluginAsyncZod = async (app) => {
       })
 
       return {
+        id: created!.id,
         pin,
         expiresAt: expiresAt.toISOString(),
         maxUses: req.body.maxUses,
         // Ready to paste on the target machine — the point of the whole flow.
         pairCommand: renderAgentPairCommand(publicOrigin(), pin),
         proxyPairCommand: renderProxyInitCommand(publicOrigin(), pin),
+      }
+    },
+  )
+
+  /**
+   * Whether a code has been redeemed, and by what.
+   *
+   * The screen that shows a PIN has no other way to know it has stopped
+   * working. A single-use code is spent the moment a machine pairs with it, and
+   * until now the admin went on displaying it — counting down, offering a Copy
+   * button — for a credential that would be refused. The operator adding a
+   * second machine copied a dead line and read the failure on the far end.
+   *
+   * By id rather than by PIN: asking "is *this* PIN spent?" would mean sending
+   * the credential back up the wire on a timer, which is the one thing the
+   * whole pairing dance exists to avoid.
+   */
+  app.get(
+    '/:slug/pairing-codes/:codeId',
+    {
+      onRequest: [app.requireTenant()],
+      preHandler: [app.requirePermission('agent:manage')],
+      schema: {
+        params: z.object({ slug: z.string(), codeId: z.string().uuid() }),
+        response: {
+          200: z.object({
+            usedCount: z.number(),
+            maxUses: z.number(),
+            expiresAt: z.string(),
+            consumedAt: z.string().nullable(),
+            /** What paired with it — normally one machine, or none yet. */
+            agents: z.array(z.object({ id: z.string(), name: z.string() })),
+          }),
+        },
+      },
+    },
+    async (req) => {
+      const [code] = await app.db
+        .select()
+        .from(schema.pairingCodes)
+        .where(
+          and(
+            eq(schema.pairingCodes.id, req.params.codeId),
+            // Scoped to the tenant in the query, not checked after: a code from
+            // another tenant must be indistinguishable from one that never
+            // existed.
+            eq(schema.pairingCodes.tenantId, req.tenant!.id),
+          ),
+        )
+        .limit(1)
+      if (!code) throw app.httpErrors.notFound('Unknown pairing code')
+
+      const paired = await app.db
+        .select({ id: schema.agents.id, name: schema.agents.name })
+        .from(schema.agents)
+        .where(eq(schema.agents.pairingCodeId, code.id))
+
+      return {
+        usedCount: code.usedCount,
+        maxUses: code.maxUses,
+        expiresAt: code.expiresAt.toISOString(),
+        consumedAt: code.consumedAt?.toISOString() ?? null,
+        agents: paired,
       }
     },
   )

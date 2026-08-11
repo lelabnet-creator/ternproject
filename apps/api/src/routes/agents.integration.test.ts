@@ -17,7 +17,7 @@ afterAll(async () => {
 async function createPin(
   cookie: string,
   body: Record<string, unknown> = {},
-): Promise<{ pin: string; statusCode: number; pairCommand?: string }> {
+): Promise<{ pin: string; id: string; statusCode: number; pairCommand?: string }> {
   const response = await fx.app.inject({
     method: 'POST',
     url: `/api/v1/${fx.slug}/pairing-codes`,
@@ -27,9 +27,18 @@ async function createPin(
   return {
     statusCode: response.statusCode,
     pin: response.statusCode === 200 ? response.json().pin : '',
+    id: response.statusCode === 200 ? response.json().id : '',
     pairCommand: response.statusCode === 200 ? response.json().pairCommand : undefined,
   }
 }
+
+/** The code's own state, as the admin screen showing the PIN asks for it. */
+const codeState = (cookie: string, id: string) =>
+  fx.app.inject({
+    method: 'GET',
+    url: `/api/v1/${fx.slug}/pairing-codes/${id}`,
+    headers: { cookie },
+  })
 
 const redeem = (code: string, extra: Record<string, unknown> = {}) =>
   fx.app.inject({
@@ -996,5 +1005,88 @@ describe('a proxy declaring its zone', () => {
       expect(wrong.statusCode).toBe(401)
       expect(wrong.json().message).toBe('Invalid or expired pairing code')
     })
+  })
+})
+
+/**
+ * Whether a code has been redeemed, asked by the screen that is showing it.
+ *
+ * A single-use PIN dies the moment a machine pairs with it, and the admin had
+ * no way to notice: the panel went on displaying it, counting down, offering a
+ * Copy button, for a credential the server would now refuse. This is what the
+ * panel polls to replace it.
+ */
+describe('the state of a pairing code', () => {
+  it('reports a fresh code as unused', async () => {
+    const cookie = await login(fx.app, fx.users.admin.email)
+    const { id } = await createPin(cookie)
+
+    const state = await codeState(cookie, id)
+    expect(state.statusCode).toBe(200)
+    expect(state.json()).toMatchObject({ usedCount: 0, maxUses: 1, consumedAt: null, agents: [] })
+  })
+
+  it('reports it spent, and names what took it', async () => {
+    const cookie = await login(fx.app, fx.users.admin.email)
+    const { id, pin } = await createPin(cookie)
+
+    expect((await redeem(pin, { hostname: 'srv-app-07' })).statusCode).toBe(200)
+
+    const state = await codeState(cookie, id)
+    expect(state.json().usedCount).toBe(1)
+    expect(state.json().consumedAt).not.toBeNull()
+    // The name matters: it is what the panel says to explain why the PIN it
+    // was showing has just been replaced.
+    expect(state.json().agents).toHaveLength(1)
+    expect(state.json().agents[0].name).toBe('srv-app-07')
+  })
+
+  it('is closed to anyone who cannot manage agents', async () => {
+    const cookie = await login(fx.app, fx.users.admin.email)
+    const { id } = await createPin(cookie)
+
+    const memberCookie = await login(fx.app, fx.users.member.email)
+    expect((await codeState(memberCookie, id)).statusCode).toBe(403)
+
+    const anonymous = await fx.app.inject({
+      method: 'GET',
+      url: `/api/v1/${fx.slug}/pairing-codes/${id}`,
+    })
+    expect(anonymous.statusCode).toBe(401)
+  })
+
+  it('says nothing about a code belonging to nobody here', async () => {
+    const cookie = await login(fx.app, fx.users.admin.email)
+    const missing = await codeState(cookie, '00000000-0000-4000-8000-000000000000')
+    expect(missing.statusCode).toBe(404)
+  })
+
+  it("will not read another tenant's code", async () => {
+    /*
+     * The real isolation test, and it needs a second tenant to be one.
+     *
+     * Checking a made-up uuid proves nothing here: it answers 404 whether the
+     * query is scoped to the tenant or not. Only a code that genuinely exists,
+     * somewhere else, can tell the two apart — and dropping the tenant filter
+     * would turn this into a 200 that hands one customer the pairing state of
+     * another. The answer must be the same as for a code that never existed:
+     * a 403 would confirm the id belongs to somebody.
+     */
+    const other = await createFixture()
+    try {
+      const otherCookie = await login(other.app, other.users.admin.email)
+      const minted = await other.app.inject({
+        method: 'POST',
+        url: `/api/v1/${other.slug}/pairing-codes`,
+        headers: { cookie: otherCookie },
+        payload: {},
+      })
+      expect(minted.statusCode).toBe(200)
+
+      const cookie = await login(fx.app, fx.users.admin.email)
+      expect((await codeState(cookie, minted.json().id)).statusCode).toBe(404)
+    } finally {
+      await other.cleanup()
+    }
   })
 })

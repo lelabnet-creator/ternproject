@@ -700,6 +700,62 @@ export function PairPanel({ slug, onDone }: { slug: string; onDone: () => void }
   const pair = useMutation({ mutationFn: () => adminApi.createPairingCode(slug, ttl) })
 
   /*
+   * Watch the code on screen, and replace it the moment it is spent.
+   *
+   * A single-use PIN dies the instant a machine pairs with it, and this panel
+   * used to go on showing it — counting down, offering a Copy button — for a
+   * credential the server would now refuse. Adding a second machine meant
+   * copying a dead line and learning it at the far end of an install.
+   *
+   * Polled rather than pushed: the whole panel is open for a couple of minutes
+   * while somebody walks to another keyboard, and a socket held open for that
+   * is more machinery than the question deserves. Three seconds is the same
+   * cadence the fleet list already uses while pairing, for the same reason —
+   * it is the span of attention being given.
+   */
+  const codeId = pair.data?.id ?? null
+  const codeState = useQuery({
+    queryKey: ['pairing-code', slug, codeId],
+    queryFn: () => adminApi.pairingCode(slug, codeId!),
+    enabled: codeId !== null,
+    refetchInterval: 3_000,
+  })
+
+  const spent = Boolean(codeState.data && codeState.data.usedCount >= codeState.data.maxUses)
+
+  /**
+   * What was paired with the code that just died, kept after it is replaced.
+   *
+   * It cannot be derived from the poll: the instant a spent code is swapped for
+   * a fresh one, the fresh one reports nought uses and every trace of what just
+   * happened is gone. Read straight from the query, the notice explaining the
+   * change appeared and vanished within one tick — leaving the operator with a
+   * PIN that had silently become a different PIN, which is the exact confusion
+   * it exists to prevent. So it is remembered until the next machine replaces
+   * it, or the panel closes.
+   */
+  const [redeemed, setRedeemed] = useState<string | null>(null)
+
+  /**
+   * The codes already replaced, so a second poll cannot mint a second time.
+   *
+   * `pair.isPending` alone is not enough: two polls three seconds apart both
+   * see a spent code, and the first mutation has settled before the second
+   * fires. Keyed by id, the decision is made once per code.
+   */
+  const replaced = useRef(new Set<string>())
+
+  useEffect(() => {
+    if (!spent || !codeId || replaced.current.has(codeId)) return
+    replaced.current.add(codeId)
+    setRedeemed(codeState.data?.agents.at(-1)?.name ?? '')
+    // Minted again rather than left dead on screen, exactly as expiry already
+    // does. `mutate` is the same call the button makes, so the panel cannot
+    // drift into two ways of asking for a code.
+    pair.mutate()
+  }, [spent, codeId, codeState.data, pair])
+
+  /*
    * The relays this server knows, for the third case.
    *
    * A machine with no route out fetches everything through one of them, so the
@@ -1032,6 +1088,25 @@ export function PairPanel({ slug, onDone }: { slug: string; onDone: () => void }
               }}
             />
           </p>
+
+          {/*
+            The moment it is redeemed, said out loud.
+
+            Without this the PIN would simply change under the operator's eyes
+            — which is the right thing to do, but looks like a glitch if nothing
+            explains it. `role="status"` so it is announced rather than only
+            seen: somebody adding machines one after another is looking at a
+            terminal on the other side of the room, not at this panel.
+          */}
+          {redeemed !== null && (
+            <div style={{ marginTop: 'var(--space-2)' }} role="status">
+              <Banner tone="operational">
+                {redeemed
+                  ? `Paired as “${redeemed}”. That PIN was single use — the one above is a fresh one, for the next machine.`
+                  : 'The previous PIN has been used. The one above is a fresh one, for the next machine.'}
+              </Banner>
+            </div>
+          )}
           <div style={{ display: 'flex', gap: 'var(--space-2)', marginTop: 'var(--space-3)' }}>
             <Button onClick={() => pair.mutate()}>Another PIN</Button>
             <Button onClick={onDone}>Done</Button>

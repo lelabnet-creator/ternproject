@@ -623,11 +623,28 @@ export const adminApi = {
    */
   createPairingCode: (slug: string, ttlMinutes?: number) =>
     request<{
+      /** The code's own id, for asking later whether it has been redeemed. */
+      id: string
       pin: string
       expiresAt: string
       pairCommand: string
       proxyPairCommand: string
     }>('POST', `/api/v1/${slug}/pairing-codes`, ttlMinutes ? { ttlMinutes } : {}),
+
+  /**
+   * Whether a minted code has been used, and by what.
+   *
+   * Asked by id, never by PIN: putting the credential back on the wire every
+   * few seconds to ask about itself would undo the point of pairing.
+   */
+  pairingCode: (slug: string, codeId: string) =>
+    request<{
+      usedCount: number
+      maxUses: number
+      expiresAt: string
+      consumedAt: string | null
+      agents: { id: string; name: string }[]
+    }>('GET', `/api/v1/${slug}/pairing-codes/${codeId}`),
 
   updateLayout: (
     slug: string,
