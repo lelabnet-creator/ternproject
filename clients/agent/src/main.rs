@@ -480,46 +480,12 @@ async fn main() -> Result<()> {
                 return Ok(());
             }
 
-            // Generated, never chosen. A password somebody types here is one
-            // they have used elsewhere, and this one is written to a file on
-            // the machine it guards.
-            let password = tern_agent::transport::random_token(12);
-            let address = listen
-                .or_else(|| cfg.ui.as_ref().map(|u| u.listen.clone()))
-                .unwrap_or_else(|| "127.0.0.1:38788".to_string());
-
-            cfg.ui = Some(tern_agent::config::UiSettings {
-                listen: address.clone(),
-                credential: Some(tern_agent::ui::Credential::create(&password)),
-            });
+            let (settings, password) = tern_agent::ui::configure(cfg.ui.as_ref(), listen);
+            let address = settings.listen.clone();
+            cfg.ui = Some(settings);
             cfg.save(&path)?;
 
-            let tty = std::io::IsTerminal::is_terminal(&std::io::stdout());
-            let (green, red, reset) = if tty {
-                ("\x1b[32m", "\x1b[31m", "\x1b[0m")
-            } else {
-                ("", "", "")
-            };
-
-            println!("The local page is on.");
-            println!();
-            println!("  Address   {green}http://{address}/{reset}");
-            println!("  Password  {green}{password}{reset}");
-            println!();
-            println!("Shown once — it is stored salted and hashed, so it cannot be read");
-            println!("back. Run this again to set a new one.");
-
-            // Said only when it is true, and said in the colour of a warning:
-            // a page bound off loopback names the server, the tenant and every
-            // control this agent runs.
-            if !address.starts_with("127.") && !address.starts_with("localhost") {
-                println!();
-                println!("{red}This is not loopback.{reset} Anyone who can reach {address} can");
-                println!("read what this agent monitors, and only this password is in the way.");
-            }
-
-            println!();
-            println!("Restart the agent for it to take effect.");
+            tern_agent::ui::announce(&address, &password);
             Ok(())
         }
 

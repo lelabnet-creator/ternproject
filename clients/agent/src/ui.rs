@@ -79,6 +79,22 @@ pub struct Snapshot {
     pub server: String,
     pub tenant: Option<String>,
     pub probes: usize,
+
+    /*
+     * What only a relay has.
+     *
+     * Optional rather than folded into the fields above, because a relay does
+     * not run probes and does not pass checks — mapping its zone onto `probes`
+     * would make the page say a true number under a false label, which is worse
+     * than saying nothing. `None` means "not a relay", and the page leaves the
+     * rows out entirely rather than drawing a dash.
+     */
+    /// Machines this relay serves, as of its last inventory.
+    pub zone_agents: Option<usize>,
+    /// Where those machines connect, which is not where TERN is.
+    pub zone_listen: Option<String>,
+    /// Points carried upstream on their behalf since this process started.
+    pub forwarded: Option<u64>,
     /// Points waiting on disk because the far end was unreachable.
     pub queued: usize,
     /// Points thrown away because the queue reached its bound. Never zero
@@ -218,6 +234,70 @@ impl UiState {
         edit(&mut snapshot);
         snapshot.uptime_s = self.started.elapsed().as_secs();
     }
+}
+
+/// Turns the page on with a fresh password, and says so.
+///
+/// Shared by `tern-agent ui` and `tern-proxy ui` because it is one decision,
+/// not two: the same address rule, the same generated password, the same
+/// warning when the binding is wider than loopback. Two copies of this would
+/// drift, and the half that drifts is the warning.
+///
+/// The caller owns loading and saving its own config — an agent's and a
+/// relay's are different types — and this owns everything that is the same.
+pub fn configure(
+    existing: Option<&crate::config::UiSettings>,
+    listen: Option<String>,
+) -> (crate::config::UiSettings, String) {
+    // Generated, never chosen. A password somebody types here is one they have
+    // used elsewhere, and this one is written to a file on the machine it
+    // guards.
+    let password = crate::transport::random_token(12);
+    let address = listen
+        .or_else(|| existing.map(|u| u.listen.clone()))
+        .unwrap_or_else(default_ui_listen);
+
+    (
+        crate::config::UiSettings {
+            listen: address,
+            credential: Some(Credential::create(&password)),
+        },
+        password,
+    )
+}
+
+fn default_ui_listen() -> String {
+    "127.0.0.1:38788".to_string()
+}
+
+/// Prints where the page is and the password, once.
+pub fn announce(address: &str, password: &str) {
+    let tty = std::io::IsTerminal::is_terminal(&std::io::stdout());
+    let (green, red, reset) = if tty {
+        ("\x1b[32m", "\x1b[31m", "\x1b[0m")
+    } else {
+        ("", "", "")
+    };
+
+    println!("The local page is on.");
+    println!();
+    println!("  Address   {green}http://{address}/{reset}");
+    println!("  Password  {green}{password}{reset}");
+    println!();
+    println!("Shown once — it is stored salted and hashed, so it cannot be read");
+    println!("back. Run this again to set a new one.");
+
+    // Said only when it is true, and said in the colour of a warning: a page
+    // bound off loopback names the server, the tenant and everything this
+    // process is doing.
+    if !address.starts_with("127.") && !address.starts_with("localhost") {
+        println!();
+        println!("{red}This is not loopback.{reset} Anyone who can reach {address} can");
+        println!("read what this reports, and only this password is in the way.");
+    }
+
+    println!();
+    println!("Restart it for this to take effect.");
 }
 
 /// Serves the page until the process ends.

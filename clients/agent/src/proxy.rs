@@ -66,6 +66,15 @@ pub struct ProxyConfig {
     /// Whether to wait for that interval at all. See `Forward`.
     #[serde(default)]
     pub forward: Forward,
+
+    /// The local page, when one is wanted. Absent means no page is served.
+    ///
+    /// Same shape and same default as an agent's, deliberately: a relay is a
+    /// machine somebody checks on for the same reasons, and giving it a second
+    /// vocabulary for the same idea would be one more thing to learn for
+    /// nothing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ui: Option<crate::config::UiSettings>,
     /// Locally issued agent keys, hashed. Never the keys themselves.
     #[serde(default)]
     pub local_keys: Vec<LocalKey>,
@@ -347,6 +356,8 @@ struct AppState {
     client: Arc<Client>,
     /// Rung by `ingest` in stream mode, waited on by the flush loop.
     flush: Arc<tokio::sync::Notify>,
+    /// What the local page reports, when one is being served.
+    ui: Arc<crate::ui::UiState>,
 }
 
 pub async fn run(
@@ -391,7 +402,28 @@ pub async fn run(
         })),
         client: Arc::new(client),
         flush: Arc::new(tokio::sync::Notify::new()),
+        ui: crate::ui::UiState::new(config.ui.as_ref().and_then(|u| u.credential.clone())),
     };
+
+    /*
+     * The page, on its own listener.
+     *
+     * Not a route on the zone's server, which would be the shorter way to write
+     * it: that port is the one every machine in the zone can reach, and the
+     * page says where TERN is, which tenant this is and what is queued. A
+     * compromised host in the zone reading all of that is exactly what the zone
+     * boundary exists to prevent. Its own listener means the page can stay on
+     * loopback while the zone stays open, which is the arrangement that makes
+     * sense on a relay.
+     */
+    if let Some(settings) = config.ui.clone() {
+        let ui_state = state.ui.clone();
+        tokio::spawn(async move {
+            if let Err(error) = crate::ui::serve(ui_state, &settings.listen).await {
+                warn!(%error, "the local page stopped");
+            }
+        });
+    }
 
     let app = Router::new()
         .route("/api/v1/pair", post(pair))
@@ -407,6 +439,36 @@ pub async fn run(
         .route("/api/v1/agent/bin/{file}", get(binary))
         .route("/health", get(health))
         .with_state(state.clone());
+
+    /*
+     * The page, filled before anything is served on it.
+     *
+     * The refresh loop is what keeps it current, and that loop deliberately
+     * skips its first tick — the work was already done at startup — so without
+     * this the page said nothing at all for a full refresh interval, five
+     * minutes by default. Worse than nothing, in fact: with no zone figures it
+     * has no way to tell it is looking at a relay, and would have drawn the
+     * probe and check rows of an agent. Somebody checking on a relay that has
+     * just restarted is exactly the reader this page is for.
+     */
+    {
+        let inner = state.inner.lock().await;
+        state
+            .ui
+            .update(|snapshot| {
+                snapshot.role = "tern-proxy".to_string();
+                snapshot.version = env!("CARGO_PKG_VERSION").to_string();
+                snapshot.server = inner.config.server.clone();
+                snapshot.tenant =
+                    (!inner.tenant_slug.is_empty()).then(|| inner.tenant_slug.clone());
+                snapshot.zone_agents = Some(inner.config.local_keys.len());
+                snapshot.zone_listen = Some(inner.config.listen.clone());
+                snapshot.forwarded = Some(0);
+                snapshot.queued = inner.queue.len();
+                snapshot.queue_bytes = inner.queue.bytes();
+            })
+            .await;
+    }
 
     // Two background loops: one to refresh the assignment, one to drain the
     // queue. Separate because a full queue must not stop the assignment
@@ -474,10 +536,52 @@ fn spawn_refresh(state: AppState, every_s: u64) {
              * that question differently depending on the role was answering a
              * different question.
              */
-            // No page, so no address: `tern-proxy` has no `ui` subcommand and
-            // serves nothing about itself. Passing None is what keeps the
-            // console from offering a link to a port nothing listens on.
-            if let Err(error) = state.client.heartbeat(&key, None).await {
+            let (ui_address, zone_agents, zone_listen, upstream, tenant, queued, queue_bytes) = {
+                let inner = state.inner.lock().await;
+                (
+                    inner
+                        .config
+                        .ui
+                        .as_ref()
+                        .and_then(|settings| settings.reachable_address(&inner.config.server)),
+                    inner.config.local_keys.len(),
+                    inner.config.listen.clone(),
+                    inner.config.server.clone(),
+                    inner.tenant_slug.clone(),
+                    inner.queue.len(),
+                    inner.queue.bytes(),
+                )
+            };
+
+            let outcome = state.client.heartbeat(&key, ui_address.as_deref()).await;
+
+            // The page is refreshed here rather than on a loop of its own: this
+            // is the moment the two facts it most needs — whether upstream
+            // answered, and how deep the queue is — are both known.
+            state
+                .ui
+                .update(|snapshot| {
+                    snapshot.role = "tern-proxy".to_string();
+                    snapshot.version = env!("CARGO_PKG_VERSION").to_string();
+                    snapshot.server = upstream;
+                    snapshot.tenant = (!tenant.is_empty()).then_some(tenant);
+                    snapshot.zone_agents = Some(zone_agents);
+                    snapshot.zone_listen = Some(zone_listen);
+                    snapshot.queued = queued;
+                    snapshot.queue_bytes = queue_bytes;
+                    match &outcome {
+                        Ok(()) => {
+                            snapshot.last_heartbeat_ok_s = Some(0);
+                            snapshot.last_heartbeat_error = None;
+                        }
+                        Err(error) => {
+                            snapshot.last_heartbeat_error = Some(error.to_string());
+                        }
+                    }
+                })
+                .await;
+
+            if let Err(error) = outcome {
                 // A warning and nothing more. A relay whose upstream is down
                 // must keep serving its zone, which is the entire reason it
                 // exists — and the next tick will say so again.
@@ -563,14 +667,37 @@ fn spawn_flush(state: AppState, every_s: u64) {
 
             match state.client.ingest(&key, &batch).await {
                 Ok(response) => {
-                    let mut inner = state.inner.lock().await;
-                    inner.queue.drop_front(batch.len());
-                    for rejected in &response.rejected {
-                        warn!(control = %rejected.control_key, reason = %rejected.reason, "upstream rejected a point");
-                    }
+                    let remaining = {
+                        let mut inner = state.inner.lock().await;
+                        inner.queue.drop_front(batch.len());
+                        for rejected in &response.rejected {
+                            warn!(control = %rejected.control_key, reason = %rejected.reason, "upstream rejected a point");
+                        }
+                        (inner.queue.len(), inner.queue.bytes())
+                    };
+                    let carried = batch.len() as u64;
+                    state
+                        .ui
+                        .update(|snapshot| {
+                            // Since this process started, not since the zone
+                            // began: the relay keeps no such history, and a
+                            // number that looked like a total would be a claim
+                            // it cannot support.
+                            snapshot.forwarded = Some(snapshot.forwarded.unwrap_or(0) + carried);
+                            snapshot.queued = remaining.0;
+                            snapshot.queue_bytes = remaining.1;
+                            snapshot.last_send_ok_s = Some(0);
+                            snapshot.last_send_error = None;
+                        })
+                        .await;
                 }
                 Err(error) => {
-                    warn!(%error, pending = batch.len(), "upstream unreachable — points kept")
+                    warn!(%error, pending = batch.len(), "upstream unreachable — points kept");
+                    let message = error.to_string();
+                    state
+                        .ui
+                        .update(|snapshot| snapshot.last_send_error = Some(message))
+                        .await;
                 }
             }
         }
@@ -1118,6 +1245,10 @@ pub async fn init(server: &str, pin: &str, config_path: &Path, setup: ZoneSetup)
             .unwrap_or_else(default_forward_interval),
         forward: setup.forward.unwrap_or_default(),
         local_keys: Vec::new(),
+        // Off until asked for, exactly as an agent's is: a relay binding a
+        // second port because it was installed would be a port on somebody's
+        // machine that they never chose.
+        ui: None,
     };
     config.save(config_path)?;
 
@@ -1275,6 +1406,7 @@ mod tests {
             refresh_s: default_refresh(),
             forward_interval_s: default_forward_interval(),
             forward: Forward::default(),
+            ui: None,
             local_keys: vec![LocalKey {
                 name: "edge-1".into(),
                 key_hash: hash("ternp_local"),
@@ -1408,6 +1540,7 @@ mod tests {
                 forward_interval_s: default_forward_interval(),
                 forward: Forward::default(),
                 local_keys: Vec::new(),
+                ui: None,
             },
             config_path: PathBuf::from("/tmp/none.toml"),
             pins: Vec::new(),

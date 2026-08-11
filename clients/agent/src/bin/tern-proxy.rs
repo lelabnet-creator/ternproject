@@ -105,6 +105,25 @@ enum Command {
         ttl_minutes: u64,
     },
 
+    /// Turn on the page this proxy serves about itself, with a new password.
+    ///
+    /// The same page an agent serves, and for the same reason: a relay is a
+    /// machine somebody goes and checks on when a zone stops reporting, and
+    /// "is it still talking to TERN" should be answerable without a shell.
+    Ui {
+        /// Path to the config file. Defaults to the standard location for this
+        /// user; `tern-proxy status` prints the one in use.
+        #[arg(long)]
+        config: Option<PathBuf>,
+        /// Where to serve. Loopback unless you mean otherwise — see the note
+        /// this prints when you do.
+        #[arg(long)]
+        listen: Option<String>,
+        /// Turn the page off again and forget the password.
+        #[arg(long)]
+        off: bool,
+    },
+
     /// What this proxy is: upstream, listener, issued keys, queue depth.
     Status {
         /// Path to the config file. Defaults to the standard location for this
@@ -253,6 +272,30 @@ async fn main() -> Result<()> {
             println!("  tern-agent pair --server {origin} --pin {pin}");
             println!();
             println!("(pending PINs are in {})", file.display());
+            Ok(())
+        }
+
+        Command::Ui {
+            config,
+            listen,
+            off,
+        } => {
+            let path = config.unwrap_or_else(default_config);
+            let mut cfg = proxy::ProxyConfig::load(&path)?;
+
+            if off {
+                cfg.ui = None;
+                cfg.save(&path)?;
+                println!("The local page is off. Nothing is listening.");
+                return Ok(());
+            }
+
+            let (settings, password) = tern_agent::ui::configure(cfg.ui.as_ref(), listen);
+            let address = settings.listen.clone();
+            cfg.ui = Some(settings);
+            cfg.save(&path)?;
+
+            tern_agent::ui::announce(&address, &password);
             Ok(())
         }
 

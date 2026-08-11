@@ -103,6 +103,25 @@
         font-size: 0.8rem;
         text-align: center;
       }
+      /*
+       * Groups of rows that belong to one role.
+       *
+       * `display: contents` so the wrapper does not break the two-column grid
+       * its children are laid out in. The second rule is not optional: written
+       * inline, `display: contents` overrode the `display: none` that the
+       * `hidden` attribute relies on, so the rows stayed on screen while the
+       * attribute said they were gone — the page showed an agent's probe counts
+       * on a relay, and every assertion about `hidden` passed.
+       */
+      .agent-only,
+      .zone-only {
+        display: contents;
+      }
+      .agent-only[hidden],
+      .zone-only[hidden] {
+        display: none;
+      }
+
       /* The sign-in panel is narrower than the dashboard: it holds one field,
          and a full-width form for one field reads as an unfinished page. */
       #gate {
@@ -210,17 +229,35 @@
           <dd id="send">…</dd>
           <dt>Last heartbeat</dt>
           <dd id="heartbeat">…</dd>
+          <!-- A relay's zone: where its machines connect, which is not where
+               TERN is. Hidden entirely for an agent rather than dashed out — a
+               row that never has an answer is a row that teaches nothing. -->
+          <div class="zone-only" hidden>
+            <dt>Zone listening on</dt>
+            <dd id="zone-listen">…</dd>
+          </div>
         </dl>
       </section>
 
       <section>
         <dl>
-          <dt>Probes</dt>
-          <dd id="probes">…</dd>
-          <dt>Checks passed</dt>
-          <dd id="ok">…</dd>
-          <dt>Checks failed</dt>
-          <dd id="failed">…</dd>
+          <!-- A relay runs no probes and passes no checks. Showing it three
+               zeroes under those labels would be three true numbers saying
+               something false, so it gets its own row instead. -->
+          <div class="agent-only">
+            <dt>Probes</dt>
+            <dd id="probes">…</dd>
+            <dt>Checks passed</dt>
+            <dd id="ok">…</dd>
+            <dt>Checks failed</dt>
+            <dd id="failed">…</dd>
+          </div>
+          <div class="zone-only" hidden>
+            <dt>Machines in the zone</dt>
+            <dd id="zone-agents">…</dd>
+            <dt>Points carried</dt>
+            <dd id="forwarded">…</dd>
+          </div>
         </dl>
       </section>
 
@@ -282,6 +319,11 @@
         if (s.lastHeartbeatOkS === null && s.lastSendOkS === null)
           return ['warn', 'has not reached the server yet']
         if (s.queued > 0) return ['warn', `${s.queued} point(s) waiting`]
+        // A relay with nobody behind it is not broken — it is how one looks
+        // between being installed and having its first machine — but it is
+        // worth saying, because it is also how one looks when the command to
+        // add that machine was never run.
+        if (s.zoneAgents === 0) return ['warn', 'relaying for nobody yet']
         return ['ok', 'reporting normally']
       }
 
@@ -353,8 +395,26 @@
           $('version').textContent = `${state.version} · ${words}`
           $('version').className = `sub ${tone}`
 
+          /*
+           * Which rows this process has anything to say in.
+           *
+           * Decided by the data, not by a role string: `zoneAgents` is present
+           * only for a relay, and absent for everything else. So the page never
+           * has to be taught the list of roles, and a row is shown exactly when
+           * there is a number to put in it.
+           */
+          const relaying = state.zoneAgents !== null && state.zoneAgents !== undefined
+          for (const node of document.querySelectorAll('.zone-only')) node.hidden = !relaying
+          for (const node of document.querySelectorAll('.agent-only')) node.hidden = relaying
+
           $('server').textContent = state.server || '—'
           $('tenant').textContent = state.tenant || '—'
+
+          if (relaying) {
+            $('zone-agents').textContent = state.zoneAgents
+            $('zone-listen').textContent = state.zoneListen || '—'
+            $('forwarded').textContent = state.forwarded ?? 0
+          }
 
           $('send').innerHTML = state.lastSendError
             ? `<span class="bad">${state.lastSendError}</span>`

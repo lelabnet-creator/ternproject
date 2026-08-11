@@ -1,4 +1,4 @@
-import { and, eq, isNull, lt, or } from 'drizzle-orm'
+import { and, eq, isNull, lt, or, sql } from 'drizzle-orm'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { schema } from '@tern/db'
 import { generateToken, hashToken } from '@tern/shared'
@@ -52,11 +52,7 @@ export async function touchAgent(
 ): Promise<void> {
   await app.db
     .update(schema.agents)
-    .set({
-      lastSeenAt: new Date(),
-      ...versionFrom(userAgent),
-      ...(uiAddress === undefined ? {} : { uiAddress }),
-    })
+    .set({ lastSeenAt: new Date(), ...versionFrom(userAgent) })
     .where(
       and(
         eq(schema.agents.apiKeyId, apiKeyId),
@@ -66,6 +62,33 @@ export async function touchAgent(
         ),
       ),
     )
+
+  /*
+   * The address is written on its own, outside that rate limit.
+   *
+   * Folding it into the statement above looked tidier and was wrong: the
+   * predicate exists to throttle *liveness*, and it silently threw the address
+   * away with it. A relay beating every thirty seconds never stored one at all,
+   * and any agent whose address changed kept the old one until a beat happened
+   * to land more than a minute after the last — which is a link to the wrong
+   * machine, arriving at no predictable time.
+   *
+   * `IS DISTINCT FROM` rather than `<>`, because null is an ordinary value here
+   * — "the page is off" — and `<>` is never true against it. That way the write
+   * happens when the answer changed and not otherwise, which is what the rate
+   * limit was protecting in the first place.
+   */
+  if (uiAddress !== undefined) {
+    await app.db
+      .update(schema.agents)
+      .set({ uiAddress })
+      .where(
+        and(
+          eq(schema.agents.apiKeyId, apiKeyId),
+          sql`${schema.agents.uiAddress} IS DISTINCT FROM ${uiAddress}`,
+        ),
+      )
+  }
 }
 
 /**

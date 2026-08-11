@@ -233,6 +233,87 @@ describe('liveness', () => {
 })
 
 describe('the heartbeat', () => {
+  /**
+   * Where the agent says its own page can be reached.
+   *
+   * The console cannot work this out: the address it sees a connection arrive
+   * from is a source address, and with TERN in a container that is a bridge
+   * gateway on the host. So the machine says it — and the saying has to survive
+   * the rate limit that guards `last_seen_at`, which is the trap this pins.
+   */
+  async function beat(key: string, body?: Record<string, unknown>) {
+    return fx.app.inject({
+      method: 'POST',
+      url: '/api/v1/agent/heartbeat',
+      headers: { authorization: `Bearer ${key}`, 'user-agent': 'tern-agent/9.9.9' },
+      ...(body ? { payload: body } : {}),
+    })
+  }
+
+  async function agentWithKey() {
+    await ensureLocalAgent(fx.app, fx.tenantId)
+    const agent = await localAgent()
+    const issued = await issueApiKey(fx.app, {
+      tenantId: fx.tenantId,
+      name: `Agent: ui address ${Math.random()}`,
+      scopes: ['ingest'],
+    })
+    await fx.app.db
+      .update(schema.agents)
+      .set({ apiKeyId: issued.id, uiAddress: null })
+      .where(eq(schema.agents.id, agent!.id))
+    return issued.key
+  }
+
+  it('stores where the page can be reached', async () => {
+    const key = await agentWithKey()
+
+    expect((await beat(key, { uiAddress: '10.2.0.7:38788' })).statusCode).toBe(200)
+    expect((await localAgent())?.uiAddress).toBe('10.2.0.7:38788')
+  })
+
+  it('stores it again immediately when it changes', async () => {
+    /*
+     * The bug this exists for.
+     *
+     * The address used to be written in the same statement as `last_seen_at`,
+     * which is deliberately rate-limited to one write a minute. So a second
+     * beat inside that minute — a relay on a thirty-second cycle, an agent that
+     * had just moved networks — was thrown away wholesale, and the console went
+     * on offering a link to a machine that had moved. Found by running a real
+     * relay, not by reading this.
+     */
+    const key = await agentWithKey()
+
+    await beat(key, { uiAddress: '10.2.0.7:38788' })
+    // No waiting: inside the rate limit is precisely the case that broke.
+    await beat(key, { uiAddress: '10.2.0.9:38788' })
+
+    expect((await localAgent())?.uiAddress).toBe('10.2.0.9:38788')
+  })
+
+  it('clears it when the page is turned off', async () => {
+    // Null is a statement, not an absence: the page went away, and a link to it
+    // must go away too.
+    const key = await agentWithKey()
+
+    await beat(key, { uiAddress: '10.2.0.7:38788' })
+    await beat(key, { uiAddress: null })
+
+    expect((await localAgent())?.uiAddress).toBeNull()
+  })
+
+  it('leaves it alone when the agent says nothing about it', async () => {
+    // An agent from before this existed sends no body. It must not be read as
+    // "there is no page" — it is "no opinion", and the stored answer stands.
+    const key = await agentWithKey()
+
+    await beat(key, { uiAddress: '10.2.0.7:38788' })
+    await beat(key)
+
+    expect((await localAgent())?.uiAddress).toBe('10.2.0.7:38788')
+  })
+
   it('keeps an agent with nothing to do from looking dead', async () => {
     await ensureLocalAgent(fx.app, fx.tenantId)
     const agent = await localAgent()
