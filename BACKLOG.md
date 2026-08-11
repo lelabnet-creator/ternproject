@@ -36,8 +36,13 @@ fonctionne de bout en bout, preuves à l'appui.
       relais de prod à ne pas toucher. `install.sh` servi en HTTP 200. Trace :
       `deploy-tests/e2e-2026-08-11/01-socle.txt`.
 
-- [ ] **2. Les trois VM debout.** `boot` des trois, SSH répond, adresse LAN
+- [x] **2. Les trois VM debout.** `boot` des trois, SSH répond, adresse LAN
       obtenue pour chacune. Trace : `uname -a` et `ip -4 addr` des trois.
+
+      Fait. ubuntu `192.168.1.112` (6.8), rocky `192.168.1.157` (5.14 el9),
+      arch `192.168.1.106` (7.1). SSH OK sur 2231/2232/2233. ubuntu et rocky
+      joignent l'instance (`instance.json` HTTP 200). Trace :
+      `deploy-tests/e2e-2026-08-11/02-vms.txt`.
 
 - [ ] **3. Les trois déploiements.** Agent sur ubuntu (PIN admin → install.sh) ;
       relais sur rocky (`--proxy`, port 38787) ; agent sur arch **isolé**
@@ -78,6 +83,14 @@ fonctionne de bout en bout, preuves à l'appui.
       `RESTITUTION.md` : ce qui marche, ce qui a été corrigé (commits), les
       hypothèses prises, ce qui reste. L'application fonctionne de bout en
       bout ou le bilan dit précisément où elle ne le fait pas.
+
+## Consigne de Jacques (2026-08-11)
+
+Regrouper les corrections de code pour **minimiser** les compilations et les
+appels à la CI GitHub. En pratique : accumuler les correctifs, un seul
+`cargo build`/`pnpm build` par lot, et ne **pousser** (donc ne déclencher la CI)
+qu'une fois en fin de mission — pas à chaque point. Les commits locaux par point
+restent, seul le push est différé.
 
 ## Règles de la boucle
 
