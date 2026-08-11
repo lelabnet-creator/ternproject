@@ -2,8 +2,9 @@
 
 ## Current Task
 
-Rien en cours. `v0.1.29` : se ré-appairer ne crée plus de ligne jumelle dans la
-flotte.
+Rien en cours. `v0.1.30` : relancer l'installeur sans `--pin` met vraiment à
+jour — il s'arrêtait avant de redémarrer le service, donc le binaire neuf ne
+tournait jamais.
 
 ## Key Decisions
 
@@ -22,6 +23,4 @@ flotte.
 
 - Les doublons déjà en base ne se résorbent pas seuls (créés sans identifiant) —
   à supprimer depuis la console.
-- L'installeur sans `--pin` (chemin de mise à jour) affiche « Next: … --pin » et
-  ne redémarre pas le service : message écrit pour une installation inachevée.
 - Reset du mot de passe de la page depuis la console (canal serveur→agent).
