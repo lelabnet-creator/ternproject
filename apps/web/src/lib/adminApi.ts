@@ -98,6 +98,12 @@ export interface Control {
   /** ISO. Last `operational`, and last `down`/`partial`, within retention. */
   lastSuccessAt: string | null
   lastFailureAt: string | null
+  /**
+   * An agent has claimed this control, so this server will not run it on
+   * demand — it reports on its own interval, from a network this server cannot
+   * see.
+   */
+  runsRemotely: boolean
 }
 
 /**

@@ -1754,14 +1754,47 @@ function ControlCard({
 }) {
   const widget = widgetById(control.widget)
   const queryClient = useQueryClient()
-  const [refused, setRefused] = useState<string | null>(null)
+  /*
+   * What the server said, and whether it was a refusal or a note.
+   *
+   * These were the same thing, painted red with `role="alert"`. But the API
+   * already distinguishes them by status code, and the two read completely
+   * differently: "this control has no valid probe configuration" is something
+   * the reader broke and can fix, while "an agent runs this control from its
+   * own network" is the system working — the answer is to wait, and there is
+   * nothing wrong anywhere.
+   *
+   * In red it looked like a failure of the button they had just pressed, on a
+   * card whose control was perfectly healthy. 409 is the code for "not mine to
+   * do", and it is the one that becomes a note.
+   */
+  const [refused, setRefused] = useState<{ text: string; note: boolean } | null>(null)
+
+  const refusal = (err: unknown) =>
+    setRefused(
+      err instanceof ApiError
+        ? { text: err.message, note: err.status === 409 }
+        : { text: String(err), note: false },
+    )
 
   /*
    * Not offered where it cannot work: a pushed control has no probe to run, and
    * a disabled one is supposed to have stopped. The server refuses both anyway
    * — this only keeps a button off the card that could never do anything.
    */
-  const checkable = canWrite && control.kind !== 'push' && control.enabled
+  /*
+   * Not offered when an agent owns it.
+   *
+   * The endpoint answers 409 — "an agent runs this control from its own
+   * network, which this server cannot see" — and the card used to find that
+   * out by being pressed. Pressing it looked like nothing happening: the three
+   * timestamps stayed where they were, because they were never this server's
+   * to change.
+   *
+   * Replaced by a sentence rather than a disabled button. A greyed control
+   * gives no reason, and the reason is the whole of what somebody needs here.
+   */
+  const checkable = canWrite && control.kind !== 'push' && control.enabled && !control.runsRemotely
 
   const check = useMutation({
     mutationFn: () => adminApi.checkNow(slug, control.id),
@@ -1774,7 +1807,7 @@ function ControlCard({
     // The API's sentence is the useful one: it names which of the three
     // refusals applied, and an agent owning the control is not an error the
     // reader can fix by pressing again.
-    onError: (err) => setRefused(err instanceof ApiError ? err.message : String(err)),
+    onError: refusal,
   })
 
   /*
@@ -1796,7 +1829,7 @@ function ControlCard({
       setRefused(null)
       await queryClient.invalidateQueries({ queryKey: ['controls', slug] })
     },
-    onError: (err) => setRefused(err instanceof ApiError ? err.message : String(err)),
+    onError: refusal,
   })
 
   /*
@@ -1821,7 +1854,7 @@ function ControlCard({
       setConfirmingDelete(false)
       await queryClient.invalidateQueries({ queryKey: ['controls', slug] })
     },
-    onError: (err) => setRefused(err instanceof ApiError ? err.message : String(err)),
+    onError: refusal,
   })
 
   return (
@@ -1908,14 +1941,16 @@ function ControlCard({
 
         {refused && (
           <p
-            role="alert"
+            // `alert` interrupts a screen reader mid-sentence, which is right
+            // for something broken and rude for "wait for the agent".
+            role={refused.note ? 'status' : 'alert'}
             style={{
               margin: 0,
               fontSize: 'var(--text-xs)',
-              color: 'var(--status-down)',
+              color: refused.note ? 'var(--color-fg-muted)' : 'var(--status-down)',
             }}
           >
-            {refused}
+            {refused.text}
           </p>
         )}
 
@@ -1995,6 +2030,21 @@ function ControlCard({
             alignItems: 'stretch',
           }}
         >
+          {canWrite && control.kind !== 'push' && control.enabled && control.runsRemotely && (
+            <span
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 'var(--space-2)',
+                fontSize: 'var(--text-xs)',
+                color: 'var(--color-fg-subtle)',
+              }}
+            >
+              <Icons.Radio size={14} aria-hidden="true" />
+              Run by an agent — it reports on its own interval
+            </span>
+          )}
+
           {checkable && (
             <Button
               ariaLabel={`Check ${control.name} now`}
@@ -2533,6 +2583,9 @@ function ControlEditor({
         lastCheckMessage: null,
         lastSuccessAt: null,
         lastFailureAt: null,
+        // Nobody has claimed a control that did not exist a second ago. The
+        // list's next fetch says otherwise if an agent picks it up.
+        runsRemotely: false,
       } satisfies Control
     },
     onSuccess: (result) => {

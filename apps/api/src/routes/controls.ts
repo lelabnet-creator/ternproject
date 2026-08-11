@@ -172,6 +172,18 @@ const routes: FastifyPluginAsyncZod = async (app) => {
                  noticed for a week". */
               lastSuccessAt: z.string().nullable(),
               lastFailureAt: z.string().nullable(),
+              /**
+               * Whether an agent has claimed this control, so the server will
+               * not run it on demand.
+               *
+               * Sent because the admin was offering a "Check" button that could
+               * only ever be declined: the server answers 409 — "an agent runs
+               * this from its own network" — and the card had no way to know
+               * that before somebody pressed it. A button whose only outcome is
+               * a refusal is a worse way to learn a rule than never being
+               * offered it.
+               */
+              runsRemotely: z.boolean(),
             }),
           ),
         },
@@ -187,6 +199,10 @@ const routes: FastifyPluginAsyncZod = async (app) => {
         .orderBy(schema.controls.position)
 
       const activity = await lastActivity(app, tenantId)
+      // The same source the check endpoint refuses from, so the button and the
+      // refusal can never disagree about who owns a control.
+      const coverage = await agentCoverage(app, Date.now())
+      const remote = coverage.fullyCoveredRemote.has(tenantId)
 
       return rows.map((r) => ({
         id: r.id,
@@ -212,6 +228,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
         lastCheckMessage: activity.get(r.id)?.lastCheckMessage ?? null,
         lastSuccessAt: activity.get(r.id)?.lastSuccessAt ?? null,
         lastFailureAt: activity.get(r.id)?.lastFailureAt ?? null,
+        runsRemotely: remote || coverage.claimedRemote.has(r.id),
       }))
     },
   )

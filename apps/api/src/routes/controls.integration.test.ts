@@ -223,6 +223,25 @@ describe('listing controls', () => {
     expect(row.lastFailureAt).toBeNull()
   })
 
+  it('says whether an agent has claimed it, so the admin can stop offering Check', async () => {
+    /*
+     * The admin drew a "Check" button on every enabled probe, and the endpoint
+     * behind it answers 409 for a control an agent owns — "an agent runs this
+     * from its own network, which this server cannot see". The card found that
+     * out by being pressed, and pressing it looked like nothing happening: the
+     * three timestamps stayed where they were, because they were never this
+     * server's to change.
+     *
+     * False here because this fixture has no agents. The value is what matters
+     * less than its presence: a field the client can read before drawing a
+     * button whose only outcome would be a refusal.
+     */
+    const id = (await create({ key: `claim-${Date.now()}` })).json().id
+    const row = await listed(id)
+    expect(row).toHaveProperty('runsRemotely')
+    expect(row.runsRemotely).toBe(false)
+  })
+
   it('separates the last check from the last success and the last failure', async () => {
     const id = (await create({ key: `activity-${Date.now()}` })).json().id
     const at = (minutesAgo: number) => new Date(Date.now() - minutesAgo * 60_000)
