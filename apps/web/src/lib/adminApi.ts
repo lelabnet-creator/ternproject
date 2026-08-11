@@ -238,6 +238,27 @@ export type TenantSettingsPatch = Partial<
   setupCompleted?: boolean
 }
 
+export type AgentCommandKind = 'pause' | 'resume' | 'stop' | 'restart' | 'logs' | 'ui-on' | 'ui-off'
+
+/**
+ * One instruction and its life.
+ *
+ * The three timestamps are three different states, and they are not the same
+ * thing: asked but not handed over is "the agent has not polled yet"; handed
+ * over but never answered is "it took it and did not report", which is the
+ * ordinary end of a restart. Only `completedAt` means it came back.
+ */
+export interface AgentCommand {
+  id: string
+  kind: string
+  createdAt: string
+  deliveredAt: string | null
+  completedAt: string | null
+  /** What came back: log lines, a password, or a word. */
+  result: string | null
+  error: string | null
+}
+
 export interface Agent {
   id: string
   name: string
@@ -1006,6 +1027,20 @@ export const adminApi = {
 
   updateAgent: (slug: string, id: string, body: { name?: string; site?: string | null }) =>
     request<{ ok: boolean }>('PATCH', `/api/v1/${slug}/agents/${id}`, body),
+
+  /**
+   * Ask an agent to do something.
+   *
+   * Nothing here reaches the agent: it is queued, and picked up on that agent's
+   * next poll — minutes away by default. The screen shows the wait rather than
+   * a spinner, because a spinner here would be lying about what is happening.
+   */
+  commandAgent: (slug: string, agentId: string, kind: AgentCommandKind) =>
+    request<{ id: string }>('POST', `/api/v1/${slug}/agents/${agentId}/commands`, { kind }),
+
+  /** What has been asked of this agent lately, and what came back. */
+  agentCommands: (slug: string, agentId: string) =>
+    request<AgentCommand[]>('GET', `/api/v1/${slug}/agents/${agentId}/commands`),
 
   bulkAgents: (slug: string, ids: string[], action: 'revoke' | 'delete') =>
     request<{ ok: boolean; affected: number }>('POST', `/api/v1/${slug}/agents/bulk`, {

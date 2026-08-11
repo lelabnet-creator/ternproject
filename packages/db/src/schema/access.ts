@@ -10,7 +10,7 @@ import {
   timestamp,
   uuid,
 } from 'drizzle-orm/pg-core'
-import { agentRole, agentStatus, apiKeyScope } from './enums.js'
+import { agentCommandKind, agentRole, agentStatus, apiKeyScope } from './enums.js'
 import { tenants } from './tenants.js'
 import { users } from './auth.js'
 
@@ -235,4 +235,50 @@ export const viewerDevices = pgTable(
     revokedAt: timestamp({ withTimezone: true }),
   },
   (t) => [index('viewer_devices_token_idx').on(t.viewerTokenId)],
+)
+
+/**
+ * Something the console asked an agent to do, and what came back.
+ *
+ * A queue rather than a call, because there is no call to make. Agents poll
+ * this server; this server never reaches an agent, and one behind a relay has
+ * no route back at all. So an instruction waits here until the agent next asks
+ * for its jobs, and the answer lands when the agent has carried it out.
+ *
+ * That means every one of these is *eventually*, not *now* — up to a refresh
+ * interval away. The console says so rather than pretending otherwise, because
+ * a button that looks immediate and is not is how somebody presses it four
+ * times.
+ */
+export const agentCommands = pgTable(
+  'agent_commands',
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    tenantId: uuid()
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'cascade' }),
+    agentId: uuid()
+      .notNull()
+      .references(() => agents.id, { onDelete: 'cascade' }),
+    kind: agentCommandKind().notNull(),
+
+    /** Who asked. Null once that account is gone; the row is still the record. */
+    requestedBy: uuid().references(() => users.id, { onDelete: 'set null' }),
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+    /**
+     * When the agent took it.
+     *
+     * Set as it is handed over, so the same instruction is not handed over
+     * twice — an agent that polls, acts, and is restarted before it can report
+     * must not be told to restart again on the way up.
+     */
+    deliveredAt: timestamp({ withTimezone: true }),
+    completedAt: timestamp({ withTimezone: true }),
+
+    /** What came back. For `logs`, the lines themselves. */
+    result: text(),
+    /** Why it could not be done, when it could not. */
+    error: text(),
+  },
+  (t) => [index('agent_commands_agent_idx').on(t.agentId, t.createdAt)],
 )

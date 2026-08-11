@@ -152,6 +152,18 @@ enum Command {
         off: bool,
     },
 
+    /// Undo a pause or a stop asked for from the console.
+    ///
+    /// The way back from `stop`, and the only one: a stopped agent talks to
+    /// nothing, so nothing from the console can reach it. That is what the
+    /// console said before asking, and this is the shell command it named.
+    Resume {
+        /// Path to the config file. Defaults to the standard location for this
+        /// user; `tern-agent status` prints the one in use.
+        #[arg(long)]
+        config: Option<PathBuf>,
+    },
+
     /// Discard the buffered points. They are lost, not sent.
     QueueClear {
         /// Where unsent points are kept while the far end is unreachable.
@@ -289,6 +301,7 @@ async fn main() -> Result<()> {
                 server: server.trim_end_matches('/').to_string(),
                 api_key: response.api_key,
                 install_id: Some(install_id),
+                state: Default::default(),
                 interval_s: 60,
                 probes: Vec::new(),
                 // Off until asked for: see `UiSettings`. Pairing is not the
@@ -369,9 +382,58 @@ async fn main() -> Result<()> {
             // Asking at startup is the cheapest moment: it costs one request,
             // and a control added in the admin starts being measured on the
             // next restart rather than after someone edits a file on the host.
-            if !no_refresh {
-                match Client::new(&config.server)?.jobs(&config.api_key).await {
+            /*
+             * A stopped agent asks for nothing, including at startup.
+             *
+             * Without this it is not stopped at all: the loop below stays
+             * silent, but the startup poll runs first and would take a resume
+             * off the queue on the way up — so restarting a stopped agent
+             * undid the stop, which is precisely what the console promised
+             * could not happen from there. Measured by asking a stopped agent
+             * to resume and watching it obey.
+             *
+             * The way back is the one the console named: `tern-agent resume`,
+             * on the machine, and then a restart.
+             */
+            if !config.state.reports() {
+                println!("This agent was stopped from the console. It reports nothing.");
+                println!(
+                    "Undo it here with: tern-agent resume --config {}",
+                    path.display()
+                );
+            } else if !no_refresh {
+                let client = Client::new(&config.server)?;
+                match client.jobs(&config.api_key).await {
                     Ok(response) => {
+                        /*
+                         * Instructions carried out here too, and this is not a
+                         * nicety.
+                         *
+                         * The server marks one as handed over the moment it
+                         * hands it over — it has no way to tell this poll from
+                         * the loop's — so a startup that read the field and
+                         * dropped it would swallow the instruction for good.
+                         * And that is the likely path: somebody restarts the
+                         * agent precisely to make it pick the thing up sooner,
+                         * and the restart is what would eat it. Found by asking
+                         * a real agent to turn its page on and watching the
+                         * answer never come.
+                         */
+                        if !response.commands.is_empty() {
+                            let key = config.api_key.clone();
+                            let restart = tern_agent::commands::apply(
+                                &client,
+                                &key,
+                                &response.commands,
+                                &mut config,
+                                &path,
+                            )
+                            .await;
+                            if restart {
+                                tern_agent::commands::leave_for_restart();
+                            }
+                        }
+
                         let added = config.new_control_keys(&response.jobs);
                         let skipped = config.apply_jobs(&response.jobs);
 
@@ -496,6 +558,31 @@ async fn main() -> Result<()> {
             Ok(())
         }
 
+        Command::Resume { config } => {
+            let path = config.unwrap_or_else(default_path);
+            let mut cfg = Config::load(&path)?;
+
+            match cfg.state {
+                tern_agent::config::Running::Active => {
+                    println!("Already running. Nothing to undo.");
+                }
+                previous => {
+                    cfg.state = tern_agent::config::Running::Active;
+                    cfg.save(&path)?;
+                    let was = match previous {
+                        tern_agent::config::Running::Paused => "paused",
+                        _ => "stopped",
+                    };
+                    println!("Was {was}. Now active.");
+                    // Said because it is the step somebody forgets: the state is
+                    // read at startup, and the process still running is the one
+                    // that was told to stop.
+                    println!("Restart it for this to take effect.");
+                }
+            }
+            Ok(())
+        }
+
         Command::QueueClear { queue } => {
             let queue_path = queue.unwrap_or_else(|| default_path().with_extension("queue.json"));
             let discarded = tern_agent::runner::Queue::open(&queue_path).discard();
@@ -560,7 +647,19 @@ fn init_logging(cli: &Cli) -> Result<()> {
         None => None,
     };
 
-    let registry = tracing_subscriber::registry().with(filter);
+    /*
+     * Every line also lands in a ring the agent can be asked for later.
+     *
+     * Added to the registry rather than replacing a writer, so what goes to
+     * stderr and to the file is unchanged: the buffer is a second reader of the
+     * same events, not a redirection of them. See `logbuf` for what it honestly
+     * holds — this process's lines, since this process started.
+     */
+    let registry = tracing_subscriber::registry().with(filter).with(
+        tracing_subscriber::fmt::layer()
+            .with_ansi(false)
+            .with_writer(tern_agent::logbuf::RingWriter),
+    );
 
     match (cli.log_json, file_layer) {
         (true, Some(file)) => registry

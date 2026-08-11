@@ -179,7 +179,10 @@ impl Credential {
         }
     }
 
-    fn matches(&self, password: &str) -> bool {
+    /// Whether this is the password. `pub` because the command that turns the
+    /// page on hands one back, and the only honest check of that is that the
+    /// stored hash accepts it.
+    pub fn matches(&self, password: &str) -> bool {
         /*
          * Constant-time, so a wrong password cannot be found one character at
          * a time. The page is local and the attack is unlikely; writing the

@@ -55,6 +55,54 @@ pub struct Config {
     /// The local page, when one is wanted. Absent means no page is served.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ui: Option<UiSettings>,
+
+    /**
+     * Told to stop measuring, and how far that goes.
+     *
+     * Two states rather than one, and the difference is what stays listening.
+     *
+     * `Paused` runs no probes but keeps talking to the server, so the console
+     * can undo it. `Stopped` talks to nothing at all, which is what makes it
+     * final: nothing is left to hear a resume, and getting the machine back
+     * needs a shell on it — `tern-agent resume`. The console says exactly that
+     * before asking for it.
+     *
+     * Written to the config rather than held in memory because the supervisor
+     * restarts this process on any exit. A state that lived only in the process
+     * would be undone by the very thing that keeps the agent alive, five
+     * seconds later, silently.
+     */
+    #[serde(default, skip_serializing_if = "Running::is_default")]
+    pub state: Running,
+}
+
+/// Whether this agent is working, and if not, how far it was told to stop.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Running {
+    #[default]
+    Active,
+    /// No probes, still reporting. Reversible from the console.
+    Paused,
+    /// Nothing at all. Reversible only from a shell on the machine.
+    Stopped,
+}
+
+impl Running {
+    fn is_default(&self) -> bool {
+        *self == Running::Active
+    }
+
+    /// Whether probes run.
+    pub fn measures(&self) -> bool {
+        *self == Running::Active
+    }
+
+    /// Whether it still talks to the server — and so whether the console can
+    /// still reach it. This is the whole difference between the two.
+    pub fn reports(&self) -> bool {
+        *self != Running::Stopped
+    }
 }
 
 /// Settings for the page an agent serves about itself.
@@ -455,6 +503,7 @@ interval_s = 120
             server: "https://status.example.com".into(),
             api_key: "tern_secret".into(),
             install_id: None,
+            state: Default::default(),
             interval_s: 60,
             probes: Vec::new(),
             ui: None,
@@ -519,6 +568,7 @@ interval_s = 120
             server: "https://status.example.com".into(),
             api_key: "tern_secret".into(),
             install_id: None,
+            state: Default::default(),
             interval_s: 60,
             probes: Vec::new(),
             ui: None,
@@ -557,6 +607,7 @@ mod job_tests {
             server: "https://x.example".into(),
             api_key: "k".into(),
             install_id: None,
+            state: Default::default(),
             interval_s: 60,
             probes: Vec::new(),
             ui: None,
@@ -585,6 +636,7 @@ mod job_tests {
             server: "https://x.example".into(),
             api_key: "k".into(),
             install_id: None,
+            state: Default::default(),
             interval_s: 60,
             probes: vec![ProbeEntry {
                 control_key: "local-thing".into(),
@@ -620,6 +672,7 @@ mod job_tests {
             server: "https://x.example".into(),
             api_key: "k".into(),
             install_id: None,
+            state: Default::default(),
             interval_s: 60,
             probes: Vec::new(),
             ui: None,
@@ -645,6 +698,7 @@ mod job_tests {
             server: "https://x.example".into(),
             api_key: "k".into(),
             install_id: None,
+            state: Default::default(),
             interval_s: 60,
             probes: Vec::new(),
             ui: None,
@@ -676,6 +730,7 @@ mod job_tests {
             server: "https://x.example".into(),
             api_key: "k".into(),
             install_id: None,
+            state: Default::default(),
             interval_s: 60,
             probes: Vec::new(),
             ui: None,

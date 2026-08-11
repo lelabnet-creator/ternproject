@@ -239,6 +239,21 @@ async fn refresh_assignment(client: &Client, config: &mut Config, path: &Path) -
         }
     };
 
+    /*
+     * Instructions first, and the assignment after.
+     *
+     * A pause or a stop changes whether the probes below should run at all, and
+     * applying them in the other order would run one more cycle of exactly what
+     * was just asked to stop.
+     */
+    if !response.commands.is_empty() {
+        let key = config.api_key.clone();
+        let restart = crate::commands::apply(client, &key, &response.commands, config, path).await;
+        if restart {
+            crate::commands::leave_for_restart();
+        }
+    }
+
     // Asked before `apply_jobs`, which is what mutates the list out from under it.
     let added = config.new_control_keys(&response.jobs);
     let skipped = config.apply_jobs(&response.jobs);
@@ -413,6 +428,20 @@ pub async fn run(
 
         let mut now = Instant::now();
 
+        /*
+         * Stopped means silent, and that includes not asking for instructions.
+         *
+         * It is what makes the state final in the way the console promised: an
+         * agent that kept polling could be resumed from there, and the button
+         * that set it said it could not be. Getting it back needs a shell —
+         * `tern-agent resume` — which is exactly what was said before asking.
+         */
+        if !config.state.reports() {
+            // Nothing is happening, so there is nothing to wake for often.
+            tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+            continue;
+        }
+
         if now >= next_heartbeat {
             // A failure is a warning and nothing more. The server being briefly
             // unreachable is the moment an agent must keep going, not the
@@ -460,7 +489,15 @@ pub async fn run(
 
         let mut batch: Vec<QueuedPoint> = Vec::new();
 
-        for entry in &config.probes {
+        // Paused: still reporting, so the console can undo it, but measuring
+        // nothing. The heartbeat above is what keeps it reachable.
+        let probes: &[ProbeEntry] = if config.state.measures() {
+            &config.probes
+        } else {
+            &[]
+        };
+
+        for entry in probes {
             let Some(at) = schedule.get(&entry.control_key).copied() else {
                 continue;
             };
@@ -628,6 +665,7 @@ mod tests {
             server: "http://127.0.0.1:3011".into(),
             api_key: "tern_test".into(),
             install_id: None,
+            state: Default::default(),
             interval_s: 60,
             probes: keys.iter().map(|key| probe_entry(key)).collect(),
             ui: None,

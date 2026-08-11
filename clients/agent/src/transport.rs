@@ -74,6 +74,27 @@ pub struct JobsResponse {
     pub tenant_slug: String,
     #[serde(default)]
     pub jobs: Vec<Job>,
+    /**
+     * What the console has asked this agent to do.
+     *
+     * Carried on the poll rather than on a channel of its own, because there is
+     * no other channel: nothing reaches an agent, and one behind a relay has no
+     * route back at all. `default` so a server too old to send the field is
+     * read as "nothing asked", which is what it means.
+     */
+    #[serde(default)]
+    pub commands: Vec<Command>,
+}
+
+/// One instruction, as it arrives.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Command {
+    pub id: String,
+    /// Left as a string on purpose: an instruction this build does not know is
+    /// reported back as unknown rather than failing to parse the whole poll,
+    /// which would take the jobs down with it.
+    pub kind: String,
 }
 
 // Deserialize as well: the proxy reads points its local agents send before
@@ -359,6 +380,38 @@ impl Client {
             bail!("heartbeat refused ({status})");
         }
 
+        Ok(())
+    }
+
+    /// Says what became of an instruction.
+    ///
+    /// Best effort, and deliberately: an agent that has just been told to
+    /// restart will report on its way out and may not get the chance. A missing
+    /// answer is a different thing from a refusal, and the console shows the
+    /// difference rather than inventing one.
+    pub async fn command_result(
+        &self,
+        api_key: &str,
+        command_id: &str,
+        result: Option<&str>,
+        error: Option<&str>,
+    ) -> Result<()> {
+        let response = self
+            .http
+            .post(format!(
+                "{}/api/v1/agent/commands/{command_id}/result",
+                self.base_url
+            ))
+            .bearer_auth(api_key)
+            .json(&serde_json::json!({ "result": result, "error": error }))
+            .send()
+            .await
+            .context("could not reach the server")?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            bail!("the server refused the result ({status})");
+        }
         Ok(())
     }
 

@@ -2,7 +2,13 @@ import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import * as Icons from 'lucide-react'
 import { Tabs } from '../../components/Tabs'
-import { adminApi, ApiError, type Agent } from '../../lib/adminApi'
+import {
+  adminApi,
+  ApiError,
+  type Agent,
+  type AgentCommand,
+  type AgentCommandKind,
+} from '../../lib/adminApi'
 import { AgentGalaxy, freshnessOf } from '../../charts/AgentGalaxy'
 import {
   Banner,
@@ -1242,6 +1248,7 @@ export function AgentMenu({
   revoked,
   onRename,
   onRevoke,
+  onCommand,
   defaultOpen = false,
 }: {
   agent: Agent
@@ -1249,6 +1256,8 @@ export function AgentMenu({
   revoked: boolean
   onRename: () => void
   onRevoke: () => void
+  /** Ask the agent to do something. Absent in tests, which have no server. */
+  onCommand?: (kind: AgentCommandKind) => void
   /**
    * Open from the first render. Set only by the tests, which have no click to
    * make and would otherwise assert against a closed menu — that is, against
@@ -1257,6 +1266,30 @@ export function AgentMenu({
   defaultOpen?: boolean
 }) {
   const [open, setOpen] = useState(defaultOpen)
+
+  /*
+   * Asking, with one question in the way.
+   *
+   * Every instruction here closes the menu, and one of them asks first. `stop`
+   * is the only one that cannot be undone from this screen — nothing is left
+   * listening afterwards — so the sentence says exactly that, and names the
+   * command that undoes it on the machine. The rest are reversible from the
+   * same menu and asking about each would train somebody to click through.
+   */
+  const ask = (kind: AgentCommandKind) => {
+    setOpen(false)
+    if (
+      kind === 'stop' &&
+      !window.confirm(
+        `Stop ${agent.name} for good?\n\n` +
+          'It will report nothing at all, so it cannot be resumed from here. ' +
+          'Getting it back needs a shell on that machine: tern-agent resume.',
+      )
+    ) {
+      return
+    }
+    onCommand?.(kind)
+  }
   const menu = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -1410,6 +1443,45 @@ export function AgentMenu({
             </a>
           )}
 
+          {/*
+            What can be asked of the machine itself.
+
+            Offered where something is still listening. A zone agent counts —
+            its relay carries the instruction to it — but a revoked row does
+            not, because its key is dead and nothing there will ever poll again.
+            Nor does this instance's own agent, which is started and stopped
+            with the server it runs inside.
+
+            None of these happens now, and the heading says so rather than
+            leaving a button to imply otherwise.
+          */}
+          {canWrite && !revoked && onCommand && !agent.isLocal && (
+            <>
+              <div
+                style={{
+                  fontSize: 'var(--text-xs)',
+                  color: 'var(--color-fg-subtle)',
+                  padding: 'var(--space-1) var(--space-2) 0',
+                }}
+              >
+                On the machine — at its next check-in
+              </div>
+              <MenuItem onClick={() => ask('ui-on')} icon="Monitor" label="Turn its page on" />
+              <MenuItem onClick={() => ask('logs')} icon="ScrollText" label="Fetch recent logs" />
+              <MenuItem onClick={() => ask('restart')} icon="RotateCw" label="Restart it" />
+              <MenuItem onClick={() => ask('pause')} icon="Pause" label="Pause measuring" />
+              <MenuItem onClick={() => ask('resume')} icon="Play" label="Resume" />
+              <MenuItem onClick={() => ask('stop')} icon="Power" label="Stop it for good" danger />
+              <hr
+                style={{
+                  border: 0,
+                  borderTop: '1px solid var(--color-border)',
+                  margin: 'var(--space-1) 0',
+                }}
+              />
+            </>
+          )}
+
           {canWrite && !revoked && (
             <>
               <MenuItem onClick={onRename} icon="Pencil" label="Rename" />
@@ -1492,6 +1564,31 @@ export function AgentRow({
 }) {
   const queryClient = useQueryClient()
   const [editing, setEditing] = useState(false)
+
+  /*
+   * Instructions asked for from this row, and what came back.
+   *
+   * Polled only while something is outstanding. An agent's refresh is minutes
+   * away, so an answer takes minutes; asking every three seconds forever, for
+   * every row on the screen, would be a lot of asking about nothing.
+   */
+  const commands = useQuery({
+    queryKey: ['agent-commands', slug, agent.id],
+    queryFn: () => adminApi.agentCommands(slug, agent.id),
+    enabled: false,
+  })
+
+  const pending = (commands.data ?? []).filter((c) => !c.completedAt)
+  const command = useMutation({
+    mutationFn: (kind: AgentCommandKind) => adminApi.commandAgent(slug, agent.id, kind),
+    onSuccess: () => void commands.refetch(),
+  })
+
+  useEffect(() => {
+    if (pending.length === 0) return
+    const timer = setInterval(() => void commands.refetch(), 5_000)
+    return () => clearInterval(timer)
+  }, [pending.length, commands])
   const [name, setName] = useState(agent.name)
   const [site, setSite] = useState(agent.site ?? '')
   const [error, setError] = useState<string | null>(null)
@@ -1678,9 +1775,13 @@ export function AgentRow({
             revoked={revoked}
             onRename={() => setEditing((v) => !v)}
             onRevoke={() => setConfirming(true)}
+            onCommand={(kind) => command.mutate(kind)}
           />
         </div>
       </div>
+
+      {/* What was asked of the machine, and what came back. */}
+      <CommandTrail commands={commands.data ?? []} />
 
       {/*
         Under the buttons, not beside the name.
@@ -1930,4 +2031,97 @@ function lastSeen(agent: Agent, now: number): string {
   const hours = Math.floor(minutes / 60)
   if (hours < 24) return `${hours} h ago`
   return `${Math.floor(hours / 24)} d ago`
+}
+
+/**
+ * The instructions asked of one agent, and their answers.
+ *
+ * Shown as a trail rather than a status, because the states are not one axis.
+ * Asked-but-not-taken means the agent has not polled yet; taken-but-unanswered
+ * is the ordinary end of a restart, which is carried out by a process that then
+ * stops existing. Only an answer means it came back — and collapsing the three
+ * into a spinner would say "working" about a machine that may never reply.
+ *
+ * A password appears here exactly once, because that is all there ever is: the
+ * agent hashes it as it stores it, so this reply is the only copy that ever
+ * leaves the machine. It is not fetched again — a later read of the same
+ * instruction shows it gone, which is the truth rather than a policy.
+ */
+function CommandTrail({ commands }: { commands: AgentCommand[] }) {
+  if (commands.length === 0) return null
+
+  return (
+    <div style={{ marginTop: 'var(--space-3)', display: 'grid', gap: 'var(--space-2)' }}>
+      {commands.slice(0, 5).map((c) => (
+        <div key={c.id} style={{ fontSize: 'var(--text-sm)' }}>
+          <span style={{ fontWeight: 600 }}>{LABEL[c.kind] ?? c.kind}</span>{' '}
+          <span style={{ color: 'var(--color-fg-subtle)' }}>
+            {c.error
+              ? '— refused'
+              : c.completedAt
+                ? '— done'
+                : c.deliveredAt
+                  ? '— taken, no answer yet'
+                  : '— waiting for its next check-in'}
+          </span>
+          {c.error && <Banner tone="down">{c.error}</Banner>}
+          {/* The password, laid out to be read off a screen and typed
+              elsewhere — which is what somebody is about to do with it. */}
+          {c.kind === 'ui-on' && c.result && (
+            <div style={{ marginTop: 'var(--space-1)' }}>
+              <Banner tone="operational">
+                Its page is on. This password is shown once — the agent stores only a hash of it, so
+                nothing can show it again. Ask again for a new one.
+              </Banner>
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 'var(--space-2)',
+                  marginTop: 'var(--space-2)',
+                }}
+              >
+                <code
+                  className="tabular"
+                  style={{
+                    fontSize: 'var(--text-base)',
+                    padding: 'var(--space-2) var(--space-3)',
+                    background: 'var(--color-bg)',
+                    border: '1px solid var(--color-border-strong)',
+                    borderRadius: 'var(--radius-sm)',
+                  }}
+                >
+                  {c.result}
+                </code>
+                <CopyButton value={c.result} label="Copy the password" size="sm" />
+              </div>
+            </div>
+          )}
+          {c.kind === 'logs' && c.result && (
+            <div style={{ marginTop: 'var(--space-1)' }}>
+              <CodeBlock label="What the agent has said since it started" copyable>
+                {c.result}
+              </CodeBlock>
+            </div>
+          )}
+          {/* Everything else answers in a word, and a word does not need a box. */}
+          {c.kind !== 'ui-on' && c.kind !== 'logs' && c.result && (
+            <div style={{ color: 'var(--color-fg-muted)', fontSize: 'var(--text-xs)' }}>
+              {c.result}
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+const LABEL: Record<string, string> = {
+  'ui-on': 'Turn its page on',
+  'ui-off': 'Turn its page off',
+  logs: 'Fetch recent logs',
+  restart: 'Restart it',
+  pause: 'Pause measuring',
+  resume: 'Resume',
+  stop: 'Stop it for good',
 }

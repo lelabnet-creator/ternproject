@@ -141,4 +141,36 @@ export const agentStatus = pgEnum('agent_status', ['active', 'stale', 'revoked']
  */
 export const agentRole = pgEnum('agent_role', ['agent', 'proxy'])
 
+/**
+ * What the console can ask a running agent to do.
+ *
+ * Asked rather than done: nothing here reaches out to an agent — they poll, and
+ * an agent behind a relay has no route back at all — so each of these is picked
+ * up on the next poll and answered when it has been carried out.
+ *
+ * `pause` and `stop` are both "stop measuring" and differ only in what stays
+ * listening. A paused agent keeps polling, so the console can resume it. A
+ * stopped one polls nothing, which is what makes it final: getting it back
+ * needs a shell on the machine (`tern-agent resume`). The console says so
+ * before asking.
+ */
+export const agentCommandKind = pgEnum('agent_command_kind', [
+  'pause',
+  'resume',
+  'stop',
+  'restart',
+  'logs',
+  /**
+   * Turn the agent's own page on, and hand back the password it generated.
+   *
+   * The password is the answer to this instruction, which is the only reason
+   * it can be shown at all: it is hashed the moment it is stored, so the agent
+   * is the one place it exists in the clear and the reply is the one moment it
+   * passes. The console shows it once and never again — the same promise
+   * `tern-agent ui` makes on the machine itself.
+   */
+  'ui-on',
+  'ui-off',
+])
+
 export const certStatus = pgEnum('cert_status', ['pending', 'issued', 'failed', 'expired'])

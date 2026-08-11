@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNotNull, isNull, notInArray, sql } from 'drizzle-orm'
+import { and, desc, eq, inArray, isNotNull, isNull, notInArray, sql } from 'drizzle-orm'
 import { z } from 'zod'
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod'
 import { schema } from '@tern/db'
@@ -668,7 +668,21 @@ const routes: FastifyPluginAsyncZod = async (app) => {
     {
       schema: {
         response: {
-          200: z.object({ tenantSlug: z.string(), jobs: z.array(jobSchema) }),
+          200: z.object({
+            tenantSlug: z.string(),
+            jobs: z.array(jobSchema),
+            /**
+             * What the console has asked this agent to do since it last asked.
+             *
+             * Carried on the poll it was already making rather than on a
+             * channel of its own: nothing here can reach an agent — they poll,
+             * and one behind a relay has no route back at all — so this is the
+             * only moment an instruction can be handed over. An agent too old
+             * to know the field ignores it, which is why it is added here
+             * rather than made a route of its own it would never call.
+             */
+            commands: z.array(z.object({ id: z.string(), kind: z.string() })),
+          }),
         },
       },
     },
@@ -694,10 +708,204 @@ const routes: FastifyPluginAsyncZod = async (app) => {
         .where(and(eq(schema.agents.apiKeyId, key.id), eq(schema.agents.tenantId, key.tenantId)))
         .limit(1)
 
+      /*
+       * Handed over and marked as handed over, in that order and only once.
+       *
+       * `deliveredAt` is set as they are read, not when the answer comes back:
+       * a restart is carried out by a process that then stops existing, and an
+       * instruction still marked undelivered would be handed to it again on the
+       * way up. Once is the promise; the result may never arrive, and that is a
+       * different thing from never having been asked.
+       */
+      const commands = agent
+        ? await app.db
+            .update(schema.agentCommands)
+            .set({ deliveredAt: new Date() })
+            .where(
+              and(
+                eq(schema.agentCommands.agentId, agent.id),
+                isNull(schema.agentCommands.deliveredAt),
+              ),
+            )
+            .returning({ id: schema.agentCommands.id, kind: schema.agentCommands.kind })
+        : []
+
       return {
         tenantSlug: tenant?.slug ?? '',
         jobs: await jobsForAgent(app, key.tenantId, key.scopeControlIds ?? null, agent?.id),
+        commands,
       }
+    },
+  )
+
+  /**
+   * What an agent did with an instruction.
+   *
+   * Its own route rather than a field on the next poll: a `logs` answer is the
+   * agent's recent output, which is far larger than anything else it sends, and
+   * putting it on the heartbeat would make every beat carry the shape of the
+   * one call that occasionally needs it.
+   */
+  app.post(
+    '/agent/commands/:commandId/result',
+    {
+      schema: {
+        params: z.object({ commandId: z.string().uuid() }),
+        body: z.object({
+          // Bounded here as well as at the agent: what protects this server is
+          // what it enforces, not what a client promises.
+          result: z.string().max(256_000).nullable().optional(),
+          error: z.string().max(2_000).nullable().optional(),
+        }),
+        response: { 200: z.object({ ok: z.boolean() }) },
+      },
+    },
+    async (req) => {
+      const key = await authenticateApiKey(app, req, 'ingest')
+      if (!key) throw app.httpErrors.unauthorized('Invalid or missing API key')
+
+      const [agent] = await app.db
+        .select({ id: schema.agents.id })
+        .from(schema.agents)
+        .where(and(eq(schema.agents.apiKeyId, key.id), eq(schema.agents.tenantId, key.tenantId)))
+        .limit(1)
+      if (!agent) throw app.httpErrors.unauthorized('Invalid or missing API key')
+
+      // Scoped to the agent the key belongs to, so one machine cannot answer
+      // for another — including a relay answering for its own zone, which is
+      // the one place a key legitimately speaks for several machines.
+      const updated = await app.db
+        .update(schema.agentCommands)
+        .set({
+          completedAt: new Date(),
+          result: req.body.result ?? null,
+          error: req.body.error ?? null,
+        })
+        .where(
+          and(
+            eq(schema.agentCommands.id, req.params.commandId),
+            eq(schema.agentCommands.agentId, agent.id),
+          ),
+        )
+        .returning({ id: schema.agentCommands.id })
+
+      if (updated.length === 0) throw app.httpErrors.notFound('Unknown command')
+      return { ok: true }
+    },
+  )
+
+  /**
+   * Ask an agent to do something, and read what came of it.
+   *
+   * Two routes because they answer at different times: asking is instant and
+   * getting an answer is not — the instruction waits for the agent's next poll,
+   * which is a refresh interval away. The console shows the wait rather than
+   * hiding it behind a spinner that would be lying.
+   */
+  app.post(
+    '/:slug/agents/:agentId/commands',
+    {
+      onRequest: [app.requireTenant()],
+      preHandler: [app.requirePermission('agent:manage')],
+      schema: {
+        params: z.object({ slug: z.string(), agentId: z.string().uuid() }),
+        body: z.object({
+          // Kept in step with the column's enum by hand, and that is the risk:
+          // a kind the database knows and this list does not is refused here
+          // with a message naming the ones it accepts, which is how the gap
+          // was found rather than shipped.
+          kind: z.enum(['pause', 'resume', 'stop', 'restart', 'logs', 'ui-on', 'ui-off']),
+        }),
+        response: { 200: z.object({ id: z.string() }) },
+      },
+    },
+    async (req) => {
+      const [agent] = await app.db
+        .select({ id: schema.agents.id, isLocal: schema.agents.isLocal })
+        .from(schema.agents)
+        .where(
+          and(eq(schema.agents.id, req.params.agentId), eq(schema.agents.tenantId, req.tenant!.id)),
+        )
+        .limit(1)
+      if (!agent) throw app.httpErrors.notFound('Unknown agent')
+
+      // The instance's own agent takes no instructions from the instance. It is
+      // started and stopped with the server it runs inside; pausing it from
+      // here would be the server asking itself to stop measuring, and nothing
+      // would be left to ask it to start again.
+      if (agent.isLocal) {
+        throw app.httpErrors.conflict(
+          `${LOCAL_AGENT_NAME} runs inside this instance and is controlled with it, not from here.`,
+        )
+      }
+
+      const [created] = await app.db
+        .insert(schema.agentCommands)
+        .values({
+          tenantId: req.tenant!.id,
+          agentId: agent.id,
+          kind: req.body.kind,
+          requestedBy: req.actor.userId ?? null,
+        })
+        .returning({ id: schema.agentCommands.id })
+
+      await audit(app, {
+        action: 'agent.command',
+        tenantId: req.tenant!.id,
+        actorId: req.actor.userId,
+        target: agent.id,
+        meta: { kind: req.body.kind },
+        ip: req.ip,
+      })
+
+      return { id: created!.id }
+    },
+  )
+
+  app.get(
+    '/:slug/agents/:agentId/commands',
+    {
+      onRequest: [app.requireTenant()],
+      preHandler: [app.requirePermission('agent:manage')],
+      schema: {
+        params: z.object({ slug: z.string(), agentId: z.string().uuid() }),
+        response: {
+          200: z.array(
+            z.object({
+              id: z.string(),
+              kind: z.string(),
+              createdAt: z.string(),
+              deliveredAt: z.string().nullable(),
+              completedAt: z.string().nullable(),
+              result: z.string().nullable(),
+              error: z.string().nullable(),
+            }),
+          ),
+        },
+      },
+    },
+    async (req) => {
+      const rows = await app.db
+        .select()
+        .from(schema.agentCommands)
+        .where(
+          and(
+            eq(schema.agentCommands.agentId, req.params.agentId),
+            eq(schema.agentCommands.tenantId, req.tenant!.id),
+          ),
+        )
+        .orderBy(desc(schema.agentCommands.createdAt))
+        .limit(20)
+
+      return rows.map((row) => ({
+        id: row.id,
+        kind: row.kind,
+        createdAt: row.createdAt.toISOString(),
+        deliveredAt: row.deliveredAt?.toISOString() ?? null,
+        completedAt: row.completedAt?.toISOString() ?? null,
+        result: row.result,
+        error: row.error,
+      }))
     },
   )
 
