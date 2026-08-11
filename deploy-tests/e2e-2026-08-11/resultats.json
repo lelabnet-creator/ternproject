@@ -1,0 +1,35 @@
+{
+  "date": "2026-08-11",
+  "mission": "validation e2e trois rôles sur trois VM",
+  "instance": "http://192.168.1.144:3011 (dev, tenant acme)",
+  "vms": {
+    "ubuntu": "192.168.1.112 (agent)",
+    "rocky": "192.168.1.157 (relais:38787)",
+    "arch": "192.168.1.106 (agent de zone, isolé)"
+  },
+  "roles_deployes": 3,
+  "battements_ok": 3,
+  "genres_controle": {
+    "tcp": "operational",
+    "dns": "operational",
+    "ping": "operational",
+    "directory": "operational",
+    "docker": "operational",
+    "websocket": "operational",
+    "cert": "down",
+    "file": "operational",
+    "http": "operational",
+    "uptime": "operational",
+    "push": "operational"
+  },
+  "bug_corrige": "default_path/default_config relatifs -> XDG absolus (commit 13817d2)",
+  "hypotheses": [
+    "Instance de dev utilisée (28999=prod de Jacques interdite, 28994 login cassé).",
+    "Binaires musl reconstruits localement (zig installé) depuis le code courant et servis, pour tester le code réel; restaurés à l etat git après.",
+    "Migration 0021 (file/directory/uptime) appliquée à la base de dev (était en attente).",
+    "cert=down attendu: trust store webpki embarqué rejette un cert auto-signé.",
+    "ping: CAP_NET_RAW accordé à l agent (sinon fallback TCP).",
+    "docker: docker.io installé sur ubuntu + socket exposé.",
+    "Paquets installés sur l hôte: zig, lld21 (cross-build musl). Sur ubuntu VM: docker.io."
+  ]
+}
