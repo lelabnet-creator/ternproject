@@ -90,6 +90,21 @@ impl Queue {
         self.points.is_empty()
     }
 
+    /// What the buffer costs on disk. Estimated from the points rather than
+    /// stat-ed: the file is rewritten on every persist, so its size on disk and
+    /// its size in memory differ only between two writes, and a syscall per
+    /// page refresh is a poor trade for that.
+    pub fn bytes(&self) -> u64 {
+        self.points
+            .iter()
+            .map(|point| {
+                serde_json::to_string(point)
+                    .map(|s| s.len() + 1)
+                    .unwrap_or(0) as u64
+            })
+            .sum()
+    }
+
     pub fn dropped(&self) -> usize {
         self.dropped
     }
@@ -345,6 +360,38 @@ pub async fn run(
         info!("nothing assigned yet — waiting for the server to hand something over");
     }
 
+    /*
+     * The page, when the config asks for one.
+     *
+     * Spawned rather than awaited: it serves for as long as the agent runs and
+     * has nothing to hand back. A failure to bind is a warning and not a
+     * refusal to start — an agent whose port is taken must keep measuring,
+     * because measuring is its job and the page is a convenience.
+     */
+    let ui = crate::ui::UiState::new(config.ui.as_ref().and_then(|u| u.credential.clone()));
+    if let Some(settings) = config.ui.clone() {
+        let state = ui.clone();
+        tokio::spawn(async move {
+            if let Err(error) = crate::ui::serve(state, &settings.listen).await {
+                warn!(%error, address = %settings.listen, "could not serve the agent page");
+            }
+        });
+    }
+
+    ui.update(|snapshot| {
+        snapshot.role = "tern-agent".to_string();
+        snapshot.version = env!("CARGO_PKG_VERSION").to_string();
+        snapshot.server = config.server.clone();
+        snapshot.probes = config.probes.len();
+    })
+    .await;
+
+    // Counted since this process started, not since the beginning of time: the
+    // page reports what this run has done, and a total that survived restarts
+    // would need somewhere to survive in.
+    let mut checks_ok: u64 = 0;
+    let mut checks_failed: u64 = 0;
+
     let mut schedule = reschedule(&config, &HashMap::new(), Instant::now());
     let mut next_refresh = Instant::now() + REFRESH_EVERY;
     // Immediately, not in five minutes: the first thing a freshly started agent
@@ -370,8 +417,24 @@ pub async fn run(
             // A failure is a warning and nothing more. The server being briefly
             // unreachable is the moment an agent must keep going, not the
             // moment it should start treating its own liveness as an error.
-            if let Err(error) = client.heartbeat(&config.api_key).await {
-                warn!(%error, "heartbeat failed");
+            match client.heartbeat(&config.api_key).await {
+                Ok(()) => {
+                    ui.update(|snapshot| {
+                        snapshot.last_heartbeat_ok_s = Some(0);
+                        snapshot.last_heartbeat_error = None;
+                    })
+                    .await
+                }
+                Err(error) => {
+                    warn!(%error, "heartbeat failed");
+                    // The message, not a boolean. "heartbeat refused (401)" and
+                    // "could not reach the server" send somebody to two
+                    // different places, and a red light that says neither sends
+                    // them to the journal to find out.
+                    let text = error.to_string();
+                    ui.update(|snapshot| snapshot.last_heartbeat_error = Some(text))
+                        .await;
+                }
             }
             next_heartbeat = Instant::now() + HEARTBEAT_EVERY;
         }
@@ -404,6 +467,12 @@ pub async fn run(
                 "probed"
             );
 
+            if matches!(point.status, Status::Operational | Status::Degraded) {
+                checks_ok += 1;
+            } else {
+                checks_failed += 1;
+            }
+
             batch.push(QueuedPoint {
                 control_key: point.control_key,
                 status: point.status,
@@ -423,12 +492,30 @@ pub async fn run(
             queue.push(point);
         }
 
-        flush(&client, &config.api_key, &mut queue).await;
+        flush(&client, &config.api_key, &mut queue, &ui).await;
+
+        ui.update(|snapshot| {
+            snapshot.probes = config.probes.len();
+            snapshot.queued = queue.len();
+            snapshot.dropped = queue.dropped();
+            snapshot.checks_ok = checks_ok;
+            snapshot.checks_failed = checks_failed;
+            // What the buffer is costing on disk, not how many rows it holds.
+            // "412 points" says nothing about whether a machine with a small
+            // root filesystem is in trouble; kilobytes do.
+            snapshot.queue_bytes = queue.bytes();
+        })
+        .await;
     }
 }
 
 /// Sends everything queued, keeping it if the server cannot be reached.
-async fn flush(client: &Client, api_key: &str, queue: &mut Queue) {
+async fn flush(
+    client: &Client,
+    api_key: &str,
+    queue: &mut Queue,
+    ui: &std::sync::Arc<crate::ui::UiState>,
+) {
     if queue.is_empty() {
         return;
     }
@@ -442,6 +529,11 @@ async fn flush(client: &Client, api_key: &str, queue: &mut Queue) {
     match client.ingest(api_key, &chunk).await {
         Ok(response) => {
             queue.points.drain(..chunk.len());
+            ui.update(|snapshot| {
+                snapshot.last_send_ok_s = Some(0);
+                snapshot.last_send_error = None;
+            })
+            .await;
             for rejected in &response.rejected {
                 // Named rather than retried: an unknown control key is a
                 // configuration mistake, and replaying it forever would hide it.
@@ -457,6 +549,9 @@ async fn flush(client: &Client, api_key: &str, queue: &mut Queue) {
         }
         Err(error) => {
             warn!(%error, pending = queue.len(), "could not reach the server — points kept");
+            let text = error.to_string();
+            ui.update(|snapshot| snapshot.last_send_error = Some(text))
+                .await;
             queue.persist();
         }
     }
@@ -523,6 +618,7 @@ mod tests {
             api_key: "tern_test".into(),
             interval_s: 60,
             probes: keys.iter().map(|key| probe_entry(key)).collect(),
+            ui: None,
         }
     }
 

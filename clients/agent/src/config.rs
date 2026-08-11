@@ -29,6 +29,31 @@ pub struct Config {
     /// extendable the way its own instructions say.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub probes: Vec<ProbeEntry>,
+
+    /// The local page, when one is wanted. Absent means no page is served.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ui: Option<UiSettings>,
+}
+
+/// Settings for the page an agent serves about itself.
+///
+/// Opt-in: an agent that nobody asked for a page from opens no listener at all.
+/// A monitoring agent binding a port by default is a port on every machine in
+/// somebody's estate, decided by us rather than by them.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct UiSettings {
+    /// Defaults to loopback. See the module note on `ui` for why the page is
+    /// not something to put on an interface without meaning to.
+    #[serde(default = "default_ui_listen")]
+    pub listen: String,
+    /// Absent means the page is served without asking, which is only sensible
+    /// on loopback — and `tern-agent ui` says so when it is not.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub credential: Option<crate::ui::Credential>,
+}
+
+fn default_ui_listen() -> String {
+    "127.0.0.1:38788".to_string()
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -343,6 +368,7 @@ interval_s = 120
             api_key: "tern_secret".into(),
             interval_s: 60,
             probes: Vec::new(),
+            ui: None,
         }
         .save(&path)
         .unwrap();
@@ -374,6 +400,7 @@ interval_s = 120
             api_key: "tern_secret".into(),
             interval_s: 60,
             probes: Vec::new(),
+            ui: None,
         };
         config.save(&path).unwrap();
 
@@ -410,6 +437,7 @@ mod job_tests {
             api_key: "k".into(),
             interval_s: 60,
             probes: Vec::new(),
+            ui: None,
         };
 
         let skipped = config.apply_jobs(&[job(
@@ -446,6 +474,7 @@ mod job_tests {
                 interval_s: None,
                 managed: false,
             }],
+            ui: None,
         };
 
         config.apply_jobs(&[job(
@@ -469,6 +498,7 @@ mod job_tests {
             api_key: "k".into(),
             interval_s: 60,
             probes: Vec::new(),
+            ui: None,
         };
 
         let first = job(
@@ -492,6 +522,7 @@ mod job_tests {
             api_key: "k".into(),
             interval_s: 60,
             probes: Vec::new(),
+            ui: None,
         };
         let existing = job(
             "api",
@@ -521,6 +552,7 @@ mod job_tests {
             api_key: "k".into(),
             interval_s: 60,
             probes: Vec::new(),
+            ui: None,
         };
 
         let skipped = config.apply_jobs(&[

@@ -458,6 +458,29 @@ fn spawn_refresh(state: AppState, every_s: u64) {
                 Err(error) => warn!(%error, "keeping the cached assignment"),
             }
 
+            /*
+             * A heartbeat of its own, not a side effect of asking for jobs.
+             *
+             * The relay looked alive because `/agent/jobs` happens to refresh
+             * `last_seen_at` server-side. That holds only while the refresh
+             * interval is short: set `refresh_s` to an hour — which the config
+             * allows and a quiet zone invites — and a perfectly healthy relay
+             * goes amber, then red, while it is doing exactly what it was
+             * configured to do.
+             *
+             * The three roles now say the same verb for the same thing, which
+             * is the point: an agent, a relay and an agent behind a relay are
+             * all "is this thing still there", and a fleet screen that answered
+             * that question differently depending on the role was answering a
+             * different question.
+             */
+            if let Err(error) = state.client.heartbeat(&key).await {
+                // A warning and nothing more. A relay whose upstream is down
+                // must keep serving its zone, which is the entire reason it
+                // exists — and the next tick will say so again.
+                warn!(%error, "heartbeat failed");
+            }
+
             declare_zone(&state, &key).await;
         }
     });

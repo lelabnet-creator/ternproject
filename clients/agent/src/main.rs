@@ -86,6 +86,24 @@ enum Command {
         queue: Option<PathBuf>,
     },
 
+    /// Turn the local page on, and set or reset the password that guards it.
+    ///
+    /// Prints the password once. It is stored salted and hashed, so it cannot
+    /// be read back — losing it means running this again, which is the point:
+    /// a page whose password can be recovered from the machine it runs on is
+    /// guarding nothing from anybody who already has the machine.
+    Ui {
+        #[arg(long)]
+        config: Option<PathBuf>,
+        /// Where to serve. Loopback unless you mean otherwise — see the note
+        /// this prints when you do.
+        #[arg(long)]
+        listen: Option<String>,
+        /// Turn the page off again and forget the password.
+        #[arg(long)]
+        off: bool,
+    },
+
     /// Discard the buffered points. They are lost, not sent.
     QueueClear {
         #[arg(long)]
@@ -152,6 +170,9 @@ async fn main() -> Result<()> {
                 api_key: response.api_key,
                 interval_s: 60,
                 probes: Vec::new(),
+                // Off until asked for: see `UiSettings`. Pairing is not the
+                // moment to decide somebody wants a port open.
+                ui: None,
             };
 
             // The server already knows what this agent is for. Handing the
@@ -316,6 +337,64 @@ async fn main() -> Result<()> {
                     if entry.managed { "" } else { "  (local)" }
                 );
             }
+            Ok(())
+        }
+
+        Command::Ui {
+            config,
+            listen,
+            off,
+        } => {
+            let path = config.unwrap_or_else(default_path);
+            let mut cfg = Config::load(&path)?;
+
+            if off {
+                cfg.ui = None;
+                cfg.save(&path)?;
+                println!("The local page is off. Nothing is listening.");
+                return Ok(());
+            }
+
+            // Generated, never chosen. A password somebody types here is one
+            // they have used elsewhere, and this one is written to a file on
+            // the machine it guards.
+            let password = tern_agent::transport::random_token(12);
+            let address = listen
+                .or_else(|| cfg.ui.as_ref().map(|u| u.listen.clone()))
+                .unwrap_or_else(|| "127.0.0.1:38788".to_string());
+
+            cfg.ui = Some(tern_agent::config::UiSettings {
+                listen: address.clone(),
+                credential: Some(tern_agent::ui::Credential::create(&password)),
+            });
+            cfg.save(&path)?;
+
+            let tty = std::io::IsTerminal::is_terminal(&std::io::stdout());
+            let (green, red, reset) = if tty {
+                ("\x1b[32m", "\x1b[31m", "\x1b[0m")
+            } else {
+                ("", "", "")
+            };
+
+            println!("The local page is on.");
+            println!();
+            println!("  Address   {green}http://{address}/{reset}");
+            println!("  Password  {green}{password}{reset}");
+            println!();
+            println!("Shown once — it is stored salted and hashed, so it cannot be read");
+            println!("back. Run this again to set a new one.");
+
+            // Said only when it is true, and said in the colour of a warning:
+            // a page bound off loopback names the server, the tenant and every
+            // control this agent runs.
+            if !address.starts_with("127.") && !address.starts_with("localhost") {
+                println!();
+                println!("{red}This is not loopback.{reset} Anyone who can reach {address} can");
+                println!("read what this agent monitors, and only this password is in the way.");
+            }
+
+            println!();
+            println!("Restart the agent for it to take effect.");
             Ok(())
         }
 

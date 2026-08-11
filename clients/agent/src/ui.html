@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>tern-agent</title>
+    <style>
+      /*
+       * Dark by default and light on request, because this page is read in a
+       * terminal window's company at three in the morning rather more often
+       * than it is read in daylight.
+       */
+      :root {
+        color-scheme: dark light;
+        --bg: #0d1524;
+        --surface: #142033;
+        --border: #24344d;
+        --fg: #e8eef7;
+        --muted: #93a3bb;
+        --ok: #35c07f;
+        --warn: #e0a33e;
+        --bad: #e5484d;
+        font-family:
+          ui-sans-serif,
+          system-ui,
+          -apple-system,
+          'Segoe UI',
+          sans-serif;
+      }
+      @media (prefers-color-scheme: light) {
+        :root {
+          --bg: #f6f8fb;
+          --surface: #fff;
+          --border: #dbe3ee;
+          --fg: #16202f;
+          --muted: #5b6b83;
+        }
+      }
+      body {
+        margin: 0;
+        padding: 1.5rem 1rem 3rem;
+        background: var(--bg);
+        color: var(--fg);
+        line-height: 1.5;
+      }
+      main {
+        max-width: 44rem;
+        margin: 0 auto;
+      }
+      h1 {
+        font-size: 1.1rem;
+        margin: 0 0 0.25rem;
+        display: flex;
+        align-items: center;
+        gap: 0.6rem;
+      }
+      .dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        background: var(--muted);
+        flex: 0 0 auto;
+      }
+      .sub {
+        color: var(--muted);
+        font-size: 0.85rem;
+        margin: 0 0 1.5rem;
+      }
+      section {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 0.25rem 1rem;
+        margin-bottom: 1rem;
+      }
+      dl {
+        display: grid;
+        grid-template-columns: minmax(9rem, auto) 1fr;
+        gap: 0.15rem 1rem;
+        margin: 0.75rem 0;
+        font-size: 0.9rem;
+      }
+      dt {
+        color: var(--muted);
+      }
+      dd {
+        margin: 0;
+        /* Tabular figures so a number changing does not shift the row under it. */
+        font-variant-numeric: tabular-nums;
+        overflow-wrap: anywhere;
+      }
+      .ok {
+        color: var(--ok);
+      }
+      .warn {
+        color: var(--warn);
+      }
+      .bad {
+        color: var(--bad);
+      }
+      footer {
+        color: var(--muted);
+        font-size: 0.8rem;
+        text-align: center;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1><span class="dot" id="dot"></span><span id="role">tern-agent</span></h1>
+      <p class="sub" id="version">…</p>
+
+      <section>
+        <dl>
+          <dt>Sending to</dt>
+          <dd id="server">…</dd>
+          <dt>Tenant</dt>
+          <dd id="tenant">…</dd>
+          <dt>Last send</dt>
+          <dd id="send">…</dd>
+          <dt>Last heartbeat</dt>
+          <dd id="heartbeat">…</dd>
+        </dl>
+      </section>
+
+      <section>
+        <dl>
+          <dt>Probes</dt>
+          <dd id="probes">…</dd>
+          <dt>Checks passed</dt>
+          <dd id="ok">…</dd>
+          <dt>Checks failed</dt>
+          <dd id="failed">…</dd>
+        </dl>
+      </section>
+
+      <section>
+        <dl>
+          <dt>Waiting to send</dt>
+          <dd id="queued">…</dd>
+          <dt>Queue on disk</dt>
+          <dd id="bytes">…</dd>
+          <dt>Dropped</dt>
+          <dd id="dropped">…</dd>
+          <dt>Running for</dt>
+          <dd id="uptime">…</dd>
+        </dl>
+      </section>
+
+      <footer id="foot">Refreshing every 5 s.</footer>
+    </main>
+
+    <script>
+      const $ = (id) => document.getElementById(id)
+
+      /** Seconds as something a human reads without counting zeroes. */
+      const ago = (s) => {
+        if (s === null || s === undefined) return null
+        if (s < 60) return `${s} s ago`
+        if (s < 3600) return `${Math.floor(s / 60)} min ago`
+        if (s < 86400) return `${Math.floor(s / 3600)} h ago`
+        return `${Math.floor(s / 86400)} d ago`
+      }
+
+      const forDuration = (s) => {
+        if (s < 60) return `${s} s`
+        if (s < 3600) return `${Math.floor(s / 60)} min`
+        if (s < 86400) return `${Math.floor(s / 3600)} h ${Math.floor((s % 3600) / 60)} min`
+        return `${Math.floor(s / 86400)} d ${Math.floor((s % 86400) / 3600)} h`
+      }
+
+      const bytes = (n) => {
+        if (n < 1024) return `${n} B`
+        if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} kB`
+        return `${(n / 1024 / 1024).toFixed(1)} MB`
+      }
+
+      /*
+       * The one judgement this page makes.
+       *
+       * Green is not "the process is running" — the page would not have loaded
+       * otherwise, so that would be a light that is on whenever it can be seen.
+       * It is "the far end answered recently". Amber is a queue that is
+       * draining or a beat that is late; red is nothing getting through, which
+       * is the state somebody opened this page to confirm.
+       */
+      const verdict = (s) => {
+        if (s.lastSendError || s.lastHeartbeatError) return ['bad', 'not reaching the server']
+        if (s.lastHeartbeatOkS === null && s.lastSendOkS === null)
+          return ['warn', 'has not reached the server yet']
+        if (s.queued > 0) return ['warn', `${s.queued} point(s) waiting`]
+        return ['ok', 'reporting normally']
+      }
+
+      async function refresh() {
+        try {
+          const state = await (await fetch('state.json', { cache: 'no-store' })).json()
+          const [tone, words] = verdict(state)
+
+          $('dot').style.background = `var(--${tone})`
+          $('role').textContent = state.role || 'tern-agent'
+          $('version').textContent = `${state.version} · ${words}`
+          $('version').className = `sub ${tone}`
+
+          $('server').textContent = state.server || '—'
+          $('tenant').textContent = state.tenant || '—'
+
+          $('send').innerHTML = state.lastSendError
+            ? `<span class="bad">${state.lastSendError}</span>`
+            : (ago(state.lastSendOkS) ?? '<span class="warn">nothing sent yet</span>')
+          $('heartbeat').innerHTML = state.lastHeartbeatError
+            ? `<span class="bad">${state.lastHeartbeatError}</span>`
+            : (ago(state.lastHeartbeatOkS) ?? '<span class="warn">none yet</span>')
+
+          $('probes').textContent = state.probes
+          $('ok').textContent = state.checksOk
+          $('failed').innerHTML =
+            state.checksFailed > 0
+              ? `<span class="warn">${state.checksFailed}</span>`
+              : state.checksFailed
+          $('queued').textContent = state.queued
+          $('bytes').textContent = bytes(state.queueBytes)
+          // Dropped points are data that no longer exists anywhere, so a
+          // non-zero count is never drawn in the same colour as a zero.
+          $('dropped').innerHTML =
+            state.dropped > 0 ? `<span class="bad">${state.dropped}</span>` : '0'
+          $('uptime').textContent = forDuration(state.uptimeS)
+
+          $('foot').textContent = 'Refreshing every 5 s.'
+        } catch {
+          // The page stops updating rather than blanking: the last known state
+          // is the most useful thing on screen when the process behind it has
+          // just died, and clearing it would destroy the evidence.
+          $('foot').textContent = 'The agent stopped answering. Values below are the last known.'
+        }
+      }
+
+      refresh()
+      setInterval(refresh, 5000)
+    </script>
+  </body>
+</html>
