@@ -254,8 +254,74 @@ pub(crate) fn write_private(path: &Path, body: &str) -> std::io::Result<()> {
 }
 
 /// Where the config lives when nobody says.
+///
+/// The standard XDG location, the same path the installer writes to and points
+/// the service at — not a bare `agent.toml` relative to the current directory.
+///
+/// The relative form was a quiet trap. The service runs with an explicit
+/// `--config`, so it always read the right file; but a `pair`, `doctor` or
+/// `run` typed by hand, without the flag, resolved `agent.toml` against the
+/// shell's working directory instead. Pairing from a home directory then wrote
+/// a perfectly valid key into `~/agent.toml` while the service went on reading
+/// `~/.config/tern/agent.toml` with its old, now-revoked key — and reported a
+/// 401 on every call, from a config the person had every reason to believe they
+/// had just refreshed. Measured on a real machine before it was believed.
+///
+/// Root gets `/etc/tern`, everyone else `$XDG_CONFIG_HOME/tern` (or
+/// `~/.config/tern`), mirroring `CONF_DIR` in `apps/api/src/routes/download.ts`
+/// exactly. The two must agree, because the whole point is that the hand-typed
+/// command and the installed service name the same file.
 pub fn default_path() -> PathBuf {
-    PathBuf::from("agent.toml")
+    config_dir().join("agent.toml")
+}
+
+/// The directory the config lives in, by the same rule the installer follows.
+pub fn config_dir() -> PathBuf {
+    // Effective UID 0 is root, and root's config is `/etc/tern` — a system
+    // service is not installed under some user's home.
+    if is_root() {
+        return PathBuf::from("/etc/tern");
+    }
+    if let Ok(xdg) = std::env::var("XDG_CONFIG_HOME") {
+        if !xdg.is_empty() {
+            return PathBuf::from(xdg).join("tern");
+        }
+    }
+    if let Ok(home) = std::env::var("HOME") {
+        if !home.is_empty() {
+            return PathBuf::from(home).join(".config").join("tern");
+        }
+    }
+    // No HOME and not root is close to impossible for an interactive command,
+    // but falling back to the working directory keeps the old behaviour rather
+    // than panicking — a bad config path is a better error than no start.
+    PathBuf::from(".")
+}
+
+/// Whether this process is root, read from `/proc` rather than linked.
+///
+/// The agent carries no `libc` dependency, and this is the one place it needs
+/// the effective uid. Anything it cannot read answers "not root", which errs
+/// towards the user path — the safe direction, since it never claims `/etc`.
+fn is_root() -> bool {
+    #[cfg(unix)]
+    {
+        std::fs::read_to_string("/proc/self/status")
+            .ok()
+            .and_then(|status| {
+                status
+                    .lines()
+                    .find(|line| line.starts_with("Uid:"))
+                    .and_then(|line| line.split_whitespace().nth(2))
+                    .and_then(|euid| euid.parse::<u32>().ok())
+            })
+            .map(|euid| euid == 0)
+            .unwrap_or(false)
+    }
+    #[cfg(not(unix))]
+    {
+        false
+    }
 }
 
 #[cfg(test)]
@@ -388,6 +454,37 @@ interval_s = 120
     }
 
     #[cfg(unix)]
+    /// The config path is absolute and matches where the installer writes.
+    ///
+    /// The bug this pins: a relative `agent.toml` meant a hand-typed `pair`
+    /// wrote to the working directory while the service read
+    /// `~/.config/tern/agent.toml`, and every call after that was a 401 from a
+    /// stale key. The two must name the same file.
+    #[test]
+    fn the_default_path_is_the_xdg_location_not_the_cwd() {
+        // Not root, with a known HOME: the ordinary case for a hand-typed
+        // command. `XDG_CONFIG_HOME` unset falls through to `~/.config`.
+        std::env::remove_var("XDG_CONFIG_HOME");
+        std::env::set_var("HOME", "/home/someone");
+        // Only meaningful off root; the CI and dev machines run as a user.
+        if !is_root() {
+            assert_eq!(
+                default_path(),
+                PathBuf::from("/home/someone/.config/tern/agent.toml")
+            );
+            assert!(
+                default_path().is_absolute(),
+                "a relative path is the trap this fixes"
+            );
+        }
+
+        std::env::set_var("XDG_CONFIG_HOME", "/custom/xdg");
+        if !is_root() {
+            assert_eq!(config_dir(), PathBuf::from("/custom/xdg/tern"));
+        }
+        std::env::remove_var("XDG_CONFIG_HOME");
+    }
+
     #[test]
     fn saves_the_credential_readable_only_by_its_owner() {
         use std::os::unix::fs::PermissionsExt;

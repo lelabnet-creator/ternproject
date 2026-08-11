@@ -119,7 +119,11 @@ enum Command {
 }
 
 fn default_config() -> PathBuf {
-    PathBuf::from("proxy.toml")
+    // The XDG location the installer writes to, not a bare relative path. See
+    // the long note on `config::default_path` for the 401 this relative form
+    // caused on an agent; a relay bound to the wrong file would fail the same
+    // way, silently serving a zone from a stale key.
+    tern_agent::config::config_dir().join("proxy.toml")
 }
 
 #[tokio::main]
