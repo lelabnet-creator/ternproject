@@ -627,6 +627,7 @@ mod tests {
         Config {
             server: "http://127.0.0.1:3011".into(),
             api_key: "tern_test".into(),
+            install_id: None,
             interval_s: 60,
             probes: keys.iter().map(|key| probe_entry(key)).collect(),
             ui: None,

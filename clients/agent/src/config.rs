@@ -19,6 +19,28 @@ pub struct Config {
     pub server: String,
     pub api_key: String,
 
+    /**
+     * What this install is, across re-pairings.
+     *
+     * Generated here on the first pair and kept in the file afterwards. Sent
+     * back on every pair, so the server can tell "this machine again" from "a
+     * new machine" — which it otherwise cannot: pairing only ever carried a
+     * hostname, an OS and an architecture, so re-running an installer inserted
+     * a second row and the fleet grew a twin of a machine that had not moved.
+     *
+     * Deliberately not derived from anything about the host. A machine id would
+     * be wrong in both directions: two agents on one host are two installs and
+     * would collapse into one, and two VMs cloned from an image share theirs
+     * and would collapse a real fleet into a single row. What identifies an
+     * install is its config file, so the identifier lives in the config file.
+     *
+     * Optional because a config written by an older version has none, and one
+     * pairing without it must still work — it simply gets a row of its own,
+     * which is what happened before this existed.
+     */
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub install_id: Option<String>,
+
     /// Seconds between runs. Applies to every probe that does not override it.
     #[serde(default = "default_interval")]
     pub interval_s: u64,
@@ -432,6 +454,7 @@ interval_s = 120
         Config {
             server: "https://status.example.com".into(),
             api_key: "tern_secret".into(),
+            install_id: None,
             interval_s: 60,
             probes: Vec::new(),
             ui: None,
@@ -495,6 +518,7 @@ interval_s = 120
         let config = Config {
             server: "https://status.example.com".into(),
             api_key: "tern_secret".into(),
+            install_id: None,
             interval_s: 60,
             probes: Vec::new(),
             ui: None,
@@ -532,6 +556,7 @@ mod job_tests {
         let mut config = Config {
             server: "https://x.example".into(),
             api_key: "k".into(),
+            install_id: None,
             interval_s: 60,
             probes: Vec::new(),
             ui: None,
@@ -559,6 +584,7 @@ mod job_tests {
         let mut config = Config {
             server: "https://x.example".into(),
             api_key: "k".into(),
+            install_id: None,
             interval_s: 60,
             probes: vec![ProbeEntry {
                 control_key: "local-thing".into(),
@@ -593,6 +619,7 @@ mod job_tests {
         let mut config = Config {
             server: "https://x.example".into(),
             api_key: "k".into(),
+            install_id: None,
             interval_s: 60,
             probes: Vec::new(),
             ui: None,
@@ -617,6 +644,7 @@ mod job_tests {
         let mut config = Config {
             server: "https://x.example".into(),
             api_key: "k".into(),
+            install_id: None,
             interval_s: 60,
             probes: Vec::new(),
             ui: None,
@@ -647,6 +675,7 @@ mod job_tests {
         let mut config = Config {
             server: "https://x.example".into(),
             api_key: "k".into(),
+            install_id: None,
             interval_s: 60,
             probes: Vec::new(),
             ui: None,
@@ -799,5 +828,93 @@ mod ui_address_tests {
     #[test]
     fn a_listen_string_without_a_port_says_nothing() {
         assert_eq!(ui("0.0.0.0").reachable_address("http://x:3000"), None);
+    }
+}
+
+/// The install identifier already at this path, or a fresh one.
+///
+/// Read from whatever config is there — an agent's or a relay's, since both
+/// carry the same key at the top level — so that re-pairing an install keeps
+/// the identity it already had. A path with nothing at it, or a file too old to
+/// carry one, gets a new identifier: that is a new install as far as anything
+/// here can tell, and inventing continuity would be worse than admitting none.
+pub fn install_id_at(path: &Path) -> String {
+    #[derive(serde::Deserialize)]
+    struct JustTheId {
+        install_id: Option<String>,
+    }
+
+    std::fs::read_to_string(path)
+        .ok()
+        .and_then(|raw| toml::from_str::<JustTheId>(&raw).ok())
+        .and_then(|parsed| parsed.install_id)
+        .filter(|id| !id.trim().is_empty())
+        .unwrap_or_else(|| crate::transport::random_token(16))
+}
+
+#[cfg(test)]
+mod install_id_tests {
+    use super::*;
+
+    /// A path with nothing at it is a new install, and gets a new identifier.
+    #[test]
+    fn a_missing_file_makes_a_fresh_one() {
+        let dir =
+            std::env::temp_dir().join(format!("tern-iid-{}", crate::transport::random_token(8)));
+        let a = install_id_at(&dir.join("agent.toml"));
+        let b = install_id_at(&dir.join("agent.toml"));
+        assert!(!a.is_empty());
+        // Two reads of nothing are two new installs, not one: nothing on disk
+        // links them, and pretending otherwise would merge unrelated machines.
+        assert_ne!(a, b);
+    }
+
+    /// The whole point: the same file keeps the same identity.
+    #[test]
+    fn an_existing_file_keeps_its_identity() {
+        let dir =
+            std::env::temp_dir().join(format!("tern-iid-{}", crate::transport::random_token(8)));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("agent.toml");
+        std::fs::write(
+            &path,
+            "server = \"https://x\"\napi_key = \"k\"\ninstall_id = \"kept-across-pairings\"\n",
+        )
+        .unwrap();
+
+        assert_eq!(install_id_at(&path), "kept-across-pairings");
+        assert_eq!(install_id_at(&path), "kept-across-pairings");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// A config written before this existed carries none, and gets one.
+    #[test]
+    fn a_config_from_before_this_gets_one() {
+        let dir =
+            std::env::temp_dir().join(format!("tern-iid-{}", crate::transport::random_token(8)));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("agent.toml");
+        std::fs::write(&path, "server = \"https://x\"\napi_key = \"k\"\n").unwrap();
+
+        assert!(!install_id_at(&path).is_empty());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// A relay's config is read by the same function — both carry it at the top
+    /// level, so one reader serves both binaries.
+    #[test]
+    fn a_relay_config_is_read_the_same_way() {
+        let dir =
+            std::env::temp_dir().join(format!("tern-iid-{}", crate::transport::random_token(8)));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("proxy.toml");
+        std::fs::write(
+            &path,
+            "server = \"https://x\"\napi_key = \"k\"\ninstall_id = \"relay-identity\"\nlisten = \"0.0.0.0:38787\"\n",
+        )
+        .unwrap();
+
+        assert_eq!(install_id_at(&path), "relay-identity");
+        std::fs::remove_dir_all(&dir).ok();
     }
 }

@@ -48,6 +48,9 @@ pub struct ProxyConfig {
     pub server: String,
     /// The proxy's own ingest key, obtained by pairing it like any agent.
     pub api_key: String,
+    /// What this install is, across re-pairings. See `config::Config::install_id`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub install_id: Option<String>,
     /// Where it listens for the agents in its zone.
     #[serde(default = "default_listen")]
     pub listen: String,
@@ -1221,6 +1224,10 @@ pub async fn init(server: &str, pin: &str, config_path: &Path, setup: ZoneSetup)
         )?,
     };
 
+    // Carried over from whatever is already at this path, so re-running the
+    // installer replaces this relay's row rather than adding a twin of it.
+    let install_id = crate::config::install_id_at(config_path);
+
     let client = Client::new(server)?;
     let response = client
         .pair(&PairRequest {
@@ -1232,6 +1239,7 @@ pub async fn init(server: &str, pin: &str, config_path: &Path, setup: ZoneSetup)
             os: Some(std::env::consts::OS.to_string()),
             arch: Some(std::env::consts::ARCH.to_string()),
             agent_version: Some(format!("proxy/{}", env!("CARGO_PKG_VERSION"))),
+            install_id: Some(install_id.clone()),
         })
         .await?;
 
@@ -1243,6 +1251,7 @@ pub async fn init(server: &str, pin: &str, config_path: &Path, setup: ZoneSetup)
         forward_interval_s: setup
             .forward_interval
             .unwrap_or_else(default_forward_interval),
+        install_id: Some(install_id),
         forward: setup.forward.unwrap_or_default(),
         local_keys: Vec::new(),
         // Off until asked for, exactly as an agent's is: a relay binding a
@@ -1402,6 +1411,7 @@ mod tests {
         ProxyConfig {
             server: "https://tern.example".into(),
             api_key: "ternp_upstream".into(),
+            install_id: None,
             listen: default_listen(),
             refresh_s: default_refresh(),
             forward_interval_s: default_forward_interval(),
@@ -1535,6 +1545,7 @@ mod tests {
             config: ProxyConfig {
                 server: "https://x.example".into(),
                 api_key: "k".into(),
+                install_id: None,
                 listen: default_listen(),
                 refresh_s: 300,
                 forward_interval_s: default_forward_interval(),

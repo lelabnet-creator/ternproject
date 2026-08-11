@@ -59,6 +59,15 @@ const redeemRoute: FastifyPluginAsyncZod = async (app) => {
           os: z.string().max(64).optional(),
           arch: z.string().max(32).optional(),
           agentVersion: z.string().max(64).optional(),
+          /**
+           * What this install is, so re-pairing replaces its row.
+           *
+           * Generated and kept by the agent in its own config, never derived
+           * from the host. Optional: an agent older than this sends none and
+           * gets a row of its own, which is what happened to every re-pairing
+           * before this existed.
+           */
+          installId: z.string().min(8).max(64).optional(),
         }),
         response: {
           200: z.object({
@@ -147,40 +156,127 @@ const redeemRoute: FastifyPluginAsyncZod = async (app) => {
         autoRegister: pairing.autoRegister,
       })
 
-      const [agent] = await app.db
-        .insert(schema.agents)
-        .values({
-          tenantId: pairing.tenantId,
-          name: agentName,
-          hostname: req.body.hostname ?? null,
-          os: req.body.os ?? null,
-          arch: req.body.arch ?? null,
-          agentVersion: req.body.agentVersion ?? null,
-          /*
-           * A proxy says so by the version it pairs with.
-           *
-           * `tern-proxy` announces `proxy/<version>` where an agent announces a
-           * bare number — see the pairing call in `clients/agent/src/proxy.rs`.
-           * Read here rather than added to the pairing body because the signal
-           * already existed and was already sent; a new field would mean an old
-           * proxy pairing as an ordinary agent, which is precisely the mistake
-           * the fleet view is meant to stop making.
-           */
-          role: (req.body.agentVersion ?? '').startsWith('proxy/') ? 'proxy' : 'agent',
-          apiKeyId: issued.id,
-          pairingCodeId: pairing.id,
-          pairedIp: req.ip,
-          lastSeenAt: new Date(),
-        })
-        .returning()
+      /*
+       * The same install pairing again, rather than a new machine.
+       *
+       * Pairing used to insert unconditionally, because nothing in the request
+       * could tell the two apart: a hostname, an OS and an architecture are all
+       * shared by any two machines built from one image. So re-running an
+       * installer — to take an update, to replace a key — grew a twin in the
+       * fleet of a machine that had not moved, and the operator was left to
+       * work out which of two identical rows was the live one.
+       *
+       * Matched on the identifier the agent keeps in its own config, and on
+       * nothing else. A hostname match would have been enough to fix the
+       * screenshot that prompted this and wrong in the field: two VMs cloned
+       * from one image share a hostname, and merging them would silently drop a
+       * machine's monitoring while looking like it had worked.
+       *
+       * Revoked rows are eligible too. Re-pairing a machine that was retired is
+       * precisely how it comes back, and leaving the old row revoked beside a
+       * new one is the duplicate this removes.
+       */
+      const [existing] = req.body.installId
+        ? await app.db
+            .select({ id: schema.agents.id, apiKeyId: schema.agents.apiKeyId })
+            .from(schema.agents)
+            .where(
+              and(
+                eq(schema.agents.tenantId, pairing.tenantId),
+                eq(schema.agents.installId, req.body.installId),
+              ),
+            )
+            .limit(1)
+        : []
+
+      // Typed rather than inferred: pulled out of the call, `role` widens to
+      // `string` and stops fitting the column's enum. The annotation is what
+      // keeps "proxy or agent, nothing else" a fact the compiler checks.
+      const shared: Omit<typeof schema.agents.$inferInsert, 'tenantId'> = {
+        name: agentName,
+        hostname: req.body.hostname ?? null,
+        os: req.body.os ?? null,
+        arch: req.body.arch ?? null,
+        /*
+         * The version, without the prefix that carries the role.
+         *
+         * `tern-proxy` announces `proxy/0.1.0`, and storing that verbatim put
+         * `proxy/0.1.0` in the fleet's version column — beside relays that had
+         * heartbeated since, which read `0.1.0`, because the header the
+         * heartbeat parses is stripped. The same relay showed two different
+         * versions depending on how recently it had spoken. The role is already
+         * a column of its own; the version column should hold a version.
+         */
+        agentVersion: (req.body.agentVersion ?? null)?.replace(/^proxy\//, '') ?? null,
+        /*
+         * A proxy says so by the version it pairs with.
+         *
+         * `tern-proxy` announces `proxy/<version>` where an agent announces a
+         * bare number — see the pairing call in `clients/agent/src/proxy.rs`.
+         * Read here rather than added to the pairing body because the signal
+         * already existed and was already sent; a new field would mean an old
+         * proxy pairing as an ordinary agent, which is precisely the mistake
+         * the fleet view is meant to stop making.
+         */
+        role: (req.body.agentVersion ?? '').startsWith('proxy/') ? 'proxy' : 'agent',
+        apiKeyId: issued.id,
+        pairingCodeId: pairing.id,
+        pairedIp: req.ip,
+        lastSeenAt: new Date(),
+      }
+
+      const [agent] = existing
+        ? await app.db
+            .update(schema.agents)
+            .set({
+              ...shared,
+              // Back to active, and its previous revocation forgotten: a
+              // machine that pairs again is a machine that is here again.
+              status: 'active',
+              revokedAt: null,
+              installId: req.body.installId,
+            })
+            .where(eq(schema.agents.id, existing.id))
+            .returning()
+        : await app.db
+            .insert(schema.agents)
+            .values({
+              tenantId: pairing.tenantId,
+              installId: req.body.installId ?? null,
+              ...shared,
+            })
+            .returning()
       if (!agent) throw app.httpErrors.internalServerError('Failed to register agent')
+
+      /*
+       * The key the row used to hold, killed.
+       *
+       * Only after the row points at the new one. Reversed, a failure between
+       * the two steps would leave the agent with no working credential at all —
+       * and the reason it was pairing again is often that something already
+       * went wrong.
+       */
+      if (existing?.apiKeyId) {
+        await app.db
+          .update(schema.apiKeys)
+          .set({ revokedAt: new Date() })
+          .where(eq(schema.apiKeys.id, existing.apiKeyId))
+      }
 
       await audit(app, {
         action: 'agent.paired',
         tenantId: pairing.tenantId,
         actorLabel: agentName,
         target: agent.id,
-        meta: { os: req.body.os, arch: req.body.arch, version: req.body.agentVersion },
+        // Whether this was a new machine or one pairing again: the difference
+        // is the whole point of the identifier, and the log is where somebody
+        // goes to ask why a row changed rather than appeared.
+        meta: {
+          os: req.body.os,
+          arch: req.body.arch,
+          version: req.body.agentVersion,
+          repaired: Boolean(existing),
+        },
         ip: req.ip,
       })
 

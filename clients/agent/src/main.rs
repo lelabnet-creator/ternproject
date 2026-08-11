@@ -181,6 +181,12 @@ async fn main() -> Result<()> {
             print_only,
             force,
         } => {
+            // Resolved before pairing, not after: the file already there is what
+            // says whether this is a new install or the same one again, and the
+            // server needs that answer in the request rather than after it.
+            let path = config.unwrap_or_else(default_path);
+            let install_id = tern_agent::config::install_id_at(&path);
+
             let client = Client::new(&server)?;
             let response = client
                 .pair(&PairRequest {
@@ -189,6 +195,7 @@ async fn main() -> Result<()> {
                     os: Some(std::env::consts::OS.to_string()),
                     arch: Some(std::env::consts::ARCH.to_string()),
                     agent_version: Some(env!("CARGO_PKG_VERSION").to_string()),
+                    install_id: Some(install_id.clone()),
                 })
                 .await?;
 
@@ -206,8 +213,7 @@ async fn main() -> Result<()> {
 
             // Written, not printed. The key is shown once by design, and asking
             // someone to copy it out of a terminal is how it ends up in a shell
-            // history file.
-            let path = config.unwrap_or_else(default_path);
+            // history file. (`path` was resolved above, before pairing.)
 
             /*
              * An existing config keeps its probes and takes the new key.
@@ -282,6 +288,7 @@ async fn main() -> Result<()> {
             let mut config = Config {
                 server: server.trim_end_matches('/').to_string(),
                 api_key: response.api_key,
+                install_id: Some(install_id),
                 interval_s: 60,
                 probes: Vec::new(),
                 // Off until asked for: see `UiSettings`. Pairing is not the

@@ -1090,3 +1090,124 @@ describe('the state of a pairing code', () => {
     }
   })
 })
+
+/**
+ * Pairing the same install again, instead of growing a twin of it.
+ *
+ * Pairing used to insert unconditionally: nothing in the request could tell
+ * "this machine again" from "a new machine". So re-running an installer put a
+ * second identical row in the fleet, and the operator had to work out which of
+ * the two was live. The agent now carries an identifier in its own config.
+ */
+describe('pairing the same install twice', () => {
+  const pairWith = (pin: string, body: Record<string, unknown>) =>
+    fx.app.inject({
+      method: 'POST',
+      url: '/api/v1/pair',
+      payload: { code: pin, hostname: 'srv-web-01', os: 'linux', arch: 'x86_64', ...body },
+    })
+
+  async function rowsFor(installId: string) {
+    return fx.app.db.select().from(schema.agents).where(eq(schema.agents.installId, installId))
+  }
+
+  it('replaces the row rather than adding one', async () => {
+    const cookie = await login(fx.app, fx.users.admin.email)
+    const install = 'install-aaaaaaaaaaaa'
+
+    const first = await pairWith((await createPin(cookie)).pin, { installId: install })
+    expect(first.statusCode).toBe(200)
+    const second = await pairWith((await createPin(cookie)).pin, { installId: install })
+    expect(second.statusCode).toBe(200)
+
+    expect(await rowsFor(install)).toHaveLength(1)
+    // The same row, not a replacement wearing the same identifier.
+    expect(second.json().agentId).toBe(first.json().agentId)
+  })
+
+  it('kills the key the row used to hold', async () => {
+    // Otherwise a machine that was re-paired leaves a working credential behind
+    // it, which is a key nobody is tracking and nobody will revoke.
+    const cookie = await login(fx.app, fx.users.admin.email)
+    const install = 'install-bbbbbbbbbbbb'
+
+    const first = await pairWith((await createPin(cookie)).pin, { installId: install })
+    const oldKey = first.json().apiKey
+    const second = await pairWith((await createPin(cookie)).pin, { installId: install })
+
+    const beat = (key: string) =>
+      fx.app.inject({
+        method: 'POST',
+        url: '/api/v1/agent/heartbeat',
+        headers: { authorization: `Bearer ${key}` },
+      })
+
+    expect((await beat(oldKey)).statusCode).toBe(401)
+    expect((await beat(second.json().apiKey)).statusCode).toBe(200)
+  })
+
+  it('brings a revoked machine back rather than beside itself', async () => {
+    const cookie = await login(fx.app, fx.users.admin.email)
+    const install = 'install-cccccccccccc'
+
+    const first = await pairWith((await createPin(cookie)).pin, { installId: install })
+    await fx.app.db
+      .update(schema.agents)
+      .set({ status: 'revoked', revokedAt: new Date() })
+      .where(eq(schema.agents.id, first.json().agentId))
+
+    await pairWith((await createPin(cookie)).pin, { installId: install })
+
+    const rows = await rowsFor(install)
+    expect(rows).toHaveLength(1)
+    expect(rows[0]!.status).toBe('active')
+    expect(rows[0]!.revokedAt).toBeNull()
+  })
+
+  it('keeps two installs on one host apart', async () => {
+    /*
+     * The reason this matches on an identifier and not on a hostname.
+     *
+     * Two agents on one machine, and two VMs cloned from one image, both send
+     * the same hostname, OS and architecture. Merging on those would have fixed
+     * the duplicate that prompted this and silently dropped a real machine's
+     * monitoring — a failure that looks exactly like success.
+     */
+    const cookie = await login(fx.app, fx.users.admin.email)
+
+    const a = await pairWith((await createPin(cookie)).pin, { installId: 'install-dddddddddddd' })
+    const b = await pairWith((await createPin(cookie)).pin, { installId: 'install-eeeeeeeeeeee' })
+
+    expect(a.json().agentId).not.toBe(b.json().agentId)
+  })
+
+  it('still pairs an agent too old to carry one', async () => {
+    // No identifier at all: it gets a row of its own, which is the behaviour
+    // every agent had before this existed. Refusing it would take a fleet out.
+    const cookie = await login(fx.app, fx.users.admin.email)
+
+    const first = await pairWith((await createPin(cookie)).pin, {})
+    const second = await pairWith((await createPin(cookie)).pin, {})
+
+    expect(first.statusCode).toBe(200)
+    expect(second.statusCode).toBe(200)
+    expect(first.json().agentId).not.toBe(second.json().agentId)
+  })
+
+  it('records a version without the prefix that carries the role', async () => {
+    // `proxy/0.1.0` in a version column put the same relay at two different
+    // versions depending on whether it had heartbeated since pairing.
+    const cookie = await login(fx.app, fx.users.admin.email)
+    const install = 'install-ffffffffffff'
+
+    await pairWith((await createPin(cookie)).pin, {
+      installId: install,
+      agentVersion: 'proxy/0.1.28',
+    })
+
+    const [row] = await rowsFor(install)
+    expect(row!.agentVersion).toBe('0.1.28')
+    // The role is still read from what was sent.
+    expect(row!.role).toBe('proxy')
+  })
+})

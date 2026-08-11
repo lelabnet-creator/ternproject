@@ -27,6 +27,10 @@ pub struct PairRequest {
     pub os: Option<String>,
     pub arch: Option<String>,
     pub agent_version: Option<String>,
+    /// What this install is, so re-pairing replaces a row instead of adding
+    /// one. See `config::Config::install_id`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub install_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

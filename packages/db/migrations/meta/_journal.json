@@ -169,6 +169,13 @@
       "when": 1786461357149,
       "tag": "0023_giant_nicolaos",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1786465496064,
+      "tag": "0024_acoustic_magus",
+      "breakpoints": true
     }
   ]
 }
