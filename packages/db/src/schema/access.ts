@@ -1,3 +1,4 @@
+import type { AnyPgColumn } from 'drizzle-orm/pg-core'
 import {
   boolean,
   index,
@@ -123,8 +124,14 @@ export const agents = pgTable(
      * behind a proxy never talks to this server and could not say. `set null`
      * rather than a cascade: losing the relay must not delete the record of what
      * was behind it, which is exactly what somebody investigates next.
+     *
+     * The constraint is the thing that makes the sentence above true. It was
+     * described here long before it existed: the column was a bare uuid, so
+     * deleting a relay left every agent behind it pointing at a row that was
+     * gone. Nothing broke visibly — the fleet screen promotes an agent whose
+     * parent it cannot find — which is exactly why it went unnoticed.
      */
-    parentAgentId: uuid(),
+    parentAgentId: uuid().references((): AnyPgColumn => agents.id, { onDelete: 'set null' }),
     status: agentStatus().notNull().default('active'),
     lastSeenAt: timestamp({ withTimezone: true }),
     pairedIp: inet(),

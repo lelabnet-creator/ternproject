@@ -155,6 +155,13 @@
       "when": 1786380750810,
       "tag": "0021_mysterious_power_man",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1786458129518,
+      "tag": "0022_lucky_agent_brand",
+      "breakpoints": true
     }
   ]
 }

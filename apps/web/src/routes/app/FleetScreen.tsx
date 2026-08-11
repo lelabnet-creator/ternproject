@@ -14,6 +14,7 @@ import {
   Field,
   Input,
   Select,
+  Toggle,
 } from '../../components/ui'
 
 /**
@@ -47,13 +48,24 @@ export function FleetScreen({ slug, canWrite }: { slug: string; canWrite: boolea
   })
   const [picked, setPicked] = useState<Set<string>>(new Set())
   const [confirmBulk, setConfirmBulk] = useState<'revoke' | 'delete' | null>(null)
+  /*
+   * Taking the zone along is the default, because leaving it is the outcome
+   * nobody would have chosen deliberately: agents that no longer report through
+   * anything, on machines this server cannot reach. The toggle exists for the
+   * one case where staying is right — swapping a relay out for another.
+   */
+  const [includeZone, setIncludeZone] = useState(true)
+
+  const zoneOfPicked = zoneBehind(agents.data ?? [], picked)
+  const targetIds = [...picked, ...(includeZone ? zoneOfPicked.map((a) => a.id) : [])]
 
   const queryClient = useQueryClient()
   const bulk = useMutation({
-    mutationFn: (action: 'revoke' | 'delete') => adminApi.bulkAgents(slug, [...picked], action),
+    mutationFn: (action: 'revoke' | 'delete') => adminApi.bulkAgents(slug, targetIds, action),
     onSuccess: async () => {
       setPicked(new Set())
       setConfirmBulk(null)
+      setIncludeZone(true)
       await queryClient.invalidateQueries({ queryKey: ['agents', slug] })
     },
   })
@@ -142,13 +154,42 @@ export function FleetScreen({ slug, canWrite }: { slug: string; canWrite: boolea
                   ? `Revoke ${picked.size} agent(s)? Their keys stop working immediately; the records stay, so the fleet still shows they existed.`
                   : `Delete ${picked.size} agent(s)? Their keys are revoked and the records are removed. The audit log keeps which ones — nothing else will.`}
               </Banner>
-              <div style={{ display: 'flex', gap: 'var(--space-2)', marginTop: 'var(--space-2)' }}>
+
+              {/*
+                A relay in the selection brings a zone with it, and the zone is
+                the part nobody sees coming: those agents are listed *inside*
+                their relay, so selecting the relay's checkbox does not select
+                them, and acting on it used to leave them behind with no
+                mention. They cannot be reached any more either — this server
+                only ever heard of them through the relay that is going away.
+
+                So they are named, counted, and taken along by default. Turning
+                it off leaves them as ordinary rows, which is a legitimate
+                choice when the relay is being replaced rather than retired.
+              */}
+              {zoneOfPicked.length > 0 && (
+                <div style={{ marginTop: 'var(--space-3)' }}>
+                  <Toggle
+                    checked={includeZone}
+                    onChange={setIncludeZone}
+                    label={`Also ${confirmBulk} the ${zoneOfPicked.length} agent(s) behind the selected relay(s)`}
+                    hint={
+                      includeZone
+                        ? `${zoneOfPicked.map((a) => a.name).join(', ')} — they report through a relay in this selection and have no other route to this server.`
+                        : `${zoneOfPicked.map((a) => a.name).join(', ')} will be left in the fleet, no longer behind anything.`
+                    }
+                  />
+                </div>
+              )}
+
+              <div style={{ display: 'flex', gap: 'var(--space-2)', marginTop: 'var(--space-3)' }}>
                 <Button
                   variant="danger"
                   busy={bulk.isPending}
                   onClick={() => bulk.mutate(confirmBulk)}
                 >
                   {confirmBulk === 'revoke' ? 'Revoke them' : 'Delete them'}
+                  {includeZone && zoneOfPicked.length > 0 ? ` (${targetIds.length})` : ''}
                 </Button>
                 <Button onClick={() => setConfirmBulk(null)}>Keep them</Button>
               </div>
@@ -231,6 +272,26 @@ export function zonesOf(agents: Agent[]): Map<string, Agent[]> {
 export function rootsOf(agents: Agent[]): Agent[] {
   const present = new Set(agents.map((agent) => agent.id))
   return agents.filter((agent) => !agent.parentAgentId || !present.has(agent.parentAgentId))
+}
+
+/**
+ * The agents that would be stranded by acting on a selection.
+ *
+ * A zone agent is listed inside its relay rather than beside it, so it has no
+ * checkbox of its own and cannot be selected. Delete the relay and it is left
+ * behind — still in the fleet, no longer behind anything, and unreachable:
+ * this server only ever heard of it through the relay, and has no route to it
+ * and no key for it. It became a row that could never change again.
+ *
+ * Returning them rather than folding them into the request keeps the choice
+ * where it belongs: the screen names them, and the operator decides. Replacing
+ * a relay is a real case, and there the agents should stay.
+ *
+ * Already-selected agents are excluded, so nothing is counted or listed twice.
+ */
+export function zoneBehind(agents: Agent[], picked: Set<string>): Agent[] {
+  const relays = new Set(agents.filter((a) => picked.has(a.id)).map((a) => a.id))
+  return agents.filter((a) => a.parentAgentId && relays.has(a.parentAgentId) && !picked.has(a.id))
 }
 
 /**

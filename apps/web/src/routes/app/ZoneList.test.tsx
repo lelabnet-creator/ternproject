@@ -8,7 +8,7 @@ Object.defineProperty(globalThis, 'window', {
   configurable: true,
 })
 
-const { AgentRow, rootsOf, zonesOf } = await import('./FleetScreen')
+const { AgentRow, rootsOf, zonesOf, zoneBehind } = await import('./FleetScreen')
 
 /**
  * A relay and the machines behind it.
@@ -78,6 +78,51 @@ describe('grouping the fleet', () => {
     // the one screen that says which machines exist.
     const orphaned = [agent({ id: 'a9', name: 'stranded', parentAgentId: 'gone' })]
     expect(rootsOf(orphaned).map((a) => a.name)).toEqual(['stranded'])
+  })
+})
+
+/**
+ * What a selection would strand.
+ *
+ * Deleting a relay used to leave the machines behind it in the fleet with no
+ * mention and no way back: they are listed *inside* the relay, so they have no
+ * checkbox and cannot be selected, and this server only ever knew them through
+ * the relay that just went away. The screen now names them and takes them along
+ * unless told otherwise — this is the arithmetic behind that offer.
+ */
+describe('what a selection drags with it', () => {
+  const all = [relay, ...behind, direct]
+
+  it('finds the machines behind a selected relay', () => {
+    expect(zoneBehind(all, new Set(['r1'])).map((a) => a.name)).toEqual(['machine-A', 'machine-B'])
+  })
+
+  it('finds nothing behind a plain agent', () => {
+    expect(zoneBehind(all, new Set(['d1']))).toEqual([])
+  })
+
+  it('never counts an agent that is already selected', () => {
+    // Selecting the relay *and* one of its machines must not offer to act on
+    // that machine twice — the count in the button would be wrong, and the id
+    // would go up in the request twice.
+    expect(zoneBehind(all, new Set(['r1', 'a1'])).map((a) => a.name)).toEqual(['machine-B'])
+  })
+
+  it('ignores a zone whose relay is not in the selection', () => {
+    // Two relays, one selected: only its own machines come along.
+    const other = agent({ id: 'r2', name: 'other-proxy', role: 'proxy' })
+    const its = agent({ id: 'b1', name: 'machine-C', parentAgentId: 'r2' })
+    expect(zoneBehind([...all, other, its], new Set(['r1'])).map((a) => a.name)).toEqual([
+      'machine-A',
+      'machine-B',
+    ])
+  })
+
+  it('says nothing about an orphan whose relay is already gone', () => {
+    // Its parent id points at a row that no longer exists, so no selection can
+    // contain it — the agent is nobody's zone and must not be swept up.
+    const orphan = agent({ id: 'a9', name: 'stranded', parentAgentId: 'gone' })
+    expect(zoneBehind([relay, orphan], new Set(['r1']))).toEqual([])
   })
 })
 
