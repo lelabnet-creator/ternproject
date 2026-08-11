@@ -2,30 +2,31 @@
 
 ## Current Task
 
-Rien en cours. `v0.1.23` : la page publique se feuillette sur mobile, le PIN de
-zone dure cinq minutes avec son compte à rebours, et l'installeur du relais
-n'imprime plus une commande qui n'en est pas une.
+Rien en cours. `v0.1.24` : l'agent sert une page sur lui-même, le relais envoie
+enfin un heartbeat, et le PIN de zone a sa propre page dans l'admin.
 
 ## Key Decisions
 
-- **Deux arrangements rendus, pas un restylé.** `order` en CSS sépare ce que
-  l'œil voit de ce que le clavier parcourt ; `useCompact` rend deux DOM pour que
-  l'ordre visuel et l'ordre de tabulation restent la même chose.
-- **Feuilleter ne doit jamais masquer une panne.** Les points sont de vrais
-  contrôles, celui d'un volet en difficulté garde sa couleur et respire, et le
-  filtre « only what is not working » n'est jamais mémorisé — une page filtrée
-  ressemble à une page saine.
-- **`eslint-plugin-react-hooks` était absent.** Ajouté et prouvé en
-  réintroduisant le bug qu'il devait attraper. Une règle non vérifiée est une
-  case cochée, pas un garde-fou.
-- Formater **après** la dernière édition, et régénérer le rendu des docs : les
-  deux causes des deux CI rouges de la 0.1.21.
+- **Le relais n'envoyait aucun heartbeat.** Il paraissait vivant par effet de
+  bord de `/agent/jobs`, qui rafraîchit `last_seen_at`. Vrai tant que
+  `refresh_s` est court, faux dès qu'il ne l'est plus. Les trois rôles disent
+  désormais le même verbe.
+- **La page locale est éteinte par défaut.** Un agent de supervision qui ouvre
+  un port par défaut, c'est un port sur chaque machine d'un parc, décidé par
+  nous. `tern-agent ui` l'allume et imprime le mot de passe une fois.
+- Mot de passe **généré, jamais choisi**, SHA-256 salé, comparaison à temps
+  constant. Pas d'argon2 : une dépendance de hachage dans un binaire construit
+  pour la taille, pour garder une page en boucle locale.
+- Formater **après** la dernière édition, régénérer le rendu des docs, et
+  inspecter les hunks avant d'indexer un fichier partagé — les trois causes des
+  incidents de cette série.
 
 ## Next Steps
 
-- Le panneau d'appairage de zone en **deux onglets** (PIN + compte à rebours,
-  puis le contenu actuel) : non fait.
-- Reprendre les textes de `docs/` et des écrans d'admin pour décrire le nouveau
-  processus d'ajout d'un agent de zone.
-- Rien du travail mobile n'a été vu à 390 px — anneau, cadre ASCII, coupe à deux
-  lignes du bandeau, hauteur des volets.
+- **Bouton de reset du mot de passe de l'UI dans la console** : non fait. Demande
+  que le serveur dépose une instruction reprise par l'agent à son prochain
+  `jobs` — un credential qui voyage serveur→agent, à concevoir.
+- Reprendre les textes de `docs/` pour le nouveau processus d'ajout d'un agent
+  de zone.
+- Non testés : les onglets du panneau d'appairage (rendu statique contre
+  mutation résolue) et le rendu de la page de l'agent.
