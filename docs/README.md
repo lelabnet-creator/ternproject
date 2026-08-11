@@ -4,15 +4,16 @@ Written for two readers: a developer who has to change TERN, and a systems
 administrator who has to run it. Where the two need different things, the page
 says which.
 
-| Page                                   | What it answers                                                                          |
-| -------------------------------------- | ---------------------------------------------------------------------------------------- |
-| [Architecture](./architecture.md)      | What the pieces are, why they are separate, and how a request moves through them         |
-| [Data model](./data-model.md)          | Every table, what it holds, and the decisions frozen into it                             |
-| [Data exchange](./data-exchange.md)    | Every way data enters or leaves: ingestion, pairing, jobs, probes, webhooks, feeds       |
-| [The probe specification](./probes.md) | What a probe is, what an assertion means, and why it is implemented twice                |
-| [Importing controls](./import.md)      | The YAML file format, field by field, and what a rejected file tells you                 |
-| [Operations](./operations.md)          | Installing, sizing, backing up, upgrading, and what breaks first                         |
-| [Security model](./security.md)        | Who can do what, what is encrypted, and what an attacker gets from each thing they steal |
+| Page                                   | What it answers                                                                            |
+| -------------------------------------- | ------------------------------------------------------------------------------------------ |
+| [Getting started](./tutorial.md)       | From nothing to a page that monitors — a first agent, a control, a relay, an isolated zone |
+| [Architecture](./architecture.md)      | What the pieces are, why they are separate, and how a request moves through them           |
+| [Data model](./data-model.md)          | Every table, what it holds, and the decisions frozen into it                               |
+| [Data exchange](./data-exchange.md)    | Every way data enters or leaves: ingestion, pairing, jobs, probes, webhooks, feeds         |
+| [The probe specification](./probes.md) | What a probe is, what an assertion means, and why it is implemented twice                  |
+| [Importing controls](./import.md)      | The YAML file format, field by field, and what a rejected file tells you                   |
+| [Operations](./operations.md)          | Installing, sizing, backing up, upgrading, and what breaks first                           |
+| [Security model](./security.md)        | Who can do what, what is encrypted, and what an attacker gets from each thing they steal   |
 
 ## The API reference is not a page here
 

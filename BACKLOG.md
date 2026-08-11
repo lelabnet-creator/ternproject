@@ -120,6 +120,14 @@ fonctionne de bout en bout, preuves à l'appui.
       chaque étape dit ce qu'on voit et pourquoi. Régénérer le rendu
       (`pnpm docs:build`).
 
+      Fait. `docs/tutorial.md` : de zéro à une page qui monitore — connexion,
+      premier agent (PIN + install.sh), premier contrôle et son assignation,
+      lecture des données, les 11 genres avec cibles, relais + agent isolé,
+      push. **Toutes les sorties sont réelles** (tirées du test e2e du jour), y
+      compris les pièges rencontrés (default_path, plain HTTP, CAP_NET_RAW,
+      cert auto-signé). Ajouté à l'index `docs/README.md`. Capture de la page
+      publique : `deploy-tests/e2e-2026-08-11/07-page-publique.jpg`.
+
 - [ ] **8. Bilan.** `deploy-tests/e2e-2026-08-11/resultats.json` + un
       `RESTITUTION.md` : ce qui marche, ce qui a été corrigé (commits), les
       hypothèses prises, ce qui reste. L'application fonctionne de bout en
