@@ -54,6 +54,8 @@ enum Command {
         server: String,
         #[arg(long)]
         pin: String,
+        /// Path to the config file. Defaults to the standard location for this
+        /// user; `tern-proxy status` prints the one in use.
         #[arg(long)]
         config: Option<PathBuf>,
         /// host:port to listen on for the agents in this zone. Overrides
@@ -79,16 +81,24 @@ enum Command {
 
     /// Serve the zone: accept its agents, buffer their points, forward upstream.
     Run {
+        /// Path to the config file. Defaults to the standard location for this
+        /// user; `tern-proxy status` prints the one in use.
         #[arg(long)]
         config: Option<PathBuf>,
+        /// Where unsent points are kept while the far end is unreachable.
+        /// Defaults to the config path with a `.queue.json` extension.
         #[arg(long)]
         queue: Option<PathBuf>,
+        /// Address to bind, as `host:port`. Loopback unless you mean
+        /// otherwise — the command warns when you do.
         #[arg(long)]
         listen: Option<String>,
     },
 
     /// Mint a PIN for one agent in this zone. Single use, short-lived.
     Pin {
+        /// Path to the config file. Defaults to the standard location for this
+        /// user; `tern-proxy status` prints the one in use.
         #[arg(long)]
         config: Option<PathBuf>,
         #[arg(long, default_value = "15")]
@@ -97,8 +107,12 @@ enum Command {
 
     /// What this proxy is: upstream, listener, issued keys, queue depth.
     Status {
+        /// Path to the config file. Defaults to the standard location for this
+        /// user; `tern-proxy status` prints the one in use.
         #[arg(long)]
         config: Option<PathBuf>,
+        /// Where unsent points are kept while the far end is unreachable.
+        /// Defaults to the config path with a `.queue.json` extension.
         #[arg(long)]
         queue: Option<PathBuf>,
     },

@@ -154,6 +154,9 @@ BIN="tern-agent"
 IFACE=""
 ZPORT=""
 SERVICE=1
+# Whether a supervisor took it, decided where that is known rather than
+# inferred at the end from the shape of the machine.
+STARTED=0
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -453,6 +456,7 @@ PLIST_EOF
   if ! launchctl load -w "$PLIST" 2>/dev/null; then
     launchctl bootstrap "gui/$(id -u)" "$PLIST" 2>/dev/null || true
   fi
+  STARTED=1
   echo "✓ Registered with launchd — starts at boot."
   echo "  Stop:   launchctl unload $PLIST"
 
@@ -519,6 +523,7 @@ UNIT_EOF
     # whether the agent then comes up is what \`doctor\` and the fleet screen are
     # for.
     systemctl restart --no-block "$BIN.service"
+    STARTED=1
     echo "✓ Registered with systemd — starts at boot."
     echo "  Status: systemctl status $BIN"
     echo "  Logs:   journalctl -u $BIN -f"
@@ -554,6 +559,7 @@ UNIT_EOF
     # believed the ✓. On a server that is the worst kind of wrong: nothing is
     # noticed until a reboot, and then nothing reports, quietly.
     if [ "$LINGER" = yes ]; then
+      STARTED=1
       echo "✓ Registered as a systemd user service — starts at boot."
     else
       echo "⚠ Registered as a systemd user service, but it will NOT start at boot."
@@ -590,6 +596,7 @@ RC_EOF
     chmod +x "/etc/init.d/$BIN"
     rc-update add "$BIN" default
     rc-service "$BIN" restart
+    STARTED=1
     echo "✓ Registered with OpenRC — starts at boot."
   fi
 
@@ -642,6 +649,33 @@ else
   else
     echo "Check it end to end: $DEST/$BIN doctor --config $CONF"
   fi
+fi
+
+# ── The last thing on screen ────────────────────────────────────────────────
+#
+# Whether it is running, and whether it comes back after a reboot, said once at
+# the end rather than left to be assembled from three lines scattered through
+# the output.
+#
+# The supervisor block above already prints "Registered ... starts at boot" —
+# but it prints it before the pairing block, the PATH note and the raw-socket
+# note, which is four screens earlier on a narrow terminal. Somebody installing
+# an agent behind a relay read the end of that output and could not tell
+# whether anything was running at all, which is a fair conclusion to draw from
+# a screen that ends with "check it end to end" and never says "it is on".
+if [ "$SERVICE" = 1 ]; then
+  echo
+  echo "  ─────────────────────────────────────────────────────────"
+  if [ "$STARTED" = 1 ]; then
+    echo "  $OK Running now, and again after a reboot."
+  else
+    # Named as the exception it is, with the one command that fixes it. A
+    # process nobody restarts is a monitor that stops at the first power cut
+    # and reports nothing, silently, from then on.
+    echo "  ! Installed, but NOT set to start after a reboot."
+    echo "    Start it now:  $DEST/$BIN run --config $CONF --queue $QUEUE"
+  fi
+  echo "  ─────────────────────────────────────────────────────────"
 fi
 `
 }

@@ -45,8 +45,24 @@ enum Command {
 
     /// Run the configured probes on a schedule, pushing each result.
     Run {
+        /// Path to the config file. Defaults to the standard location for this
+        /// user; `tern-agent status` prints the one in use.
         #[arg(long)]
         config: Option<PathBuf>,
+        /*
+         * `tern-agent run ~/.config/tern/agent.toml` is what a person writes,
+         * and clap answered it with "unexpected argument found" — naming what
+         * is wrong rather than what would be right, on the one command somebody
+         * runs while something is already broken. A path after `run` can only
+         * mean one thing, so it means it.
+         *
+         * Not a second concept: it resolves into `config` immediately and
+         * nothing downstream knows which way it arrived. The doc line below is
+         * deliberately short — the reasoning belongs here, not in `--help`.
+         */
+        /// The same path as `--config`, typed without the flag.
+        #[arg(value_name = "CONFIG")]
+        config_positional: Option<PathBuf>,
         /// Where unsent points are kept while the server is unreachable.
         #[arg(long)]
         queue: Option<PathBuf>,
@@ -72,16 +88,30 @@ enum Command {
     /// Check everything that stops an agent reporting: config, server, key,
     /// DNS, clock, ICMP permission, and the offline queue.
     Doctor {
+        /// Path to the config file. Defaults to the standard location for this
+        /// user; `tern-agent status` prints the one in use.
         #[arg(long)]
         config: Option<PathBuf>,
+        /// The same path as `--config`, typed without the flag.
+        #[arg(value_name = "CONFIG")]
+        config_positional: Option<PathBuf>,
+        /// Where unsent points are kept while the far end is unreachable.
+        /// Defaults to the config path with a `.queue.json` extension.
         #[arg(long)]
         queue: Option<PathBuf>,
     },
 
     /// What this agent is: its probes, and what is waiting to be sent.
     Status {
+        /// Path to the config file. Defaults to the standard location for this
+        /// user; `tern-agent status` prints the one in use.
         #[arg(long)]
         config: Option<PathBuf>,
+        /// The same path as `--config`, typed without the flag.
+        #[arg(value_name = "CONFIG")]
+        config_positional: Option<PathBuf>,
+        /// Where unsent points are kept while the far end is unreachable.
+        /// Defaults to the config path with a `.queue.json` extension.
         #[arg(long)]
         queue: Option<PathBuf>,
     },
@@ -93,6 +123,8 @@ enum Command {
     /// a page whose password can be recovered from the machine it runs on is
     /// guarding nothing from anybody who already has the machine.
     Ui {
+        /// Path to the config file. Defaults to the standard location for this
+        /// user; `tern-agent status` prints the one in use.
         #[arg(long)]
         config: Option<PathBuf>,
         /// Where to serve. Loopback unless you mean otherwise — see the note
@@ -106,6 +138,8 @@ enum Command {
 
     /// Discard the buffered points. They are lost, not sent.
     QueueClear {
+        /// Where unsent points are kept while the far end is unreachable.
+        /// Defaults to the config path with a `.queue.json` extension.
         #[arg(long)]
         queue: Option<PathBuf>,
     },
@@ -155,14 +189,63 @@ async fn main() -> Result<()> {
 
             // Written, not printed. The key is shown once by design, and asking
             // someone to copy it out of a terminal is how it ends up in a shell
-            // history file. An existing config is never overwritten: it may hold
-            // probes nobody has anywhere else.
+            // history file.
             let path = config.unwrap_or_else(default_path);
+
+            /*
+             * An existing config keeps its probes and takes the new key.
+             *
+             * This used to refuse the file outright and print the key for
+             * somebody to place by hand — protecting probes written on the
+             * host, which is a real thing to protect. But the effect was that
+             * pairing *succeeded*, burned a single-use PIN, minted a key, and
+             * then threw it away: the agent went on presenting the previous
+             * key, which the far end had already replaced, and every call came
+             * back 401. On a zone agent that reads as "the relay is refusing
+             * me", which sends the reader to the relay, where nothing is wrong.
+             *
+             * Measured on a real machine: `agent.toml already exists — not
+             * overwriting it`, then `heartbeat refused (401 Unauthorized)`
+             * forever, with nothing connecting the two lines.
+             *
+             * So the credential is written and everything else is left alone.
+             * That is the narrowest change that keeps the original concern: a
+             * key is what pairing produces and is worthless to anyone anywhere
+             * else, while probes are the operator's and are not ours to
+             * discard.
+             */
             if path.exists() {
-                println!("{} already exists — not overwriting it.", path.display());
-                println!("Store this key — it is shown once:");
-                println!("  export TERN_API_KEY={}", response.api_key);
-                return Ok(());
+                match Config::load(&path) {
+                    Ok(mut existing) => {
+                        existing.api_key = response.api_key;
+                        existing.server = server.trim_end_matches('/').to_string();
+
+                        let kept = existing.probes.len();
+                        let skipped = existing.apply_jobs(&response.jobs);
+                        existing.save(&path)?;
+
+                        println!("Updated {} with the new key.", path.display());
+                        if kept > 0 {
+                            println!("  {kept} probe(s) already in the file were kept.");
+                        }
+                        for gap in skipped {
+                            println!("  ! {gap}");
+                        }
+                        return Ok(());
+                    }
+                    Err(error) => {
+                        /*
+                         * Unreadable is the one case where the old behaviour is
+                         * still right: rewriting a file this cannot parse would
+                         * destroy whatever is in it, and it may be a typo away
+                         * from working.
+                         */
+                        println!("{} exists but could not be read: {error}", path.display());
+                        println!("Leaving it alone. Store this key — it is shown once:");
+                        println!("  export TERN_API_KEY={}", response.api_key);
+                        return Ok(());
+                    }
+                }
             }
 
             let mut config = Config {
@@ -223,12 +306,13 @@ async fn main() -> Result<()> {
 
         Command::Run {
             config,
+            config_positional,
             queue,
             once,
             no_refresh,
             wait_for_config,
         } => {
-            let path = config.unwrap_or_else(default_path);
+            let path = config.or(config_positional).unwrap_or_else(default_path);
 
             if wait_for_config && !path.exists() {
                 println!("Waiting for {} to appear…", path.display());
@@ -302,7 +386,12 @@ async fn main() -> Result<()> {
             tern_agent::runner::run(config, path, queue_path, !no_refresh).await
         }
 
-        Command::Doctor { config, queue } => {
+        Command::Doctor {
+            config,
+            config_positional,
+            queue,
+        } => {
+            let config = config.or(config_positional);
             let config_path = config.unwrap_or_else(default_path);
             let queue_path = queue.unwrap_or_else(|| config_path.with_extension("queue.json"));
 
@@ -317,7 +406,12 @@ async fn main() -> Result<()> {
             Ok(())
         }
 
-        Command::Status { config, queue } => {
+        Command::Status {
+            config,
+            config_positional,
+            queue,
+        } => {
+            let config = config.or(config_positional);
             let config_path = config.unwrap_or_else(default_path);
             let queue_path = queue.unwrap_or_else(|| config_path.with_extension("queue.json"));
             let config = Config::load(&config_path)?;
@@ -495,4 +589,125 @@ fn hostname() -> Option<String> {
                 .map(|s| s.trim().to_string())
         })
         .filter(|s| !s.is_empty())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::Parser;
+
+    /// The path, typed the way a person types it.
+    ///
+    /// `tern-agent run ~/.config/tern/agent.toml` used to answer "unexpected
+    /// argument found" — naming what was wrong and not what would have been
+    /// right, on the one command somebody runs while something is already
+    /// broken. Pinned here so the courtesy is not tidied away later.
+    #[test]
+    fn a_config_path_needs_no_flag() {
+        for argv in [
+            vec!["tern-agent", "run", "/etc/tern/agent.toml"],
+            vec!["tern-agent", "doctor", "/etc/tern/agent.toml"],
+            vec!["tern-agent", "status", "/etc/tern/agent.toml"],
+        ] {
+            let cli = Cli::try_parse_from(&argv).unwrap_or_else(|e| panic!("{argv:?}: {e}"));
+            let found = match cli.command {
+                Command::Run {
+                    config,
+                    config_positional,
+                    ..
+                }
+                | Command::Doctor {
+                    config,
+                    config_positional,
+                    ..
+                }
+                | Command::Status {
+                    config,
+                    config_positional,
+                    ..
+                } => config.or(config_positional),
+                _ => None,
+            };
+            assert_eq!(
+                found.as_deref(),
+                Some(std::path::Path::new("/etc/tern/agent.toml")),
+                "{argv:?}"
+            );
+        }
+    }
+
+    /// Pairing onto an existing config keeps the probes and takes the key.
+    ///
+    /// The old behaviour refused the file and printed the key for somebody to
+    /// place by hand — so pairing succeeded, burned a single-use PIN, minted a
+    /// key and threw it away. The agent went on presenting the previous key,
+    /// which the far end had already replaced, and every call came back 401.
+    /// Measured on a real machine, with nothing connecting the two lines.
+    #[test]
+    fn pairing_over_an_existing_config_replaces_only_the_credential() {
+        let dir = std::env::temp_dir().join(format!("tern-pair-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("agent.toml");
+        std::fs::write(
+            &path,
+            r#"server = "http://old:1"
+api_key = "ternp_STALE"
+interval_s = 90
+
+[[probes]]
+control_key = "hand-written"
+type = "tcp"
+host = "127.0.0.1"
+port = 9000
+"#,
+        )
+        .unwrap();
+
+        let mut existing = Config::load(&path).unwrap();
+        existing.api_key = "ternp_FRESH".to_string();
+        existing.server = "http://relay:38787".to_string();
+        existing.save(&path).unwrap();
+
+        let reloaded = Config::load(&path).unwrap();
+        assert_eq!(reloaded.api_key, "ternp_FRESH", "the new key must land");
+        assert_eq!(reloaded.server, "http://relay:38787");
+        // The reason the file was spared in the first place, still true.
+        assert_eq!(reloaded.interval_s, 90, "settings are the operator's");
+        assert_eq!(
+            reloaded.probes.first().map(|p| p.control_key.as_str()),
+            Some("hand-written"),
+            "a probe written on the host is not ours to discard"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// And the flag still works, because every message this product prints
+    /// spells it that way.
+    #[test]
+    fn the_flag_still_works_and_wins() {
+        let cli = Cli::try_parse_from([
+            "tern-agent",
+            "run",
+            "--config",
+            "/from/flag.toml",
+            "/from/positional.toml",
+        ])
+        .unwrap();
+        match cli.command {
+            Command::Run {
+                config,
+                config_positional,
+                ..
+            } => {
+                // Both given is a contradiction nobody means; the flag is the
+                // one every printed instruction uses, so it decides.
+                assert_eq!(
+                    config.or(config_positional).unwrap().to_str().unwrap(),
+                    "/from/flag.toml"
+                );
+            }
+            _ => panic!("wrong command"),
+        }
+    }
 }

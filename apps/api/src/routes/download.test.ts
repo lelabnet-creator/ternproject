@@ -170,6 +170,33 @@ describe('the shell installer', () => {
     expect(script).toContain('echo "Check it end to end: $DEST/$BIN doctor --config $CONF"')
   })
 
+  it('ends by saying whether it runs, and whether it survives a reboot', () => {
+    /*
+     * The supervisor block already prints "Registered … starts at boot" — but
+     * it prints it *before* the pairing block, the PATH note and the
+     * raw-socket note, which on a narrow terminal is four screens earlier.
+     * Somebody installing an agent behind a relay read the end of that output
+     * and could not tell whether anything was running at all, which is a fair
+     * conclusion from a screen that ends with "check it end to end" and never
+     * says "it is on".
+     */
+    expect(script).toContain('Running now, and again after a reboot')
+
+    // And the honest other half, with the command that fixes it: a process
+    // nobody restarts is a monitor that stops at the first power cut and
+    // reports nothing, silently, from then on.
+    expect(script).toContain('NOT set to start after a reboot')
+    expect(script).toContain('run --config $CONF --queue $QUEUE')
+  })
+
+  it('decides that where a supervisor actually took it, not at the end', () => {
+    // One `STARTED=1` per supervisor — systemd system, systemd user, launchd
+    // and OpenRC. Inferred at the end from the shape of the machine, it would
+    // claim a boot entry that the branch above had just failed to create.
+    const claims = script.match(/^\s*STARTED=1$/gm) ?? []
+    expect(claims).toHaveLength(4)
+  })
+
   it('can be told not to touch the boot configuration', () => {
     expect(script).toContain('--no-service')
   })
