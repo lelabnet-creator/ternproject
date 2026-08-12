@@ -100,6 +100,23 @@ pub struct LocalKey {
     /// The address it was last seen at, inside the zone.
     #[serde(default)]
     pub ip: Option<String>,
+    /**
+     * What install this entry is, as the agent itself decides.
+     *
+     * Re-pairing a machine used to push a second entry beside the first: same
+     * hostname, dead key, and a ghost in the zone that could only ever read
+     * "never reported". The zone count went up by one every time somebody
+     * reinstalled.
+     *
+     * Matched on the identifier the agent keeps in its config, never on the
+     * hostname — two machines in one zone can share a name, and merging them
+     * would silently drop one machine's monitoring. Absent for keys issued
+     * before this existed, and for an agent too old to send one: those keep
+     * the old behaviour rather than being guessed at.
+     */
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub install_id: Option<String>,
+
     /// The id this relay answered at pairing, kept so it stays true.
     ///
     /// It used to be invented per response — `proxy-local-<count>` — which
@@ -1075,6 +1092,9 @@ struct PairBody {
     arch: Option<String>,
     #[serde(default)]
     agent_version: Option<String>,
+    /// See `LocalKey::install_id`. Absent from an agent too old to send it.
+    #[serde(default)]
+    install_id: Option<String>,
 }
 
 /// An agent pairing with the proxy rather than with TERN.
@@ -1165,15 +1185,47 @@ async fn pair(State(state): State<AppState>, Json(body): Json<PairBody>) -> impl
     // that kept it.
     let agent_id = format!("zone-{}", crate::transport::random_token(8));
 
-    inner.config.local_keys.push(LocalKey {
+    /*
+     * The same install again replaces its entry; anything else is added.
+     *
+     * Without this, reinstalling a zone machine left the old entry behind with
+     * a key nothing would ever present again — a permanent "never reported"
+     * beside the machine that was working, and a zone count that grew by one
+     * per reinstall.
+     *
+     * Its `agent_id` is carried over, so what this relay answers about that
+     * machine stays the same thing it answered before.
+     */
+    let existing = body.install_id.as_ref().and_then(|id| {
+        inner
+            .config
+            .local_keys
+            .iter()
+            .position(|k| k.install_id.as_deref() == Some(id.as_str()))
+    });
+
+    let entry = LocalKey {
         name: name.clone(),
         key_hash: hash(&key),
         // Paired, not yet heard from. Null rather than "now": an agent that
         // pairs and never comes back must not look alive upstream.
         last_seen: None,
         ip: None,
+        install_id: body.install_id.clone(),
         agent_id: Some(agent_id.clone()),
-    });
+    };
+
+    match existing {
+        Some(index) => {
+            info!(agent = %name, "this machine paired here before — replacing its key");
+            let kept = inner.config.local_keys[index].agent_id.clone();
+            inner.config.local_keys[index] = LocalKey {
+                agent_id: kept.or(Some(agent_id.clone())),
+                ..entry
+            };
+        }
+        None => inner.config.local_keys.push(entry),
+    }
     let path = inner.config_path.clone();
     if let Err(error) = inner.config.save(&path) {
         warn!(%error, "could not persist the issued key — it will not survive a restart");
@@ -1893,6 +1945,7 @@ mod tests {
             local_keys: vec![LocalKey {
                 name: "edge-1".into(),
                 key_hash: hash("ternp_local"),
+                install_id: None,
                 last_seen: None,
                 ip: None,
                 agent_id: None,
@@ -1980,6 +2033,55 @@ mod tests {
      * the merge rather than the race: what comes back must not be able to carry
      * a stale inventory with it.
      */
+    /**
+     * Réinstaller une machine de zone ne l'ajoute pas une seconde fois.
+     *
+     * Le relais poussait une entrée à chaque appairage : même nom, clé morte, et
+     * un fantôme qui ne pouvait afficher que « never reported » à côté de la
+     * machine qui marchait. Le compte de la zone montait d'un à chaque
+     * réinstallation.
+     *
+     * Apparié sur l'identifiant d'installation, jamais sur le nom d'hôte : deux
+     * machines d'une même zone peuvent le partager, et les fondre ferait
+     * disparaître en silence la supervision de l'une.
+     */
+    #[test]
+    fn re_pairing_a_zone_machine_replaces_its_entry() {
+        let mut keys = vec![LocalKey {
+            name: "ubuntu".into(),
+            key_hash: "ancienne".into(),
+            last_seen: Some(1),
+            ip: None,
+            install_id: Some("install-a".into()),
+            agent_id: Some("zone-1".into()),
+        }];
+
+        // La même installation revient.
+        let found = keys
+            .iter()
+            .position(|k| k.install_id.as_deref() == Some("install-a"));
+        assert_eq!(found, Some(0), "reconnue");
+
+        // Une autre machine, même nom d'hôte : elle ne doit pas être confondue.
+        let other = keys
+            .iter()
+            .position(|k| k.install_id.as_deref() == Some("install-b"));
+        assert_eq!(other, None, "un nom partagé ne suffit pas à identifier");
+
+        // Et sans identifiant — un agent trop ancien — on ne devine pas.
+        let none: Option<&str> = None;
+        assert_eq!(
+            none.and_then(|id: &str| keys
+                .iter()
+                .position(|k| k.install_id.as_deref() == Some(id))),
+            None,
+            "l ancien comportement plutôt qu une supposition"
+        );
+
+        keys[0].key_hash = "nouvelle".into();
+        assert_eq!(keys.len(), 1, "remplacée, pas ajoutée");
+    }
+
     #[test]
     fn an_instruction_cannot_erase_the_zone_it_serves() {
         let mut config = config_with_one_agent();
@@ -1996,6 +2098,7 @@ mod tests {
         config.local_keys.push(LocalKey {
             name: "arrived-during".into(),
             key_hash: "hash".into(),
+            install_id: None,
             last_seen: None,
             ip: None,
             agent_id: None,
@@ -2065,6 +2168,7 @@ mod tests {
         let stored = LocalKey {
             name: "edge".into(),
             key_hash: hash(key),
+            install_id: None,
             last_seen: None,
             ip: None,
             agent_id: None,
