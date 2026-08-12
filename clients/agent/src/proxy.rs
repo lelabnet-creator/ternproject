@@ -35,7 +35,7 @@ use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tokio::sync::Mutex;
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 use crate::config::write_private;
 use crate::transport::{Client, Job, PairRequest, Point};
@@ -738,7 +738,10 @@ async fn beat(state: &AppState, key: &str) -> bool {
 
     match &outcome {
         Ok(true) => info!("the server has an instruction waiting"),
-        Ok(false) => {}
+        // The other half of the same silence: a beat that worked said nothing,
+        // so a relay talking perfectly well and a relay whose loop had stopped
+        // looked identical in its own log.
+        Ok(false) => debug!(%queued, "beat upstream"),
         // A warning and nothing more. A relay whose upstream is down must keep
         // serving its zone, which is the entire reason it exists — and the next
         // beat will say so again.
@@ -791,6 +794,26 @@ async fn declare_zone(state: &AppState, key: &str) {
         warn!(%error, "could not declare the zone — the fleet view will be a poll behind");
         return;
     }
+
+    /*
+     * Said when it works, not only when it fails.
+     *
+     * A relay logged nothing at all on a good cycle, so the only way to know it
+     * had declared its zone was to go and look at the server — from a machine
+     * that may be the one thing you cannot reach. Diagnosing a zone that is not
+     * appearing began with a silence that meant either "it worked" or "the loop
+     * is not running", and nothing told them apart.
+     *
+     * `debug` rather than `info`: on a busy relay this is one line a minute
+     * saying the ordinary thing happened, and a log that repeats the ordinary
+     * at the level people read is a log people stop reading. It is there when
+     * somebody turns the level up to ask this exact question.
+     */
+    debug!(
+        agents = agents.len(),
+        %listen,
+        "declared the zone upstream"
+    );
 
     if let Err(error) = config.save(&path) {
         warn!(%error, "could not persist the zone inventory");

@@ -109,8 +109,15 @@ latérale et leurs ancres résolvent.
 
 ## 5. Plus ancien, toujours ouvert
 
-- [ ] **Logs du relais silencieux** sur l'activité périodique réussie : rien ne
-      confirme une déclaration de zone qui s'est bien passée.
+- [x] **Le relais dit quand son cycle se passe bien.** Il ne parlait qu'en cas
+      d'échec, si bien qu'un relais qui travaillait et un relais dont la boucle
+      s'était arrêtée avaient exactement le même journal — le silence. Deux
+      lignes en `debug` : le battement, et la déclaration de zone avec le nombre
+      de machines. En `debug` et pas en `info`, parce qu'une ligne par minute
+      disant que l'ordinaire a eu lieu, au niveau que les gens lisent, est un
+      journal qu'on cesse de lire.
+      Vérifié sur rocky : rien au niveau par défaut, et les deux lignes
+      présentes avec `RUST_LOG=debug` — `declared the zone upstream agents=1`.
 
 ## Fait dans cette session (pour mémoire)
 
