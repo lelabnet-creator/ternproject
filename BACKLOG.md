@@ -87,14 +87,25 @@ ma clé, et toucher à ton instance est ce que tu m'as demandé de ne pas faire.
       échoué. Elle est donc en `ADD VALUE IF NOT EXISTS`, et les deux chemins
       sont vérifiés : base existante, et base vierge montée puis supprimée.
 
-## 4. Documentation — rien de tout ceci n'est écrit
+## 4. Documentation — écrite
 
-- [ ] Les ordres depuis la console, et ce que « pause » et « stop » veulent
-      dire l'un par rapport à l'autre.
-- [ ] `tern-agent resume`, qui est la seule porte de sortie d'un stop.
-- [ ] La page du relais (`tern-proxy ui`), qui n'existait pas avant `0.1.28`.
-- [ ] Le chemin de mise à jour : relancer l'installeur sans `--pin`.
-- [ ] L'identifiant d'installation, et pourquoi il ne dérive de rien de l'hôte.
+Tout est dans `docs/admin-guide.md`, sous « The agents », en trois sections
+nouvelles : **Its own page**, **Asking a machine to do something**, **Updating
+an agent**. Vérifié dans le navigateur : les trois figurent dans la navigation
+latérale et leurs ancres résolvent.
+
+- [x] Les ordres depuis la console, avec le tableau de ce que chacun fait, les
+      trois états du fil (en attente / pris sans réponse / fait) et pourquoi un
+      ordre n'est jamais rejoué.
+- [x] Ce que « pause » et « stop » veulent dire l'un par rapport à l'autre — ils
+      ne diffèrent que par ce qui continue d'écouter — et qu'un relais arrêté
+      sert toujours sa zone.
+- [x] `tern-agent resume`, nommé comme la seule porte de sortie d'un stop.
+- [x] La page du relais et celle de l'agent : `--listen`, le mot de passe montré
+      une fois, l'avertissement hors loopback, le formulaire à un champ.
+- [x] Le chemin de mise à jour — relancer l'installeur sans `--pin` — et
+      l'identifiant d'installation, avec la raison pour laquelle il ne dérive de
+      rien de l'hôte.
 
 ## 5. Plus ancien, toujours ouvert
 

@@ -416,6 +416,9 @@ footer {
 <li class="level-2"><a href="#the-agents"><svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19.07 4.93A10 10 0 0 0 6.99 3.34" /><path d="M4 6h.01" /><path d="M2.29 9.62A10 10 0 1 0 21.31 8.35" /><path d="M16.24 7.76A6 6 0 1 0 8.23 16.67" /><path d="M12 18h.01" /><path d="M17.99 11.66A6 6 0 0 1 15.77 16.67" /><circle cx="12" cy="12" r="2" /><path d="m13.41 10.59 5.66-5.66" /></svg>The agents</a></li>
 <li class="level-3"><a href="#agent-local-tern">Agent-local-tern</a></li>
 <li class="level-3"><a href="#adding-an-agent-elsewhere">Adding an agent elsewhere</a></li>
+<li class="level-3"><a href="#its-own-page">Its own page</a></li>
+<li class="level-3"><a href="#asking-a-machine-to-do-something">Asking a machine to do something</a></li>
+<li class="level-3"><a href="#updating-an-agent">Updating an agent</a></li>
 <li class="level-2"><a href="#behind-a-reverse-proxy"><svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="19" r="3" /><path d="M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15" /><circle cx="18" cy="5" r="3" /></svg>Behind a reverse proxy</a></li>
 <li class="level-2"><a href="#mail-and-notifications"><svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m22 7-8.991 5.727a2 2 0 0 1-2.009 0L2 7" /><rect x="2" y="4" width="20" height="16" rx="2" /></svg>Mail and notifications</a></li>
 <li class="level-2"><a href="#security-and-what-is-yours-to-do"><svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z" /></svg>Security, and what is yours to do</a></li>
@@ -775,6 +778,57 @@ tern-agent run --once</code></pre></div>
 <p><code>doctor</code> exits non-zero on a real failure, so it drops into a post-install step or a monitoring check unchanged. Two of its checks catch failures that are otherwise silent: a host whose <strong>clock</strong> is years out produces measurements the server clamps and that never appear, and <code>agent.toml</code> at 0644 in a directory somebody later archives is how a key leaks.</p>
 
 <p>For a network with no route to the internet, <code>tern-proxy</code> relays for the zone and speaks the same API, so an agent pointed at it is an ordinary agent. See <a href="https://github.com/lelabnet-creator/ternproject/blob/main/docs/data-exchange.md#the-proxy">data exchange → the proxy</a>.</p>
+
+<h3 id="its-own-page"><a class="anchor" href="#its-own-page">Its own page</a></h3>
+
+<p>An agent and a relay can each serve a small page about themselves — state, version, what they are sending to, what is queued. Off until asked for: a monitoring agent that bound a port on every machine in an estate because it was installed would be a decision made for you.</p>
+
+<div class="scroll-x"><pre data-language="sh"><code>tern-agent ui                    # or: tern-proxy ui
+tern-agent ui --listen 0.0.0.0:38788</code></pre></div>
+
+<p>It prints a generated password <strong>once</strong> and stores only a salted hash of it, so nothing can show it to you again — run the command again for a new one. Then restart the process: the setting is read at startup.</p>
+
+<p>Loopback by default. Bound wider, the command says so in the colour of a warning, because the page names the server, the tenant and everything that process is doing, and only that password is in the way.</p>
+
+<p>The page asks for the password itself rather than raising the browser's dialog. One field, because there is one account — the username that dialog insisted on was always ignored. Five wrong answers and the door shuts for a minute.</p>
+
+<h3 id="asking-a-machine-to-do-something"><a class="anchor" href="#asking-a-machine-to-do-something">Asking a machine to do something</a></h3>
+
+<p>Nothing here reaches an agent. Agents poll; this server never opens a connection to one, and an agent behind a relay has no route back at all. So the fleet screen's <code>⋯</code> menu does not <em>do</em> these things — it asks, and the machine takes the instruction on its next check-in, <strong>about a minute</strong>.</p>
+
+<div class="scroll-x"><table>
+<thead><tr><th>Asked</th><th>What happens</th></tr></thead>
+<tbody>
+<tr><td>Turn its page on</td><td>Turns the page on and hands the new password back, shown once</td></tr>
+<tr><td>Fetch recent logs</td><td>The lines that process has emitted since it started</td></tr>
+<tr><td>Restart it</td><td>It leaves, and the supervisor starts it again</td></tr>
+<tr><td>Pause measuring</td><td>An agent runs no probes; a relay keeps its zone's points instead of sending</td></tr>
+<tr><td>Resume</td><td>Undoes a pause, from here</td></tr>
+<tr><td>Stop it for good</td><td>It reports nothing at all — see below</td></tr>
+</tbody>
+</table></div>
+
+<p>The trail under each row shows three states, and they are not the same thing. <em>Waiting for its next check-in</em> means the machine has not polled yet. <em>Taken, no answer yet</em> means it has, and is the ordinary end of a restart — the process that carried it out stopped existing before it could report. Only <em>done</em> means an answer came back.</p>
+
+<p>An instruction is handed over once. If a machine takes one and dies before acting, it is lost rather than repeated: a restart performed twice is worse than one never performed, which you can see and ask for again.</p>
+
+<p><strong>Pause and stop differ only in what keeps listening.</strong> A paused agent still talks to the server, so the console can resume it. A stopped one talks to nothing — that is what makes it final. Getting it back needs a shell on the machine:</p>
+
+<div class="scroll-x"><pre data-language="sh"><code>tern-agent resume        # then restart it</code></pre></div>
+
+<p>The console says exactly that before it asks, because from there the door does not reopen. A stopped <strong>relay</strong> still serves its zone: stopping one must not take a whole network's monitoring with it.</p>
+
+<p>The logs are the agent's own recent lines, kept in a bounded ring in memory — not journald, not the system log. That is a deliberate trade: it holds only this process's output since this process started, and it works identically on Linux, macOS, Windows and on a zone machine where nobody can log in to run anything. Whatever the supervisor said <em>about</em> the process is not there.</p>
+
+<h3 id="updating-an-agent"><a class="anchor" href="#updating-an-agent">Updating an agent</a></h3>
+
+<p>Re-run the installer with no <code>--pin</code>. It replaces the binary, keeps the config and the pairing, and restarts the service:</p>
+
+<div class="scroll-x"><pre data-language="sh"><code>curl -fsSL https://status.example.com/install.sh | sh -s -- --server https://status.example.com</code></pre></div>
+
+<p>A PIN is what makes it an installation; without one, and with a config already present, it is an update and says so. It works out on its own whether the machine holds an agent or a relay — a machine that only relays has a <code>proxy.toml</code> and no <code>agent.toml</code>, and an update should not depend on remembering which.</p>
+
+<p>Re-pairing does not grow a second row in the fleet. Each install carries an identifier it generated on its first pairing and keeps in its config, so pairing again replaces its row, revokes the key that row held, and brings it back if it had been revoked. That identifier is deliberately not derived from anything about the host: two agents on one machine are two installs, and two VMs cloned from one image share a hostname and a machine id — merging either pair would silently drop a machine's monitoring, which looks exactly like success.</p>
 
 <h2 id="behind-a-reverse-proxy"><svg class="icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="19" r="3" /><path d="M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15" /><circle cx="18" cy="5" r="3" /></svg><a class="anchor" href="#behind-a-reverse-proxy">Behind a reverse proxy</a></h2>
 

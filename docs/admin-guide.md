@@ -532,6 +532,98 @@ For a network with no route to the internet, `tern-proxy` relays for the zone an
 speaks the same API, so an agent pointed at it is an ordinary agent. See
 [data exchange → the proxy](./data-exchange.md#the-proxy).
 
+### Its own page
+
+An agent and a relay can each serve a small page about themselves — state,
+version, what they are sending to, what is queued. Off until asked for: a
+monitoring agent that bound a port on every machine in an estate because it was
+installed would be a decision made for you.
+
+```sh
+tern-agent ui                    # or: tern-proxy ui
+tern-agent ui --listen 0.0.0.0:38788
+```
+
+It prints a generated password **once** and stores only a salted hash of it, so
+nothing can show it to you again — run the command again for a new one. Then
+restart the process: the setting is read at startup.
+
+Loopback by default. Bound wider, the command says so in the colour of a
+warning, because the page names the server, the tenant and everything that
+process is doing, and only that password is in the way.
+
+The page asks for the password itself rather than raising the browser's dialog.
+One field, because there is one account — the username that dialog insisted on
+was always ignored. Five wrong answers and the door shuts for a minute.
+
+### Asking a machine to do something
+
+Nothing here reaches an agent. Agents poll; this server never opens a connection
+to one, and an agent behind a relay has no route back at all. So the fleet
+screen's `⋯` menu does not _do_ these things — it asks, and the machine takes
+the instruction on its next check-in, **about a minute**.
+
+| Asked             | What happens                                                                |
+| ----------------- | --------------------------------------------------------------------------- |
+| Turn its page on  | Turns the page on and hands the new password back, shown once               |
+| Fetch recent logs | The lines that process has emitted since it started                         |
+| Restart it        | It leaves, and the supervisor starts it again                               |
+| Pause measuring   | An agent runs no probes; a relay keeps its zone's points instead of sending |
+| Resume            | Undoes a pause, from here                                                   |
+| Stop it for good  | It reports nothing at all — see below                                       |
+
+The trail under each row shows three states, and they are not the same thing.
+_Waiting for its next check-in_ means the machine has not polled yet. _Taken, no
+answer yet_ means it has, and is the ordinary end of a restart — the process
+that carried it out stopped existing before it could report. Only _done_ means
+an answer came back.
+
+An instruction is handed over once. If a machine takes one and dies before
+acting, it is lost rather than repeated: a restart performed twice is worse than
+one never performed, which you can see and ask for again.
+
+**Pause and stop differ only in what keeps listening.** A paused agent still
+talks to the server, so the console can resume it. A stopped one talks to
+nothing — that is what makes it final. Getting it back needs a shell on the
+machine:
+
+```sh
+tern-agent resume        # then restart it
+```
+
+The console says exactly that before it asks, because from there the door does
+not reopen. A stopped **relay** still serves its zone: stopping one must not
+take a whole network's monitoring with it.
+
+The logs are the agent's own recent lines, kept in a bounded ring in memory —
+not journald, not the system log. That is a deliberate trade: it holds only this
+process's output since this process started, and it works identically on Linux,
+macOS, Windows and on a zone machine where nobody can log in to run anything.
+Whatever the supervisor said _about_ the process is not there.
+
+### Updating an agent
+
+Re-run the installer with no `--pin`. It replaces the binary, keeps the config
+and the pairing, and restarts the service:
+
+```sh
+curl -fsSL https://status.example.com/install.sh | sh -s -- --server https://status.example.com
+```
+
+A PIN is what makes it an installation; without one, and with a config already
+present, it is an update and says so. It works out on its own whether the
+machine holds an agent or a relay — a machine that only relays has a
+`proxy.toml` and no `agent.toml`, and an update should not depend on remembering
+which.
+
+Re-pairing does not grow a second row in the fleet. Each install carries an
+identifier it generated on its first pairing and keeps in its config, so pairing
+again replaces its row, revokes the key that row held, and brings it back if it
+had been revoked. That identifier is deliberately not derived from anything
+about the host: two agents on one machine are two installs, and two VMs cloned
+from one image share a hostname and a machine id — merging either pair would
+silently drop a machine's monitoring, which looks exactly like success.
+
 ## Behind a reverse proxy
 
 Two settings and one routing rule.
