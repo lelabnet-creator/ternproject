@@ -35,8 +35,11 @@ le canal d'ordres non publié. Ordonné par ce qui bloque, puis par ce qui n'a p
 
 ## 2. Publier, et rattraper l'existant
 
-- [ ] **Sortir `v0.1.31`** : canal d'ordres, sous-menu des adresses, déduction
-      du rôle dans l'installeur. Rien de tout cela n'est encore chez toi.
+- [x] **`v0.1.31` publiée** : canal d'ordres, sous-menu des adresses, déduction
+      du rôle dans l'installeur. `Image` et `Release` verts, 13 binaires
+      attachés. La CI a d'abord rougi sur un test à moi qui partageait l'anneau
+      de logs global et mesurait tout l'instantané — vert seul, rouge à deux.
+      La logique sort désormais dans un `Ring` que chaque test instancie.
 
 - [ ] **Mettre à jour l'agent de `192.168.1.170`.** Il sert encore `Basic
 realm` — d'où la popup du navigateur. Procédure prouvée sur les deux VM ;
