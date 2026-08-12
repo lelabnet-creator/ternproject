@@ -18,7 +18,7 @@ pub const PROTOCOL_VERSION: u32 = 1;
 pub const PROTOCOL_HEADER: &str = "x-tern-protocol";
 
 /// One agent of a proxy's zone, as the server is told about it.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ZoneAgent {
     pub name: String,
@@ -57,13 +57,21 @@ pub fn epoch_to_rfc3339(secs: u64) -> String {
     format!("{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}Z")
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PairRequest {
     pub code: String,
+    // All the optionals are omitted rather than sent as null: the server's
+    // schema says `optional`, and in Zod an optional string refuses an
+    // explicit null. It never bit because the binary always fills these —
+    // the conformance round-trip is what said it would bite a minimal client.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub hostname: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub os: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub arch: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub agent_version: Option<String>,
     /// What this install is, so re-pairing replaces a row instead of adding
     /// one. See `config::Config::install_id`.

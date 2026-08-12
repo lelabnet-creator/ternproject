@@ -56,6 +56,11 @@ type Fixture = {
   message: string
   examples: unknown[]
   responseExamples?: unknown[]
+  /**
+   * Shapes the server tolerates from hand-written clients but the agent never
+   * emits — validated here, deliberately ignored by the Rust round-trip.
+   */
+  serverAcceptsExamples?: unknown[]
 }
 
 const files = readdirSync(fixturesDir).filter((name) => name.endsWith('.json'))
@@ -77,7 +82,7 @@ describe('protocol conformance fixtures', () => {
       const schema = schemas[fixture.message]
       expect(schema, `unknown message ${fixture.message}`).toBeDefined()
 
-      for (const example of fixture.examples) {
+      for (const example of [...fixture.examples, ...(fixture.serverAcceptsExamples ?? [])]) {
         const parsed = schema!.safeParse(example)
         expect(
           parsed.success,

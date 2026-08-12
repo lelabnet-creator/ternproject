@@ -1,5 +1,5 @@
 {
-  "$comment": "Agent → server, always as an array on the wire. ts is when the measurement was taken, so a point replayed from the offline queue lands at measurement time.",
+  "$comment": "Agent → server, always as an array on the wire. ts is when the measurement was taken, so a point replayed from the offline queue lands at measurement time. `examples` are what the agent emits (round-tripped by the Rust suite); `serverAcceptsExamples` are wider shapes the server tolerates from hand-written clients — status defaulting to operational, named metrics — which the agent never produces.",
   "message": "ingestPoint",
   "examples": [
     {
@@ -10,6 +10,7 @@
     },
     {
       "controlKey": "db-sessions",
+      "status": "operational",
       "value": 12.0,
       "ts": "2026-08-12T09:15:07Z"
     },
@@ -17,6 +18,12 @@
       "controlKey": "backup",
       "status": "down",
       "message": "dial tcp 10.0.0.5:5432: connection refused"
+    }
+  ],
+  "serverAcceptsExamples": [
+    {
+      "controlKey": "db-sessions",
+      "value": 12.0
     },
     {
       "controlKey": "queue-depth",
