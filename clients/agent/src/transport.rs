@@ -384,7 +384,8 @@ impl Client {
     /// host, meaningless anywhere else. The machine is the only thing that
     /// knows which of its interfaces faces the server, so the machine is what
     /// says it.
-    pub async fn heartbeat(&self, api_key: &str, ui_address: Option<&str>) -> Result<()> {
+    /// Returns whether the server says something is waiting to be fetched.
+    pub async fn heartbeat(&self, api_key: &str, ui_address: Option<&str>) -> Result<bool> {
         let response = self
             .http
             .post(format!("{}/api/v1/agent/heartbeat", self.base_url))
@@ -399,7 +400,20 @@ impl Client {
             bail!("heartbeat refused ({status})");
         }
 
-        Ok(())
+        /// Only the one field, and defaulted: a server too old to send it says
+        /// nothing, which reads as "nothing waiting" — the behaviour before.
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Beat {
+            #[serde(default)]
+            commands_waiting: bool,
+        }
+
+        Ok(response
+            .json::<Beat>()
+            .await
+            .map(|b| b.commands_waiting)
+            .unwrap_or(false))
     }
 
     /// Says what became of an instruction.

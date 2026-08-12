@@ -62,14 +62,19 @@ ma clé, et toucher à ton instance est ce que tu m'as demandé de ne pas faire.
 
 ## 3. Ce qui rend les ordres pénibles à l'usage
 
-- [ ] **Latence jusqu'à 5 minutes.** C'est l'intervalle de rafraîchissement, et
-      c'est l'architecture — les agents interrogent, on ne les joint pas. Pour
-      « redémarre » ou « donne-moi tes logs », c'est long. Piste : intervalle
-      plus court quand un ordre est en attente, ou un signal sur le heartbeat,
-      qui lui bat toutes les minutes.
+- [x] **Latence ramenée de cinq minutes à une.** Le battement est le plus petit
+      et le plus fréquent des appels d'un agent ; il rapporte désormais si
+      quelque chose attend, et l'agent va le chercher aussitôt au lieu d'à son
+      prochain rafraîchissement. Sa période passe à 60 s — exactement la cadence
+      pour laquelle la limite d'écriture de `last_seen_at` était déjà réglée.
+      Le relais bat sur le même rythme et ne recharge l'assignation qu'à
+      `refresh_s`, ou plus tôt si un ordre attend pour lui ou pour sa zone.
+      Mesuré sur la VM ubuntu, sans rien redémarrer : **46 s** de bout en bout.
 
-- [ ] **Le premier battement d'un relais arrive à +300 s.** Sa boucle saute son
-      premier tick. Un relais fraîchement installé paraît muet cinq minutes.
+- [x] **Le premier battement d'un relais arrive à +60 s.** Sa boucle saute
+      toujours son premier tick, mais ce tick dure maintenant une minute au lieu
+      de cinq. Le battement et le chargement de l'assignation sont deux choses
+      sur deux périodes, ce qui était le fond du problème.
 
 - [ ] **L'enum SQL et le `z.enum` de la route sont tenus en phase à la main.**
       C'est ce qui a produit un 400 en pleine session : les genres `ui-on` /

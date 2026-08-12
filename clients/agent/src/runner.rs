@@ -223,7 +223,16 @@ const REFRESH_EVERY: Duration = Duration::from_secs(300);
 ///
 /// Well inside the ten-minute window the server calls stale, so one lost
 /// heartbeat is not enough to turn the dot amber.
-const HEARTBEAT_EVERY: Duration = Duration::from_secs(300);
+/**
+ * Every minute, not every five.
+ *
+ * A beat is the smallest thing an agent sends, and it is what carries "there is
+ * something waiting for you" back from the server — so its period is the worst
+ * case for anything the console asks. Five minutes made a Restart button feel
+ * broken. One minute is also exactly what the server's own write rate limit on
+ * `last_seen_at` was already tuned for.
+ */
+const HEARTBEAT_EVERY: Duration = Duration::from_secs(60);
 
 /// Re-reads the assignment, returning whether anything about it changed.
 ///
@@ -458,7 +467,13 @@ pub async fn run(
                 .heartbeat(&config.api_key, ui_address.as_deref())
                 .await
             {
-                Ok(()) => {
+                Ok(waiting) => {
+                    // Told there is something to fetch, so fetch it now rather
+                    // than at the next refresh — which is what the wait was.
+                    if waiting {
+                        info!("the server has an instruction waiting");
+                        next_refresh = Instant::now();
+                    }
                     ui.update(|snapshot| {
                         snapshot.last_heartbeat_ok_s = Some(0);
                         snapshot.last_heartbeat_error = None;

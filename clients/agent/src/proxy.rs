@@ -562,8 +562,23 @@ pub async fn run(
 
 fn spawn_refresh(state: AppState, every_s: u64) {
     tokio::spawn(async move {
-        let mut ticker = tokio::time::interval(std::time::Duration::from_secs(every_s.max(30)));
+        /*
+         * Beating every minute, fetching the assignment on its own interval.
+         *
+         * These used to be one thing on one timer, so a relay spoke to TERN
+         * once every five minutes and everything the console asked of it — or
+         * of its zone — waited that long. The beat is the small frequent call
+         * and it is what carries "something is waiting for you" back, so it
+         * gets its own short period; the assignment, which is the expensive
+         * one, keeps `refresh_s`.
+         */
+        const BEAT: std::time::Duration = std::time::Duration::from_secs(60);
+        let assignment_every = std::time::Duration::from_secs(every_s.max(30));
+
+        let mut ticker = tokio::time::interval(BEAT);
         ticker.tick().await; // the immediate first tick, already done at startup
+        let mut next_assignment = tokio::time::Instant::now() + assignment_every;
+        let mut fetch_now = false;
 
         loop {
             ticker.tick().await;
@@ -582,6 +597,16 @@ fn spawn_refresh(state: AppState, every_s: u64) {
             if !state_now.reports() {
                 continue;
             }
+
+            let due = fetch_now || tokio::time::Instant::now() >= next_assignment;
+            if !due {
+                // Nothing to fetch this minute; the beat below is the whole
+                // point of waking up.
+                beat(&state, &key).await;
+                continue;
+            }
+            fetch_now = false;
+            next_assignment = tokio::time::Instant::now() + assignment_every;
 
             match state.client.jobs(&key).await {
                 Ok(response) => {
@@ -647,61 +672,82 @@ fn spawn_refresh(state: AppState, every_s: u64) {
              * that question differently depending on the role was answering a
              * different question.
              */
-            let (ui_address, zone_agents, zone_listen, upstream, tenant, queued, queue_bytes) = {
-                let inner = state.inner.lock().await;
-                (
-                    inner
-                        .config
-                        .ui
-                        .as_ref()
-                        .and_then(|settings| settings.reachable_address(&inner.config.server)),
-                    inner.config.local_keys.len(),
-                    inner.config.listen.clone(),
-                    inner.config.server.clone(),
-                    inner.tenant_slug.clone(),
-                    inner.queue.len(),
-                    inner.queue.bytes(),
-                )
-            };
-
-            let outcome = state.client.heartbeat(&key, ui_address.as_deref()).await;
-
-            // The page is refreshed here rather than on a loop of its own: this
-            // is the moment the two facts it most needs — whether upstream
-            // answered, and how deep the queue is — are both known.
-            state
-                .ui
-                .update(|snapshot| {
-                    snapshot.role = "tern-proxy".to_string();
-                    snapshot.version = env!("CARGO_PKG_VERSION").to_string();
-                    snapshot.server = upstream;
-                    snapshot.tenant = (!tenant.is_empty()).then_some(tenant);
-                    snapshot.zone_agents = Some(zone_agents);
-                    snapshot.zone_listen = Some(zone_listen);
-                    snapshot.queued = queued;
-                    snapshot.queue_bytes = queue_bytes;
-                    match &outcome {
-                        Ok(()) => {
-                            snapshot.last_heartbeat_ok_s = Some(0);
-                            snapshot.last_heartbeat_error = None;
-                        }
-                        Err(error) => {
-                            snapshot.last_heartbeat_error = Some(error.to_string());
-                        }
-                    }
-                })
-                .await;
-
-            if let Err(error) = outcome {
-                // A warning and nothing more. A relay whose upstream is down
-                // must keep serving its zone, which is the entire reason it
-                // exists — and the next tick will say so again.
-                warn!(%error, "heartbeat failed");
+            if beat(&state, &key).await {
+                fetch_now = true;
             }
 
             declare_zone(&state, &key).await;
         }
     });
+}
+
+/**
+ * One beat: says this relay is alive, and reads back whether anything waits.
+ *
+ * Its own function because both paths through the loop need it — the minute
+ * that only beats, and the one that also fetches the assignment — and two
+ * copies would drift on the page's figures, which are refreshed here.
+ *
+ * Returns whether the server has something waiting for this relay or its zone.
+ */
+async fn beat(state: &AppState, key: &str) -> bool {
+    let (ui_address, zone_agents, zone_listen, upstream, tenant, queued, queue_bytes) = {
+        let inner = state.inner.lock().await;
+        (
+            inner
+                .config
+                .ui
+                .as_ref()
+                .and_then(|settings| settings.reachable_address(&inner.config.server)),
+            inner.config.local_keys.len(),
+            inner.config.listen.clone(),
+            inner.config.server.clone(),
+            inner.tenant_slug.clone(),
+            inner.queue.len(),
+            inner.queue.bytes(),
+        )
+    };
+
+    let outcome = state.client.heartbeat(key, ui_address.as_deref()).await;
+
+    // The page is refreshed here rather than on a loop of its own: this
+    // is the moment the two facts it most needs — whether upstream
+    // answered, and how deep the queue is — are both known.
+    state
+        .ui
+        .update(|snapshot| {
+            snapshot.role = "tern-proxy".to_string();
+            snapshot.version = env!("CARGO_PKG_VERSION").to_string();
+            snapshot.server = upstream;
+            snapshot.tenant = (!tenant.is_empty()).then_some(tenant);
+            snapshot.zone_agents = Some(zone_agents);
+            snapshot.zone_listen = Some(zone_listen);
+            snapshot.queued = queued;
+            snapshot.queue_bytes = queue_bytes;
+            match &outcome {
+                Ok(_) => {
+                    snapshot.last_heartbeat_ok_s = Some(0);
+                    snapshot.last_heartbeat_error = None;
+                }
+                Err(error) => {
+                    snapshot.last_heartbeat_error = Some(error.to_string());
+                }
+            }
+        })
+        .await;
+
+    match &outcome {
+        Ok(true) => info!("the server has an instruction waiting"),
+        Ok(false) => {}
+        // A warning and nothing more. A relay whose upstream is down must keep
+        // serving its zone, which is the entire reason it exists — and the next
+        // beat will say so again.
+        Err(error) => warn!(%error, "heartbeat failed"),
+    }
+
+    // The caller decides what to do about it: fetching the assignment is its
+    // business, not this one's.
+    matches!(outcome, Ok(true))
 }
 
 /*

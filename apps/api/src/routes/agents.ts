@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, isNotNull, isNull, notInArray, sql } from 'drizzle-orm'
+import { and, desc, eq, inArray, isNotNull, isNull, notInArray, or, sql } from 'drizzle-orm'
 import { z } from 'zod'
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod'
 import { schema } from '@tern/db'
@@ -345,7 +345,24 @@ const routes: FastifyPluginAsyncZod = async (app) => {
           // upgraded, which the two heartbeat tests caught and which is the
           // entire reason they assert a bodiless call.
           .nullish(),
-        response: { 200: z.object({ ok: z.boolean() }) },
+        response: {
+          200: z.object({
+            ok: z.boolean(),
+            /**
+             * Whether something is waiting for this agent to come and get it.
+             *
+             * A beat is the cheapest thing an agent sends and the most frequent
+             * — every minute — while the assignment poll is every five. Putting
+             * one boolean on the reply is what turns "up to five minutes"
+             * into "up to one" without a second timer, a socket, or anything
+             * for the server to keep open.
+             *
+             * True for a relay when the wait is one of its zone's, because it
+             * is the relay that must come and fetch it.
+             */
+            commandsWaiting: z.boolean(),
+          }),
+        },
       },
     },
     async (req) => {
@@ -353,7 +370,30 @@ const routes: FastifyPluginAsyncZod = async (app) => {
       if (!key) throw app.httpErrors.unauthorized('Invalid or missing API key')
 
       await touchAgent(app, key.id, req.headers['user-agent'], req.body?.uiAddress)
-      return { ok: true }
+
+      const [agent] = await app.db
+        .select({ id: schema.agents.id })
+        .from(schema.agents)
+        .where(and(eq(schema.agents.apiKeyId, key.id), eq(schema.agents.tenantId, key.tenantId)))
+        .limit(1)
+
+      // Its own, and its zone's. `limit(1)` because the only question is
+      // whether there is any — the poll that follows is what reads them.
+      const waiting = agent
+        ? await app.db
+            .select({ id: schema.agentCommands.id })
+            .from(schema.agentCommands)
+            .innerJoin(schema.agents, eq(schema.agents.id, schema.agentCommands.agentId))
+            .where(
+              and(
+                isNull(schema.agentCommands.deliveredAt),
+                or(eq(schema.agents.id, agent.id), eq(schema.agents.parentAgentId, agent.id)),
+              ),
+            )
+            .limit(1)
+        : []
+
+      return { ok: true, commandsWaiting: waiting.length > 0 }
     },
   )
 
