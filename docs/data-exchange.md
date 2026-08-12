@@ -67,86 +67,17 @@ UptimeRobot, Zabbix, PagerDuty, Healthchecks, or a generic shape, and normalises
 it into checks — optionally opening and closing incidents from the source's
 resolved flag. The mapping is stored per receiver.
 
-## Pairing and jobs
+## The agent protocol
 
-### `POST /api/v1/pair`
+Pairing, the assignment poll, the heartbeat, the instruction channel, the
+relay and its zone, the version header, the error format and the DEV trace
+all live on their own page now: [The agent protocol](./protocol.md). The exact
+message shapes are defined once in `packages/shared/src/agent-protocol.ts`
+and exported under `schemas/agent-protocol/`.
 
-Exchanges a short-lived PIN for a long-lived key, so no key is ever copied by
-hand onto a host.
-
-```json
-→ { "code": "4K7Q-92XB", "hostname": "edge-1", "os": "linux", "arch": "x86_64", "agentVersion": "0.1.0" }
-← { "apiKey": "tern_…", "agentId": "…", "agentName": "edge-1", "tenantSlug": "acme",
-    "jobs": [ { "controlKey": "api-gateway", "intervalS": null,
-                "probe": { "type": "http", "url": "https://example.com/health" },
-                "assertions": [ { "type": "status_code", "range": [200, 299] } ],
-                "payloadShape": "status" } ] }
-```
-
-Two things to know:
-
-- **The key is returned exactly once.** It is stored as a hash.
-- **The jobs come with it.** A paired agent is a configured agent; the list of
-  probes never lives only on the monitored host, where it would drift from what
-  the admin believes is monitored.
-
-Wrong, expired and used-up codes all answer identically. Distinguishing them
-would tell a guesser which codes exist. Five failures kill a code.
-
-Job fields are `snake_case` inside `probe` and `assertions`, because the agent
-reads the same shape from JSON and from the TOML it writes. The conversion
-happens once, in `packages/shared/src/templates.ts`.
-
-`payloadShape` tells the agent what the control's chart will draw, so it can warn
-when a control is drawn as a measurement but its probe captures no value — the
-failure where the probe runs, the push is accepted, and the chart stays empty.
-
-### `GET /api/v1/agent/jobs`
-
-The same assignment, re-read with the ingest key. An agent asks on every start.
-Without it, an agent paired last month runs last month's probes and adding a
-control means touching every host.
-
-Scope comes from the key: a key issued for two controls never learns about the
-rest of the tenant.
-
-## The proxy
-
-`tern-proxy` serves `/api/v1/pair`, `/api/v1/agent/jobs` and `/api/v1/ingest`
-with the same bodies as TERN. An agent pointed at a proxy is an ordinary agent.
-
-```
-   isolated zone                    DMZ                    internet
-   ┌───────────┐                ┌──────────┐            ┌──────────┐
-   │ tern-agent│──── pair ─────▶│tern-proxy│──── pair ─▶│   TERN   │
-   │           │──── jobs ─────▶│  cache   │──── jobs ─▶│          │
-   │           │──── ingest ───▶│  queue   │──── ingest▶│          │
-   │           │                │inventory │──── zone ─▶│          │
-   └───────────┘                └──────────┘            └──────────┘
-      local key issued            upstream key            tenant key
-      by the proxy                held here only
-```
-
-- The proxy issues **its own** PINs and keys. The upstream credential never
-  enters the zone, so a compromised host there cannot reach TERN, and revoking
-  the proxy revokes the zone.
-- It **caches the assignment**, so agents restarting during an upstream outage
-  still get their jobs — and it starts even when upstream is down, because
-  refusing to would take the zone's monitoring with it.
-- It **declares its zone** upstream: `POST /api/v1/agent/zone`, on the same loop
-  that refreshes the assignment. A name, a last contact in Unix seconds, and the
-  address the proxy sees inside the zone — nothing else, because nothing else is
-  known to it. The server files those agents behind the proxy so the fleet view
-  can draw the chain instead of one dot standing for nine machines. The list
-  replaces rather than merges: an agent the proxy no longer serves has to
-  disappear from the view, and it is unlinked rather than deleted, because
-  losing a relay must not erase the record of what was behind it. Only an agent
-  that paired as a proxy may post there; anything else is a `403`, since
-  inventing machines is not a benign misconfiguration. See
-  [what the zone discloses](./security.md#what-an-isolated-zone-discloses).
-- It **acknowledges ingest immediately** and forwards from a bounded on-disk
-  queue. Blocking every agent in the zone on a link that may be down is exactly
-  backwards.
+What remains here is everything that is not agent-shaped: the ingest surface
+above (shared by agents and hand-written clients), receivers, the read
+endpoints, and what leaves.
 
 ## Reading
 

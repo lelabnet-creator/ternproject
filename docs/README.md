@@ -9,7 +9,8 @@ says which.
 | [Getting started](./tutorial.md)       | From nothing to a page that monitors — a first agent, a control, a relay, an isolated zone |
 | [Architecture](./architecture.md)      | What the pieces are, why they are separate, and how a request moves through them           |
 | [Data model](./data-model.md)          | Every table, what it holds, and the decisions frozen into it                               |
-| [Data exchange](./data-exchange.md)    | Every way data enters or leaves: ingestion, pairing, jobs, probes, webhooks, feeds         |
+| [Data exchange](./data-exchange.md)    | Every way data enters or leaves: ingestion, receivers, reading, webhooks, feeds            |
+| [The agent protocol](./protocol.md)    | Server ↔ agent ↔ relay: pairing, polls, instructions, zones, versioning, errors, DEV trace |
 | [The probe specification](./probes.md) | What a probe is, what an assertion means, and why it is implemented twice                  |
 | [Importing controls](./import.md)      | The YAML file format, field by field, and what a rejected file tells you                   |
 | [Operations](./operations.md)          | Installing, sizing, backing up, upgrading, and what breaks first                           |
