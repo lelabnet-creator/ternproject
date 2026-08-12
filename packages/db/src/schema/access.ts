@@ -1,3 +1,4 @@
+import { isNull } from 'drizzle-orm'
 import type { AnyPgColumn } from 'drizzle-orm/pg-core'
 import {
   boolean,
@@ -280,5 +281,14 @@ export const agentCommands = pgTable(
     /** Why it could not be done, when it could not. */
     error: text(),
   },
-  (t) => [index('agent_commands_agent_idx').on(t.agentId, t.createdAt)],
+  (t) => [
+    index('agent_commands_agent_idx').on(t.agentId, t.createdAt),
+    /**
+     * Partial, on the undelivered rows only — the question the heartbeat asks
+     * every minute for every agent ("does anything wait for me or my zone?").
+     * Undelivered rows are the queue's live tail and stay a handful; the
+     * delivered ones are history and only ever read by id or by agent.
+     */
+    index('agent_commands_undelivered_idx').on(t.agentId).where(isNull(t.deliveredAt)),
+  ],
 )

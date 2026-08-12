@@ -1,0 +1,1 @@
+CREATE INDEX "agent_commands_undelivered_idx" ON "agent_commands" USING btree ("agent_id") WHERE "agent_commands"."delivered_at" is null;
