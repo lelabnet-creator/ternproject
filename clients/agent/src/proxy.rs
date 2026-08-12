@@ -100,6 +100,13 @@ pub struct LocalKey {
     /// The address it was last seen at, inside the zone.
     #[serde(default)]
     pub ip: Option<String>,
+    /// The id this relay answered at pairing, kept so it stays true.
+    ///
+    /// It used to be invented per response — `proxy-local-<count>` — which
+    /// re-numbered every agent as keys came and went: the field lied to
+    /// anything that kept it. Empty for keys issued before this existed.
+    #[serde(default)]
+    pub agent_id: Option<String>,
 }
 
 /**
@@ -481,6 +488,9 @@ pub async fn run(
         .route("/api/v1/agent/releases", get(releases))
         .route("/api/v1/agent/bin/{file}", get(binary))
         .route("/health", get(health))
+        // The same version discipline as the server, from the zone's point of
+        // view: an agent whose relay is older than it must hear so, loudly.
+        .layer(axum::middleware::from_fn(protocol_version_layer))
         .with_state(state.clone());
 
     /*
@@ -541,8 +551,12 @@ pub async fn run(
         // fact about a zone agent that only the proxy can observe.
         app.into_make_service_with_connect_info::<SocketAddr>(),
     )
+    // SIGTERM as well as Ctrl-C, same as the agent and for the same reason:
+    // `docker stop`, compose and systemd all send SIGTERM, and a relay killed
+    // outright skips the graceful path. The queue persists on every push, so
+    // nothing was lost — but the shutdown should be the one that was asked for.
     .with_graceful_shutdown(async {
-        let _ = tokio::signal::ctrl_c().await;
+        crate::runner::stop_requested().await;
         info!("stopping");
     })
     .await
@@ -1063,31 +1077,29 @@ async fn pair(State(state): State<AppState>, Json(body): Json<PairBody>) -> impl
                     info!(%tenant, "the server accepted a code for this zone");
                 }
                 Err(error) => {
-                    let text = error.to_string();
                     // Two different facts, and the one that matters is which.
                     // Told as one, they send somebody looking at their PIN
                     // while the truth is that this relay cannot ask anybody —
                     // which is what happened during an upgrade of the server.
-                    if text.starts_with("refused:") {
+                    // A refusal the server actually sent is a typed ApiError;
+                    // anything else is the network.
+                    if error.downcast_ref::<crate::transport::ApiError>().is_some() {
                         info!("no local PIN matched and the server refused the code");
-                        return (
+                        return problem(
                             StatusCode::UNAUTHORIZED,
-                            Json(json!({ "message": "Invalid or expired pairing code" })),
-                        )
-                            .into_response();
+                            "unauthorized",
+                            "Invalid or expired pairing code",
+                        );
                     }
 
                     warn!(%error, "cannot check the code — the server is unreachable");
-                    return (
+                    return problem(
                         StatusCode::SERVICE_UNAVAILABLE,
-                        Json(json!({
-                            "message":
-                                "This relay cannot reach TERN, so it cannot check that code. \
-                                 Try again once the server is back, or mint a PIN on the relay \
-                                 itself with: tern-proxy pin"
-                        })),
-                    )
-                        .into_response();
+                        "upstream-unreachable",
+                        "This relay cannot reach TERN, so it cannot check that code. \
+                         Try again once the server is back, or mint a PIN on the relay \
+                         itself with: tern-proxy pin",
+                    );
                 }
             }
 
@@ -1097,6 +1109,10 @@ async fn pair(State(state): State<AppState>, Json(body): Json<PairBody>) -> impl
 
     let name = body.hostname.clone().unwrap_or_else(|| "agent".to_string());
     let key = format!("ternp_{}", crate::transport::random_token(24));
+    // Stable, and stored with the key: `proxy-local-<count>` was re-numbered
+    // as keys came and went, so the id this route answered lied to anything
+    // that kept it.
+    let agent_id = format!("zone-{}", crate::transport::random_token(8));
 
     inner.config.local_keys.push(LocalKey {
         name: name.clone(),
@@ -1105,6 +1121,7 @@ async fn pair(State(state): State<AppState>, Json(body): Json<PairBody>) -> impl
         // pairs and never comes back must not look alive upstream.
         last_seen: None,
         ip: None,
+        agent_id: Some(agent_id.clone()),
     });
     let path = inner.config_path.clone();
     if let Err(error) = inner.config.save(&path) {
@@ -1115,7 +1132,6 @@ async fn pair(State(state): State<AppState>, Json(body): Json<PairBody>) -> impl
 
     let jobs = inner.jobs.clone();
     let slug = inner.tenant_slug.clone();
-    let agent_id = format!("proxy-local-{}", inner.config.local_keys.len());
     let upstream = inner.config.api_key.clone();
 
     /*
@@ -1173,7 +1189,24 @@ async fn heartbeat(
     };
     touch(&mut inner, index, Some(peer.ip().to_string()));
 
-    (StatusCode::OK, Json(json!({ "ok": true }))).into_response()
+    /*
+     * Whether an instruction waits for *this* machine — the answer that was
+     * missing, and the reason a zone order took five minutes.
+     *
+     * The runner shortens its next poll the moment a beat says something
+     * waits; the server says it to the relay, the relay's own poll reacted,
+     * and then this handler answered `{ok}` alone — so the zone agent, whose
+     * beat lands here, never heard and slept out its full refresh interval.
+     * The relay had the instruction in hand the entire time.
+     */
+    let name = &inner.config.local_keys[index].name;
+    let waiting = inner.zone_commands.iter().any(|c| &c.agent == name);
+
+    (
+        StatusCode::OK,
+        Json(json!({ "ok": true, "commandsWaiting": waiting })),
+    )
+        .into_response()
 }
 
 async fn jobs_route(
@@ -1217,6 +1250,10 @@ async fn jobs_route(
             "tenantSlug": inner.tenant_slug,
             "jobs": inner.jobs,
             "commands": mine,
+            // Always empty — zones are one level deep, there is no relay
+            // behind a relay — but present, so this reply has the same shape
+            // as the server's and "the proxy speaks the same API" stays true.
+            "zoneCommands": [],
         })),
     )
         .into_response()
@@ -1257,11 +1294,11 @@ async fn command_result(
             // The machine did the thing; only saying so failed. Told as a
             // gateway problem rather than the agent's, because it is ours.
             warn!(%report, "could not forward a zone result upstream");
-            (
+            problem(
                 StatusCode::BAD_GATEWAY,
-                Json(json!({ "error": "could not reach the server" })),
+                "upstream-unreachable",
+                "could not reach the server",
             )
-                .into_response()
         }
     }
 }
@@ -1348,12 +1385,89 @@ fn touch(inner: &mut Inner, index: usize, ip: Option<String>) {
     }
 }
 
-fn unauthorised() -> axum::response::Response {
-    (
-        StatusCode::UNAUTHORIZED,
-        Json(json!({ "message": "Invalid or missing API key" })),
+/// The zone half of the version check — the same policy as the server's.
+///
+/// Required on the protocol routes, tolerated-if-absent on none of them here
+/// except ingest (a zone can hold hand-written pushers too), ignored on the
+/// download surface. The version is echoed on every protocol reply so either
+/// side of a mismatch can quote the other.
+async fn protocol_version_layer(
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> Response {
+    let path = request.uri().path().to_string();
+    let required = path == "/api/v1/pair"
+        || (path.starts_with("/api/v1/agent/")
+            && !path.starts_with("/api/v1/agent/releases")
+            && !path.starts_with("/api/v1/agent/bin/"));
+    let if_present = path == "/api/v1/ingest";
+    if !required && !if_present {
+        return next.run(request).await;
+    }
+
+    let ours = crate::transport::PROTOCOL_VERSION.to_string();
+    let announced = request
+        .headers()
+        .get(crate::transport::PROTOCOL_HEADER)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_string);
+
+    let mismatch = match &announced {
+        Some(theirs) => *theirs != ours,
+        None => required,
+    };
+
+    let mut response = if mismatch {
+        warn!(%path, announced = announced.as_deref().unwrap_or("none"), "protocol mismatch");
+        problem(
+            StatusCode::BAD_REQUEST,
+            "protocol-mismatch",
+            &format!(
+                "This relay speaks protocol {ours}; the request announced {}. \
+                 Server, relay and agents are upgraded together — update the older side.",
+                announced.as_deref().unwrap_or("none")
+            ),
+        )
+    } else {
+        next.run(request).await
+    };
+
+    response.headers_mut().insert(
+        axum::http::HeaderName::from_static(crate::transport::PROTOCOL_HEADER),
+        axum::http::HeaderValue::from_str(&ours)
+            .unwrap_or(axum::http::HeaderValue::from_static("1")),
+    );
+    response
+}
+
+/// An RFC 9457 problem document — the same error shape the server sends, with
+/// the same `code`s, so a zone agent parses one error format wherever its
+/// `server =` points. "The proxy speaks the same API" has to include refusals.
+fn problem(status: StatusCode, code: &str, detail: &str) -> axum::response::Response {
+    let mut response = (
+        status,
+        Json(json!({
+            "type": format!("https://tern.dev/problems/{code}"),
+            "title": status.canonical_reason().unwrap_or("Error"),
+            "status": status.as_u16(),
+            "code": code,
+            "detail": detail,
+        })),
     )
-        .into_response()
+        .into_response();
+    response.headers_mut().insert(
+        axum::http::header::CONTENT_TYPE,
+        axum::http::HeaderValue::from_static("application/problem+json"),
+    );
+    response
+}
+
+fn unauthorised() -> axum::response::Response {
+    problem(
+        StatusCode::UNAUTHORIZED,
+        "unauthorized",
+        "Invalid or missing API key",
+    )
 }
 
 // ── CLI-facing helpers ──────────────────────────────────────────────────────
@@ -1730,6 +1844,7 @@ mod tests {
                 key_hash: hash("ternp_local"),
                 last_seen: None,
                 ip: None,
+                agent_id: None,
             }],
         }
     }
@@ -1832,6 +1947,7 @@ mod tests {
             key_hash: "hash".into(),
             last_seen: None,
             ip: None,
+            agent_id: None,
         });
 
         // The instruction lands.
@@ -1900,6 +2016,7 @@ mod tests {
             key_hash: hash(key),
             last_seen: None,
             ip: None,
+            agent_id: None,
         };
         assert_ne!(stored.key_hash, key);
         assert_eq!(stored.key_hash.len(), 64);

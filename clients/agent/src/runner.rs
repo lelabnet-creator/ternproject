@@ -222,7 +222,7 @@ pub async fn run_once(entry: &ProbeEntry) -> Point {
 /// all send SIGTERM; an agent that only watched for Ctrl-C was killed outright
 /// by every one of them, losing whatever it had buffered since the last flush.
 #[cfg(unix)]
-async fn stop_requested() {
+pub async fn stop_requested() {
     use tokio::signal::unix::{signal, SignalKind};
 
     let mut terminate = match signal(SignalKind::terminate()) {
@@ -243,7 +243,7 @@ async fn stop_requested() {
 }
 
 #[cfg(not(unix))]
-async fn stop_requested() {
+pub async fn stop_requested() {
     let _ = tokio::signal::ctrl_c().await;
 }
 
