@@ -174,10 +174,26 @@ hand-written client will do. Three bounds, each for a different reason:
 | Agent request           | 20 s  | Under the agent's own 30 s HTTP timeout                                                                                                                                           |
 | Relay hold for its zone | 20 s  | Sits _inside_ the relay's own wait — waiting longer than your relay does buys nothing                                                                                             |
 
-The agent asks again the moment a held beat returns, which is what makes the
-wait continuous. A reply that comes back **immediately** is read as "this server
-does not hold" and the agent keeps its 60 s cadence — so a new agent against an
-older TERN degrades to the old behaviour instead of hot-looping against it.
+The reply carries `holding`: whether this server honoured the request. **Said,
+not inferred** — the agent first worked it out from how long the reply took, and
+that inference was wrong in the one case that matters. A relay releases the
+beats it is holding as it shuts down, so its zone got instant replies, concluded
+"this one does not hold", and went quiet for a full minute exactly as the relay
+was coming back. Up to 57 s, measured. `holding` is absent from any server older
+than this, which is precisely the `false` it defaults to.
+
+What the agent does with an answer, in one rule (`runner::after`):
+
+| Answer                        | Next beat | Why                                                                                         |
+| ----------------------------- | --------- | ------------------------------------------------------------------------------------------- |
+| Something waits               | at once   | Sitting on it throws away what the hold just bought                                         |
+| Held, and it lasted           | at once   | The hold _is_ the wait; it is continuous only if the next one is already open               |
+| Holds, but returned instantly | 2 s       | A relay letting go as it restarts — 200 ms would be a 5 Hz poll at a peer that is rebooting |
+| Does not hold                 | 60 s      | Anything older answers at once by design; asking again immediately would hammer it          |
+
+A first failed beat also costs **2 s** rather than a minute: most first failures
+are not outages, they are a peer restarting. A real outage pays for that once,
+in one extra request, and then the ladder is the usual 60 s → 15 min.
 
 Why a held POST and not a WebSocket: the property that makes an agent reachable
 at all is that the agent opens the connection. Through a firewall, through a
@@ -224,6 +240,8 @@ One bound worth knowing, and one that used to be. A zone instruction crosses
 two hops, and each of them holds its beat — so the floor is two round trips
 rather than two beat intervals. Measured on the bench, console to a machine with
 no route back to the server at all: **0.30 s**, against 46 s before the hold.
+The worst moment — an instruction posted in the instant a relay is restarting —
+is **2.1 s**, which is the 2 s step above and nothing more.
 The relay holds undelivered
 zone instructions in memory only: a relay restarted before passing one on
 loses it, and the console shows "asked, no answer" — the same promise as

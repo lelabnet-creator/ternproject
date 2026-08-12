@@ -561,7 +561,17 @@ was always ignored. Five wrong answers and the door shuts for a minute.
 Nothing here reaches an agent. Agents poll; this server never opens a connection
 to one, and an agent behind a relay has no route back at all. So the fleet
 screen's `⋯` menu does not _do_ these things — it asks, and the machine takes
-the instruction on its next check-in, **about a minute**.
+the instruction on its next check-in.
+
+That check-in is now **held open**, so "next" means about a second rather than
+about a minute. The agent asks whether anything is waiting and the server keeps
+the request open until there is an answer; the agent asks again the moment it
+returns. Nothing to configure, and nothing new to allow through a firewall — it
+is still the agent opening an ordinary connection outwards. Measured on a
+machine with no route back to the server at all, behind a relay: **0.3 s**, and
+at worst about two seconds if a relay happens to be restarting at that instant.
+An agent too old to ask for the wait keeps the old minute, so a fleet updates at
+its own pace.
 
 | Asked             | What happens                                                                |
 | ----------------- | --------------------------------------------------------------------------- |
@@ -623,6 +633,36 @@ had been revoked. That identifier is deliberately not derived from anything
 about the host: two agents on one machine are two installs, and two VMs cloned
 from one image share a hostname and a machine id — merging either pair would
 silently drop a machine's monitoring, which looks exactly like success.
+
+### Only one copy at a time
+
+Starting an agent takes a lock on its config, and a second copy refuses:
+
+```
+Another tern-agent is already using /etc/tern/agent.toml.
+  process   4213 (tern-agent 0.1.0)
+  started   2026-08-12T13:00:00Z
+
+Two copies sharing one config overwrite each other's changes, so this one is stopping.
+If that one is a leftover — an older version started by hand, say — stop it first:
+  kill 4213
+Under a supervisor, restart the service instead of starting a second copy.
+```
+
+This is worth knowing because the symptoms of two copies never point at two
+copies. Both write the config — a refreshed assignment, a rotated key, the
+page's password — and the last writer wins with whatever it was holding. An
+agent that had just been re-paired went back to pointing at an old server
+because a copy left over from a run by hand kept rewriting the file underneath
+the service. The version you see in the fleet is whichever copy spoke last.
+
+The refusal never kills the other process, and it names it so you can decide.
+An ordinary update never meets this: `systemctl restart` stops the old process
+before starting the new one, so the lock is free by the time it is asked for.
+
+`tern-agent run --once` is exempt — it is a diagnostic people run while the
+service is up. It measures and reports, and stands down from refreshing the
+config, which is the only part that could do harm.
 
 ## Behind a reverse proxy
 
