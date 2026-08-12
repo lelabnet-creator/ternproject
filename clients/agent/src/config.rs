@@ -93,6 +93,11 @@ impl Running {
         *self == Running::Active
     }
 
+    /// For `skip_serializing_if`, which needs a path it can name.
+    pub fn is_active(&self) -> bool {
+        *self == Running::Active
+    }
+
     /// Whether probes run.
     pub fn measures(&self) -> bool {
         *self == Running::Active
@@ -971,5 +976,23 @@ mod install_id_tests {
 
         assert_eq!(install_id_at(&path), "relay-identity");
         std::fs::remove_dir_all(&dir).ok();
+    }
+}
+
+impl crate::commands::Controllable for Config {
+    fn ui(&self) -> Option<&UiSettings> {
+        self.ui.as_ref()
+    }
+    fn set_ui(&mut self, ui: Option<UiSettings>) {
+        self.ui = ui;
+    }
+    fn state(&self) -> Running {
+        self.state
+    }
+    fn set_state(&mut self, state: Running) {
+        self.state = state;
+    }
+    fn write(&self, path: &Path) -> anyhow::Result<()> {
+        self.save(path)
     }
 }

@@ -78,6 +78,12 @@ pub struct ProxyConfig {
     /// nothing.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ui: Option<crate::config::UiSettings>,
+
+    /// Told to stop, and how far. Same meaning as an agent's — see
+    /// `config::Running`. A paused relay still forwards what its zone sends;
+    /// a stopped one talks to nothing upstream.
+    #[serde(default, skip_serializing_if = "crate::config::Running::is_active")]
+    pub state: crate::config::Running,
     /// Locally issued agent keys, hashed. Never the keys themselves.
     #[serde(default)]
     pub local_keys: Vec<LocalKey>,
@@ -347,6 +353,16 @@ struct Inner {
     config: ProxyConfig,
     config_path: PathBuf,
     pins: Vec<LocalPin>,
+    /**
+     * Instructions waiting for the machines in this zone.
+     *
+     * In memory only, and that is the honest choice: an instruction the relay
+     * is holding when it restarts is lost rather than repeated. The server
+     * marked it handed over when it handed it over, so it will not be sent
+     * twice — and a restart carried out twice is worse than one never carried
+     * out, which the console can see and ask for again.
+     */
+    zone_commands: Vec<crate::transport::ZoneCommand>,
     /// The last assignment read from upstream, served while it is unreachable.
     jobs: Vec<Job>,
     tenant_slug: String,
@@ -399,6 +415,7 @@ pub async fn run(
             config: config.clone(),
             config_path,
             pins: Vec::new(),
+            zone_commands: Vec::new(),
             jobs,
             tenant_slug,
             queue: crate::runner::Queue::open(&queue_path),
@@ -433,6 +450,10 @@ pub async fn run(
         .route("/api/v1/ingest", post(ingest))
         .route("/api/v1/agent/jobs", get(jobs_route))
         .route("/api/v1/agent/heartbeat", post(heartbeat))
+        .route(
+            "/api/v1/agent/commands/{command_id}/result",
+            post(command_result),
+        )
         // The installation of the zone, relayed. Without these four, a machine
         // with no route to TERN can be paired but not installed, and the one
         // command an operator wants to run does not exist.
@@ -517,6 +538,40 @@ fn spawn_refresh(state: AppState, every_s: u64) {
                     }
                     inner.jobs = response.jobs;
                     inner.tenant_slug = response.tenant_slug;
+
+                    /*
+                     * What the console asked of the machines behind this relay.
+                     *
+                     * Held until each one next asks for its jobs, which is the
+                     * only moment it can be handed over — a zone agent is
+                     * reachable by nothing, including its own relay.
+                     */
+                    if !response.zone_commands.is_empty() {
+                        info!(
+                            waiting = response.zone_commands.len(),
+                            "instructions for the zone"
+                        );
+                        inner.zone_commands.extend(response.zone_commands);
+                    }
+
+                    // The relay's own instructions, carried out here.
+                    if !response.commands.is_empty() {
+                        let path = inner.config_path.clone();
+                        let mut config = inner.config.clone();
+                        drop(inner);
+                        let restart = crate::commands::apply(
+                            &state.client,
+                            &key,
+                            &response.commands,
+                            &mut config,
+                            &path,
+                        )
+                        .await;
+                        state.inner.lock().await.config = config;
+                        if restart {
+                            crate::commands::leave_for_restart();
+                        }
+                    }
                 }
                 // Keeping the previous copy is the point: agents restarting
                 // during an upstream outage still get their jobs.
@@ -977,11 +1032,81 @@ async fn jobs_route(
     // sees an agent at all. Both count as alive.
     touch(&mut inner, index, Some(peer.ip().to_string()));
 
+    /*
+     * Anything waiting for this machine, handed over now.
+     *
+     * Removed as they are handed over rather than after an answer, for the same
+     * reason the server does it: a restart is carried out by a process that
+     * stops existing, and one still queued would be handed to it again on the
+     * way up.
+     */
+    let name = inner.config.local_keys[index].name.clone();
+    let mut mine = Vec::new();
+    inner.zone_commands.retain(|c| {
+        if c.agent == name {
+            mine.push(json!({ "id": c.id, "kind": c.kind }));
+            false
+        } else {
+            true
+        }
+    });
+    if !mine.is_empty() {
+        info!(agent = %name, count = mine.len(), "handing instructions to a zone machine");
+    }
+
     (
         StatusCode::OK,
-        Json(json!({ "tenantSlug": inner.tenant_slug, "jobs": inner.jobs })),
+        Json(json!({
+            "tenantSlug": inner.tenant_slug,
+            "jobs": inner.jobs,
+            "commands": mine,
+        })),
     )
         .into_response()
+}
+
+/**
+ * A zone machine saying what became of an instruction.
+ *
+ * Forwarded upstream under the relay's own key, which is the only key the
+ * server knows for anything in this zone. The server accepts it because the
+ * instruction belongs to a machine behind this relay, and refuses anything
+ * else — so this route cannot be used to answer for somebody else's agent.
+ */
+async fn command_result(
+    State(state): State<AppState>,
+    axum::extract::Path(command_id): axum::extract::Path<String>,
+    headers: HeaderMap,
+    Json(body): Json<Value>,
+) -> impl IntoResponse {
+    let key = {
+        let inner = state.inner.lock().await;
+        if identify(&inner, &headers).is_none() {
+            return unauthorised();
+        }
+        inner.config.api_key.clone()
+    };
+
+    let result = body.get("result").and_then(|v| v.as_str());
+    let error = body.get("error").and_then(|v| v.as_str());
+
+    match state
+        .client
+        .command_result(&key, &command_id, result, error)
+        .await
+    {
+        Ok(()) => (StatusCode::OK, Json(json!({ "ok": true }))).into_response(),
+        Err(report) => {
+            // The machine did the thing; only saying so failed. Told as a
+            // gateway problem rather than the agent's, because it is ours.
+            warn!(%report, "could not forward a zone result upstream");
+            (
+                StatusCode::BAD_GATEWAY,
+                Json(json!({ "error": "could not reach the server" })),
+            )
+                .into_response()
+        }
+    }
 }
 
 async fn ingest(
@@ -1258,6 +1383,7 @@ pub async fn init(server: &str, pin: &str, config_path: &Path, setup: ZoneSetup)
         // second port because it was installed would be a port on somebody's
         // machine that they never chose.
         ui: None,
+        state: Default::default(),
     };
     config.save(config_path)?;
 
@@ -1381,6 +1507,24 @@ impl Inner {
     }
 }
 
+impl crate::commands::Controllable for ProxyConfig {
+    fn ui(&self) -> Option<&crate::config::UiSettings> {
+        self.ui.as_ref()
+    }
+    fn set_ui(&mut self, ui: Option<crate::config::UiSettings>) {
+        self.ui = ui;
+    }
+    fn state(&self) -> crate::config::Running {
+        self.state
+    }
+    fn set_state(&mut self, state: crate::config::Running) {
+        self.state = state;
+    }
+    fn write(&self, path: &Path) -> anyhow::Result<()> {
+        self.save(path)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1417,6 +1561,7 @@ mod tests {
             forward_interval_s: default_forward_interval(),
             forward: Forward::default(),
             ui: None,
+            state: Default::default(),
             local_keys: vec![LocalKey {
                 name: "edge-1".into(),
                 key_hash: hash("ternp_local"),
@@ -1542,6 +1687,7 @@ mod tests {
     #[test]
     fn expired_pins_are_not_absorbed() {
         let mut inner = Inner {
+            zone_commands: Vec::new(),
             config: ProxyConfig {
                 server: "https://x.example".into(),
                 api_key: "k".into(),
@@ -1552,6 +1698,7 @@ mod tests {
                 forward: Forward::default(),
                 local_keys: Vec::new(),
                 ui: None,
+                state: Default::default(),
             },
             config_path: PathBuf::from("/tmp/none.toml"),
             pins: Vec::new(),

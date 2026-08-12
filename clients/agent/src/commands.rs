@@ -18,8 +18,25 @@
 
 use tracing::{info, warn};
 
-use crate::config::{Config, Running};
+use crate::config::{Running, UiSettings};
 use crate::transport::{Client, Command};
+
+/**
+ * What an instruction can act on.
+ *
+ * An agent's config and a relay's are different types with the same three
+ * things an instruction touches: a page, a running state, and a file to write
+ * them to. A trait rather than two copies of this logic, because the copy that
+ * drifts is the one that stops honouring `stop` — and the whole point of that
+ * state is a promise the console makes on its behalf.
+ */
+pub trait Controllable {
+    fn ui(&self) -> Option<&UiSettings>;
+    fn set_ui(&mut self, ui: Option<UiSettings>);
+    fn state(&self) -> Running;
+    fn set_state(&mut self, state: Running);
+    fn write(&self, path: &std::path::Path) -> anyhow::Result<()>;
+}
 
 /// What carrying out an instruction did, and what to do next.
 pub enum Outcome {
@@ -39,7 +56,7 @@ pub enum Outcome {
 /// Takes the config rather than reading it: the caller is holding the live copy
 /// the loop runs from, and a second read would let the two disagree about what
 /// this agent is doing.
-pub fn run(command: &Command, config: &mut Config, path: &std::path::Path) -> Outcome {
+pub fn run<C: Controllable>(command: &Command, config: &mut C, path: &std::path::Path) -> Outcome {
     match command.kind.as_str() {
         "pause" => set_state(config, path, Running::Paused, "paused — no probes will run"),
         "resume" => set_state(config, path, Running::Active, "resumed"),
@@ -93,14 +110,13 @@ pub fn run(command: &Command, config: &mut Config, path: &std::path::Path) -> Ou
              * as it hands it over.
              */
             let listen = config
-                .ui
-                .as_ref()
+                .ui()
                 .map(|u| u.listen.clone())
                 .unwrap_or_else(|| "0.0.0.0:38788".to_string());
-            let (settings, password) = crate::ui::configure(config.ui.as_ref(), Some(listen));
+            let (settings, password) = crate::ui::configure(config.ui(), Some(listen));
             let address = settings.listen.clone();
-            config.ui = Some(settings);
-            match config.save(path) {
+            config.set_ui(Some(settings));
+            match config.write(path) {
                 Ok(()) => {
                     info!(%address, "the local page was turned on from the console");
                     Outcome::Done(Some(password))
@@ -110,8 +126,8 @@ pub fn run(command: &Command, config: &mut Config, path: &std::path::Path) -> Ou
         }
 
         "ui-off" => {
-            config.ui = None;
-            match config.save(path) {
+            config.set_ui(None);
+            match config.write(path) {
                 Ok(()) => {
                     info!("the local page was turned off from the console");
                     Outcome::Done(None)
@@ -134,9 +150,14 @@ pub fn run(command: &Command, config: &mut Config, path: &std::path::Path) -> Ou
     }
 }
 
-fn set_state(config: &mut Config, path: &std::path::Path, state: Running, said: &str) -> Outcome {
-    config.state = state;
-    match config.save(path) {
+fn set_state<C: Controllable>(
+    config: &mut C,
+    path: &std::path::Path,
+    state: Running,
+    said: &str,
+) -> Outcome {
+    config.set_state(state);
+    match config.write(path) {
         Ok(()) => {
             info!(%said, "told by the console");
             Outcome::Done(Some(said.to_string()))
@@ -151,11 +172,11 @@ fn set_state(config: &mut Config, path: &std::path::Path, state: Running, said: 
 /// Carries out everything that arrived, answering each one.
 ///
 /// Returns whether this process should now end — a restart, and nothing else.
-pub async fn apply(
+pub async fn apply<C: Controllable>(
     client: &Client,
     api_key: &str,
     commands: &[Command],
-    config: &mut Config,
+    config: &mut C,
     path: &std::path::Path,
 ) -> bool {
     let mut restart = false;

@@ -84,6 +84,25 @@ pub struct JobsResponse {
      */
     #[serde(default)]
     pub commands: Vec<Command>,
+    /**
+     * Instructions for the machines behind this relay.
+     *
+     * Only a relay ever sees these filled. Named rather than keyed by id
+     * because a relay knows its zone by name: it issued those keys itself, and
+     * the server never saw them.
+     */
+    #[serde(default)]
+    pub zone_commands: Vec<ZoneCommand>,
+}
+
+/// One instruction for a machine inside a zone, as the relay receives it.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ZoneCommand {
+    pub id: String,
+    pub kind: String,
+    /// The name the relay knows that machine by.
+    pub agent: String,
 }
 
 /// One instruction, as it arrives.

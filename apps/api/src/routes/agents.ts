@@ -682,6 +682,21 @@ const routes: FastifyPluginAsyncZod = async (app) => {
              * rather than made a route of its own it would never call.
              */
             commands: z.array(z.object({ id: z.string(), kind: z.string() })),
+            /**
+             * Instructions for the machines behind this relay, when it is one.
+             *
+             * A zone agent never reaches this server, so its instructions have
+             * to travel the way everything else about it does: through the
+             * relay, which hands each one to the machine it names on that
+             * machine's own next poll. Named rather than keyed by id because
+             * the relay knows its zone by name — it issued those keys itself,
+             * and this server never saw them.
+             *
+             * Empty for anything that is not a relay.
+             */
+            zoneCommands: z.array(
+              z.object({ id: z.string(), kind: z.string(), agent: z.string() }),
+            ),
           }),
         },
       },
@@ -730,10 +745,64 @@ const routes: FastifyPluginAsyncZod = async (app) => {
             .returning({ id: schema.agentCommands.id, kind: schema.agentCommands.kind })
         : []
 
+      /*
+       * And everything waiting for the machines behind it.
+       *
+       * Marked as handed over on the same terms as the relay's own: once. What
+       * the relay then does with it is the relay's business — if it dies before
+       * passing one on, that instruction is lost rather than repeated, which is
+       * the same promise made everywhere else here and the one that keeps a
+       * restart from happening twice.
+       */
+      const zoneCommands = agent
+        ? await app.db
+            .update(schema.agentCommands)
+            .set({ deliveredAt: new Date() })
+            .where(
+              and(
+                isNull(schema.agentCommands.deliveredAt),
+                inArray(
+                  schema.agentCommands.agentId,
+                  app.db
+                    .select({ id: schema.agents.id })
+                    .from(schema.agents)
+                    .where(eq(schema.agents.parentAgentId, agent.id)),
+                ),
+              ),
+            )
+            .returning({
+              id: schema.agentCommands.id,
+              kind: schema.agentCommands.kind,
+              agentId: schema.agentCommands.agentId,
+            })
+        : []
+
+      // Turned into names, because that is what a relay knows its zone by.
+      const names = new Map(
+        zoneCommands.length > 0
+          ? (
+              await app.db
+                .select({ id: schema.agents.id, name: schema.agents.name })
+                .from(schema.agents)
+                .where(
+                  inArray(
+                    schema.agents.id,
+                    zoneCommands.map((c) => c.agentId),
+                  ),
+                )
+            ).map((row) => [row.id, row.name] as const)
+          : [],
+      )
+
       return {
         tenantSlug: tenant?.slug ?? '',
         jobs: await jobsForAgent(app, key.tenantId, key.scopeControlIds ?? null, agent?.id),
         commands,
+        zoneCommands: zoneCommands.map((c) => ({
+          id: c.id,
+          kind: c.kind,
+          agent: names.get(c.agentId) ?? '',
+        })),
       }
     },
   )
@@ -771,9 +840,20 @@ const routes: FastifyPluginAsyncZod = async (app) => {
         .limit(1)
       if (!agent) throw app.httpErrors.unauthorized('Invalid or missing API key')
 
-      // Scoped to the agent the key belongs to, so one machine cannot answer
-      // for another — including a relay answering for its own zone, which is
-      // the one place a key legitimately speaks for several machines.
+      /*
+       * Scoped to what this key legitimately speaks for.
+       *
+       * Its own agent, and — when it is a relay — the machines behind it. That
+       * second case is not a loosening: a zone agent has no key on this server
+       * and never will, so its answer can only arrive through the relay that
+       * issued its key. Everything else is still refused, so one ordinary agent
+       * cannot answer for another.
+       */
+      const spokenFor = await app.db
+        .select({ id: schema.agents.id })
+        .from(schema.agents)
+        .where(eq(schema.agents.parentAgentId, agent.id))
+
       const updated = await app.db
         .update(schema.agentCommands)
         .set({
@@ -784,7 +864,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
         .where(
           and(
             eq(schema.agentCommands.id, req.params.commandId),
-            eq(schema.agentCommands.agentId, agent.id),
+            inArray(schema.agentCommands.agentId, [agent.id, ...spokenFor.map((a) => a.id)]),
           ),
         )
         .returning({ id: schema.agentCommands.id })
