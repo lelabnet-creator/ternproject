@@ -11,8 +11,10 @@ clients/examples/
 # Generated from the Zod schema by `pnpm gen:schema`. Formatting them here
 # guarantees the CI staleness check fails on every run: Prettier rewrites the
 # file, the generator writes it back, and the diff never settles.
+# (`schemas/conformance/` is NOT listed: those fixtures are written by hand.)
 schemas/*.json
 schemas/*.yaml
+schemas/agent-protocol/
 
 # Drizzle owns these. `pnpm db:generate` rewrites the snapshots and the journal
 # wholesale, unformatted, so checking their style makes CI fail on the next

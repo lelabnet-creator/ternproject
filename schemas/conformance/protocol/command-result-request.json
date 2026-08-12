@@ -3,7 +3,10 @@
   "message": "commandResultRequest",
   "examples": [
     { "result": "restarting", "error": null },
-    { "result": null, "error": "this agent does not know the instruction `defragment-the-hyperdrive`" },
+    {
+      "result": null,
+      "error": "this agent does not know the instruction `defragment-the-hyperdrive`"
+    },
     { "result": null, "error": null }
   ]
 }

@@ -13,8 +13,7 @@ use std::path::PathBuf;
 use serde::Deserialize;
 use serde_json::Value;
 use tern_agent::transport::{
-    Command, CommandKind, IngestResponse, JobsResponse, PairRequest, PairResponse, Point,
-    ZoneAgent,
+    Command, CommandKind, IngestResponse, JobsResponse, PairRequest, PairResponse, Point, ZoneAgent,
 };
 
 #[derive(Debug, Deserialize)]
@@ -97,9 +96,9 @@ fn jobs_responses_fit_including_an_unknown_kind() {
         .collect();
     // The fixture carries a kind no build knows, on purpose: receiving one
     // must not break the poll, and it must stay nameable to answer "unknown".
-    assert!(kinds
-        .iter()
-        .any(|kind| matches!(kind, CommandKind::Unknown(name) if name == "defragment-the-hyperdrive")));
+    assert!(kinds.iter().any(
+        |kind| matches!(kind, CommandKind::Unknown(name) if name == "defragment-the-hyperdrive")
+    ));
     assert!(kinds.iter().any(|kind| **kind == CommandKind::Restart));
 
     // Zone instructions carry the machine's name — the relay's whole index.

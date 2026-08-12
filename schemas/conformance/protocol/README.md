@@ -9,10 +9,10 @@ Two test suites read these same files, and that is the whole point:
   against the Zod schema — the source of truth the API routes serve.
 - `clients/agent/tests/protocol_conformance.rs` asserts every example
   deserializes into the Rust structs in `transport.rs`, and that the messages
-  the agent *emits* re-serialize to the same JSON.
+  the agent _emits_ re-serialize to the same JSON.
 
 The two implementations of the protocol never import each other; these files
-are the bridge. If a schema change breaks a fixture, fix the fixture *and*
+are the bridge. If a schema change breaks a fixture, fix the fixture _and_
 whichever side no longer agrees — the failure is the drift being caught, not
 the test being wrong.
 

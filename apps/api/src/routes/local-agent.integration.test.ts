@@ -245,7 +245,11 @@ describe('the heartbeat', () => {
     return fx.app.inject({
       method: 'POST',
       url: '/api/v1/agent/heartbeat',
-      headers: { 'x-tern-protocol': '1', authorization: `Bearer ${key}`, 'user-agent': 'tern-agent/9.9.9' },
+      headers: {
+        'x-tern-protocol': '1',
+        authorization: `Bearer ${key}`,
+        'user-agent': 'tern-agent/9.9.9',
+      },
       ...(body ? { payload: body } : {}),
     })
   }
@@ -339,7 +343,11 @@ describe('the heartbeat', () => {
     const response = await fx.app.inject({
       method: 'POST',
       url: '/api/v1/agent/heartbeat',
-      headers: { 'x-tern-protocol': '1', authorization: `Bearer ${issued.key}`, 'user-agent': 'tern-agent/9.9.9' },
+      headers: {
+        'x-tern-protocol': '1',
+        authorization: `Bearer ${issued.key}`,
+        'user-agent': 'tern-agent/9.9.9',
+      },
     })
 
     expect(response.statusCode).toBe(200)

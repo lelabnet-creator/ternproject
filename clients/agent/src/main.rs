@@ -515,7 +515,10 @@ async fn main() -> Result<()> {
                 match tern_agent::runner::drain(&client, &config.api_key, &mut queue).await {
                     Ok(accepted) => println!("pushed {accepted} point(s)"),
                     Err(error) => {
-                        eprintln!("could not push ({error}) — {} point(s) kept for the next run", queue.len());
+                        eprintln!(
+                            "could not push ({error}) — {} point(s) kept for the next run",
+                            queue.len()
+                        );
                     }
                 }
                 return Ok(());

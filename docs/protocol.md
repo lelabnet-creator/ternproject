@@ -27,7 +27,7 @@ is that a bare `curl` works.
 
 Conventions, fixed once:
 
-- Envelopes are camelCase. The one exception is the *content* of a job's
+- Envelopes are camelCase. The one exception is the _content_ of a job's
   `probe` and `assertions`, which stays snake_case because the agent reads the
   identical shape from `agent.toml` — TOML's convention — and a translation
   layer is a place for the two ends to disagree.
@@ -157,7 +157,7 @@ the way back is `tern-agent resume` in a shell on the machine. `ui-on` answers
 with the page password, hashed at rest on the machine: the reply is the only
 moment it travels.
 
-On `uiAddress`: `null` and *absent* are different statements. `null` clears
+On `uiAddress`: `null` and _absent_ are different statements. `null` clears
 the stored address ("no page, or loopback"); an absent field leaves it alone.
 The agent always sends the field explicitly.
 
@@ -227,17 +227,17 @@ Every error body, from server and relay alike, is RFC 9457
 reworded freely. Validation failures add `issues[]`, one entry per located
 problem. The codes on the agent surface:
 
-| `code`                 | Status | Meaning                                                                 |
-| ---------------------- | ------ | ----------------------------------------------------------------------- |
-| `unauthorized`         | 401    | Missing, revoked or foreign key — re-pair the agent                     |
-| `key-has-no-agent`     | 403    | The key is real but no agent row holds it (hand-minted keys, zone routes) |
-| `forbidden`            | 403    | An ordinary agent using a relay-only verb                               |
-| `protocol-mismatch`    | 400    | The two ends speak different versions; both are named in `detail`       |
-| `validation`           | 400    | The body failed the schema; see `issues[]`                              |
-| `not-found`            | 404    | Unknown command id — or one that is not yours, indistinguishably        |
-| `conflict`             | 409    | Instructing the instance's own local agent                              |
-| `rate-limited`         | 429    | Over `INGEST_RATE_LIMIT_MAX` / `PAIR_RATE_LIMIT_MAX`                    |
-| `upstream-unreachable` | 502/503| Relay only: the zone did its part, TERN could not be reached            |
+| `code`                 | Status  | Meaning                                                                   |
+| ---------------------- | ------- | ------------------------------------------------------------------------- |
+| `unauthorized`         | 401     | Missing, revoked or foreign key — re-pair the agent                       |
+| `key-has-no-agent`     | 403     | The key is real but no agent row holds it (hand-minted keys, zone routes) |
+| `forbidden`            | 403     | An ordinary agent using a relay-only verb                                 |
+| `protocol-mismatch`    | 400     | The two ends speak different versions; both are named in `detail`         |
+| `validation`           | 400     | The body failed the schema; see `issues[]`                                |
+| `not-found`            | 404     | Unknown command id — or one that is not yours, indistinguishably          |
+| `conflict`             | 409     | Instructing the instance's own local agent                                |
+| `rate-limited`         | 429     | Over `INGEST_RATE_LIMIT_MAX` / `PAIR_RATE_LIMIT_MAX`                      |
+| `upstream-unreachable` | 502/503 | Relay only: the zone did its part, TERN could not be reached              |
 
 The one deliberate exception: `GET /api/v1/agent/jobs` with a valid key that
 has no agent row **succeeds** with scope-derived jobs — a hand-minted key

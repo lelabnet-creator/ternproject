@@ -812,7 +812,9 @@ describe('a proxy declaring its zone', () => {
 
   it('unlinks an agent the zone no longer has, rather than deleting it', async () => {
     const proxy = await pairAs('proxy/0.1.0')
-    await declare(proxy.key, [{ name: 'leaving', lastSeenAt: '2026-08-06T07:06:40Z', ip: '10.0.0.9' }])
+    await declare(proxy.key, [
+      { name: 'leaving', lastSeenAt: '2026-08-06T07:06:40Z', ip: '10.0.0.9' },
+    ])
     await declare(proxy.key, [{ name: 'staying', lastSeenAt: null, ip: null }])
 
     const rows = await fleet()

@@ -407,15 +407,17 @@ fn host_of(base_url: &str) -> &str {
         // Bracketed IPv6: the port sits outside the brackets.
         return v6.split(']').next().unwrap_or(v6);
     }
-    authority.rsplit_once(':').map_or(authority, |(host, port)| {
-        // Only strip something that is actually a port; a bare IPv6 with no
-        // brackets has colons that are not one.
-        if port.chars().all(|c| c.is_ascii_digit()) {
-            host
-        } else {
-            authority
-        }
-    })
+    authority
+        .rsplit_once(':')
+        .map_or(authority, |(host, port)| {
+            // Only strip something that is actually a port; a bare IPv6 with no
+            // brackets has colons that are not one.
+            if port.chars().all(|c| c.is_ascii_digit()) {
+                host
+            } else {
+                authority
+            }
+        })
 }
 
 pub struct Client {
@@ -545,7 +547,11 @@ impl Client {
             status: status.as_u16(),
             code: problem.code,
             detail: if problem.detail.is_empty() {
-                if problem.title.is_empty() { text } else { problem.title }
+                if problem.title.is_empty() {
+                    text
+                } else {
+                    problem.title
+                }
             } else {
                 problem.detail
             },
@@ -719,7 +725,10 @@ impl Client {
             commands_waiting: bool,
         }
 
-        let beat: Beat = response.json().await.context("unexpected heartbeat response")?;
+        let beat: Beat = response
+            .json()
+            .await
+            .context("unexpected heartbeat response")?;
         Ok(beat.commands_waiting)
     }
 
@@ -829,7 +838,10 @@ mod tests {
         assert_eq!(host_of("http://[::1]:8080/api"), "::1");
         assert_eq!(host_of("https://api.example.com/v1"), "api.example.com");
         // The attack the prefix test let through.
-        assert_eq!(host_of("http://localhost.evil.example/x"), "localhost.evil.example");
+        assert_eq!(
+            host_of("http://localhost.evil.example/x"),
+            "localhost.evil.example"
+        );
     }
 
     /// The two mistakes the old prefix guard made, both directions.

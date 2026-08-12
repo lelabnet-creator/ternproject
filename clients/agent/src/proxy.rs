@@ -665,8 +665,7 @@ fn spawn_refresh(state: AppState, every_s: u64) {
                             }
                         }
                         None => {
-                            beat_hold =
-                                Some(tokio::time::Instant::now() + beat_backoff.failed());
+                            beat_hold = Some(tokio::time::Instant::now() + beat_backoff.failed());
                         }
                     }
                 }

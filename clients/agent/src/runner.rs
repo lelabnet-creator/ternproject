@@ -798,10 +798,8 @@ mod tests {
     /// mid-outage holds unsent history under the old `.jsonl` name.
     #[test]
     fn opening_absorbs_a_legacy_jsonl_buffer_oldest_first() {
-        let dir = std::env::temp_dir().join(format!(
-            "tern-queue-{}",
-            crate::transport::random_token(8)
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("tern-queue-{}", crate::transport::random_token(8)));
         std::fs::create_dir_all(&dir).unwrap();
         let new_path = dir.join("agent-queue.json");
         let old_path = dir.join("agent-queue.jsonl");
@@ -818,7 +816,11 @@ mod tests {
         .unwrap();
 
         let queue = Queue::open(&new_path);
-        let keys: Vec<String> = queue.peek(10).iter().map(|p| p.control_key.clone()).collect();
+        let keys: Vec<String> = queue
+            .peek(10)
+            .iter()
+            .map(|p| p.control_key.clone())
+            .collect();
         // Older half first: the queue is a FIFO and eviction eats the front.
         assert_eq!(keys, ["from-before", "from-now"]);
         assert!(!old_path.exists(), "absorbed once, not on every start");

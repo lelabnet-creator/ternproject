@@ -77,13 +77,16 @@ const plugin: FastifyPluginAsync = async (app) => {
       // The server built a reply its own schema refuses — a bug here, never
       // the caller's fault, and the caller gets no internals.
       req.log.error({ err: error, instance }, 'response failed its own schema')
-      return reply.code(500).type('application/problem+json').send({
-        type: `${TYPE_BASE}internal`,
-        title: 'Internal Server Error',
-        status: 500,
-        code: 'internal',
-        instance,
-      })
+      return reply
+        .code(500)
+        .type('application/problem+json')
+        .send({
+          type: `${TYPE_BASE}internal`,
+          title: 'Internal Server Error',
+          status: 500,
+          code: 'internal',
+          instance,
+        })
     }
 
     const status = err.statusCode && err.statusCode >= 400 ? err.statusCode : 500
@@ -107,11 +110,7 @@ const plugin: FastifyPluginAsync = async (app) => {
         code,
         // A 5xx detail would leak internals; everything 4xx was written to be
         // shown to the caller.
-        ...(status < 500
-          ? { detail: err.message }
-          : isProduction
-            ? {}
-            : { detail: err.message }),
+        ...(status < 500 ? { detail: err.message } : isProduction ? {} : { detail: err.message }),
         instance,
       })
   })

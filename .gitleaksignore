@@ -1,0 +1,11 @@
+# Findings excused by fingerprint — commit:file:rule:line, one per line.
+#
+# These two are the protocol conformance fixture's *example* API keys as first
+# committed: `tern_0123…` and `tern_fedcba…`, realistic enough in shape and
+# entropy to trip `generic-api-key`. They were never credentials — the file
+# exists to show what a pairing response looks like — and the values now in
+# the tree are low-entropy (`tern_0000…example`) so new commits scan clean.
+# The fingerprints below only excuse the historical commit, which a scan with
+# history keeps revisiting.
+46a331cc9d44b3c8039afbb0d5e209338eda8cf6:schemas/conformance/protocol/pair-response.json:generic-api-key:6
+46a331cc9d44b3c8039afbb0d5e209338eda8cf6:schemas/conformance/protocol/pair-response.json:generic-api-key:32
