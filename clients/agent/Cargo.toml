@@ -44,8 +44,6 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 socket2 = "0.6.5"
 # For `flock` alone. Already in the tree through tokio and socket2; named here
 # because a direct use deserves a direct line.
-[target.'cfg(unix)'.dependencies]
-libc = "0.2"
 # One crypto provider, and it has to be the one `reqwest` already brings.
 #
 # With default features this pulled `aws-lc-rs` while reqwest pulled `ring`, so
@@ -68,6 +66,15 @@ x509-parser = "0.18.1"
 axum = { version = "0.8.9", default-features = false, features = ["http1", "json", "tokio"] }
 sha2 = "0.10.9"
 if-addrs = "0.15.0"
+
+# Only `flock`, and only where there is one. See `lock`.
+#
+# Placed here, at the end and holding nothing else, because a target section
+# swallows every key that follows it: dropping this in the middle of
+# `[dependencies]` quietly made `axum`, `sha2` and `tokio-rustls` unix-only, and
+# the Windows build was the only thing that noticed.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
 
 [dev-dependencies]
 rcgen = { version = "0.14.7", default-features = false, features = ["pem", "crypto", "ring"] }

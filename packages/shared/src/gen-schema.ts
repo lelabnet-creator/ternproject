@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url'
 import { z } from 'zod'
 import {
   commandResultRequestSchema,
+  heartbeatRequestSchema,
   heartbeatResponseSchema,
   ingestPointSchema,
   ingestResponseSchema,
@@ -43,6 +44,10 @@ const documents = [
       ['pair-request', pairRequestSchema],
       ['pair-response', pairResponseSchema],
       ['jobs-response', jobsResponseSchema],
+      // Published now that it says something: it carries `waitSeconds`, and
+      // anyone writing their own agent needs to know that field exists and is
+      // optional. It was the one message left out, back when it was empty.
+      ['heartbeat-request', heartbeatRequestSchema],
       ['heartbeat-response', heartbeatResponseSchema],
       ['command-result-request', commandResultRequestSchema],
       ['zone-declaration', zoneDeclarationSchema],

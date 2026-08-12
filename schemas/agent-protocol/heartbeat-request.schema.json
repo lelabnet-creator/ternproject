@@ -1,0 +1,30 @@
+{
+  "$id": "https://tern.dev/schemas/agent-protocol/heartbeat-request.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "anyOf": [
+    {
+      "type": "object",
+      "properties": {
+        "uiAddress": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 255
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "waitSeconds": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 300
+        }
+      }
+    },
+    {
+      "type": "null"
+    }
+  ]
+}

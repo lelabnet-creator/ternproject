@@ -8,6 +8,9 @@
     },
     "commandsWaiting": {
       "type": "boolean"
+    },
+    "holding": {
+      "type": "boolean"
     }
   },
   "required": [
