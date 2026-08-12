@@ -8,25 +8,11 @@ le canal d'ordres non publié. Ordonné par ce qui bloque, puis par ce qui n'a p
 
 - [x] **Les ordres atteignent les agents de zone.** Le serveur rend
       `zoneCommands` au relais, qui les garde et les remet à chaque machine sur
-      son propre sondage ; les réponses remontent par une route du relais, sous
-      sa clé, et le serveur ne l'accepte que pour les machines derrière lui.
-      Prouvé sur le banc, sur `arch` qui n'a aucune route vers le serveur :
-      `logs` est revenu rempli, et `ui-on` a rendu un mot de passe qui ouvre
-      réellement sa page (`/login` → 204). Le relais a tracé
-      « instructions for the zone waiting=1 ».
-      Au passage, `pause`/`stop`/`ui-on` valent aussi pour un relais : la
-      logique est partagée par un trait plutôt que recopiée, parce que la copie
-      qui dérive est celle qui cesse d'honorer `stop`.
-
-      Ancien texte, pour mémoire : **Les ordres n'atteignent pas les agents de zone.** Le `jobs_route` du
-                      relais construit sa propre réponse (`tenantSlug`, `jobs`) sans le champ
-                      `commands`, et il n'a aucune route pour remonter un résultat. La demande
-                      était « pareil pour les agents derrière les proxy » : elle n'est pas
-                      satisfaite. À l'écran il n'y a pas de promesse fausse — un agent de zone
-                      n'a pas de menu — mais le message du commit `83877c0` affirme le
-                      contraire et se trompe.
-                      Travail : porter `commands` dans la réponse du relais, ajouter chez lui la
-                      route de résultat, et faire suivre les deux vers l'amont.
+      son propre sondage ; les réponses remontent sous la clé du relais, que le
+      serveur n'accepte que pour les machines derrière lui. Prouvé sur `arch`,
+      qui n'a aucune route vers le serveur : `logs` revenu rempli, et `ui-on`
+      rendant un mot de passe qui ouvre réellement sa page (`/login` → 204).
+      Au passage `pause`, `stop` et `ui-on` valent aussi pour un relais.
 
 - [ ] **Le canal d'ordres n'a jamais été exercé sur un relais.** Six ordres
       testés sur la VM ubuntu (agent direct), zéro sur rocky. `tern-proxy` a la
