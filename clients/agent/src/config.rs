@@ -818,7 +818,10 @@ impl UiSettings {
     }
 }
 
-fn is_loopback_host(host: &str) -> bool {
+/// Shared with the transport's plain-HTTP guard, so "loopback" means one
+/// thing in this binary: the guard used to test by string prefix and refused
+/// `http://[::1]` while this function accepted it.
+pub(crate) fn is_loopback_host(host: &str) -> bool {
     host == "localhost"
         || host
             .parse::<std::net::IpAddr>()

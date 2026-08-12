@@ -795,7 +795,9 @@ async fn declare_zone(state: &AppState, key: &str) {
             .iter()
             .map(|local| crate::transport::ZoneAgent {
                 name: local.name.clone(),
-                last_seen_unix: local.last_seen,
+                // Held as unix seconds in proxy.toml; RFC 3339 on the wire
+                // like every other protocol timestamp.
+                last_seen_at: local.last_seen.map(crate::transport::epoch_to_rfc3339),
                 ip: local.ip.clone(),
             })
             .collect();

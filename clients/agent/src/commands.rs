@@ -19,7 +19,7 @@
 use tracing::{info, warn};
 
 use crate::config::{Running, UiSettings};
-use crate::transport::{Client, Command};
+use crate::transport::{Client, Command, CommandKind};
 
 /**
  * What an instruction can act on.
@@ -77,12 +77,12 @@ pub enum Outcome {
 /// the loop runs from, and a second read would let the two disagree about what
 /// this agent is doing.
 pub fn run<C: Controllable>(command: &Command, config: &mut C, path: &std::path::Path) -> Outcome {
-    match command.kind.as_str() {
-        "pause" => {
+    match &command.kind {
+        CommandKind::Pause => {
             let said = format!("paused — {}", config.paused_means());
             set_state(config, path, Running::Paused, &said)
         }
-        "resume" => set_state(config, path, Running::Active, "resumed"),
+        CommandKind::Resume => set_state(config, path, Running::Active, "resumed"),
 
         /*
          * Stopped, not killed.
@@ -97,16 +97,16 @@ pub fn run<C: Controllable>(command: &Command, config: &mut C, path: &std::path:
          * nothing is listening for a resume, so the fleet sees it go quiet and
          * getting it back needs a shell on the machine.
          */
-        "stop" => set_state(
+        CommandKind::Stop => set_state(
             config,
             path,
             Running::Stopped,
             "stopped — reporting nothing until `resume` is run on the machine",
         ),
 
-        "restart" => Outcome::Restart,
+        CommandKind::Restart => Outcome::Restart,
 
-        "logs" => Outcome::Done(Some(crate::logbuf::snapshot())),
+        CommandKind::Logs => Outcome::Done(Some(crate::logbuf::snapshot())),
 
         /*
          * The page turned on, and the password handed back once.
@@ -116,7 +116,7 @@ pub fn run<C: Controllable>(command: &Command, config: &mut C, path: &std::path:
          * the one time it travels. Asking again mints another — the same promise
          * `tern-agent ui` makes at a terminal.
          */
-        "ui-on" => {
+        CommandKind::UiOn => {
             /*
              * Bound where the console can reach it, when nothing was chosen.
              *
@@ -148,7 +148,7 @@ pub fn run<C: Controllable>(command: &Command, config: &mut C, path: &std::path:
             }
         }
 
-        "ui-off" => {
+        CommandKind::UiOff => {
             config.set_ui(None);
             match config.write(path) {
                 Ok(()) => {
@@ -167,7 +167,7 @@ pub fn run<C: Controllable>(command: &Command, config: &mut C, path: &std::path:
          * rollout, and "this agent is too old for that" is what somebody needs
          * to read. Silence would look like an agent that is not listening.
          */
-        other => Outcome::Failed(format!(
+        CommandKind::Unknown(other) => Outcome::Failed(format!(
             "this agent does not know the instruction `{other}`"
         )),
     }

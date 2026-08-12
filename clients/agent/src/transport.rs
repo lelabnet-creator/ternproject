@@ -8,15 +8,53 @@ use serde::{Deserialize, Serialize};
 
 use crate::probe::Status;
 
+/// The protocol version this build speaks, asserted on every exchange.
+///
+/// Sent as `X-Tern-Protocol` and echoed by the server. No negotiation: the
+/// fleet and the server ship together, and a mismatch must be a loud, named
+/// refusal rather than a field-by-field guess. Mirrors `PROTOCOL_VERSION` in
+/// `packages/shared/src/agent-protocol.ts`.
+pub const PROTOCOL_VERSION: u32 = 1;
+pub const PROTOCOL_HEADER: &str = "x-tern-protocol";
+
 /// One agent of a proxy's zone, as the server is told about it.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ZoneAgent {
     pub name: String,
-    /// Unix seconds, or null for one that has paired and never come back.
-    pub last_seen_unix: Option<u64>,
+    /// RFC 3339 like every protocol timestamp, or null for one that has
+    /// paired and never come back. Formatted by `epoch_to_rfc3339` — the
+    /// twenty-line helper that keeps a date library out of the binary.
+    pub last_seen_at: Option<String>,
     /// As the proxy sees it, inside the zone.
     pub ip: Option<String>,
+}
+
+/// Unix seconds → `1970-01-01T00:00:00Z`-style RFC 3339, always UTC.
+///
+/// Written out rather than pulled in: `chrono` is a large dependency for one
+/// direction of one format, and this binary's whole point is being small
+/// enough to drop anywhere. The day arithmetic is the standard civil-from-days
+/// algorithm; the tests pin it against known dates including leap years.
+pub fn epoch_to_rfc3339(secs: u64) -> String {
+    let days = (secs / 86_400) as i64;
+    let rem = secs % 86_400;
+    let (hour, minute, second) = (rem / 3600, (rem % 3600) / 60, rem % 60);
+
+    // Howard Hinnant's civil_from_days, shifted so the era starts on a
+    // 400-year boundary (era day 0 = 0000-03-01).
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let year = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = if month <= 2 { year + 1 } else { year };
+
+    format!("{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}Z")
 }
 
 #[derive(Debug, Serialize)]
@@ -110,10 +148,62 @@ pub struct ZoneCommand {
 #[serde(rename_all = "camelCase")]
 pub struct Command {
     pub id: String,
-    /// Left as a string on purpose: an instruction this build does not know is
-    /// reported back as unknown rather than failing to parse the whole poll,
-    /// which would take the jobs down with it.
-    pub kind: String,
+    pub kind: CommandKind,
+}
+
+/// What the console can ask — the Rust side of `AGENT_COMMAND_KINDS`.
+///
+/// `Unknown` is what keeps a new kind from breaking an old agent: an
+/// instruction this build does not know still parses — taking the whole poll
+/// down with it would cut the agent off from its jobs too — and is answered
+/// as unknown, naming what it did not understand.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(from = "String")]
+pub enum CommandKind {
+    Pause,
+    Resume,
+    Stop,
+    Restart,
+    Logs,
+    UiOn,
+    UiOff,
+    Unknown(String),
+}
+
+impl From<String> for CommandKind {
+    fn from(kind: String) -> Self {
+        match kind.as_str() {
+            "pause" => Self::Pause,
+            "resume" => Self::Resume,
+            "stop" => Self::Stop,
+            "restart" => Self::Restart,
+            "logs" => Self::Logs,
+            "ui-on" => Self::UiOn,
+            "ui-off" => Self::UiOff,
+            _ => Self::Unknown(kind),
+        }
+    }
+}
+
+impl From<&str> for CommandKind {
+    fn from(kind: &str) -> Self {
+        Self::from(kind.to_string())
+    }
+}
+
+impl std::fmt::Display for CommandKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Pause => "pause",
+            Self::Resume => "resume",
+            Self::Stop => "stop",
+            Self::Restart => "restart",
+            Self::Logs => "logs",
+            Self::UiOn => "ui-on",
+            Self::UiOff => "ui-off",
+            Self::Unknown(kind) => kind,
+        })
+    }
 }
 
 // Deserialize as well: the proxy reads points its local agents send before
@@ -129,6 +219,14 @@ pub struct Point {
     pub value: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
+    /// When this was measured, RFC 3339, stamped by the prober.
+    ///
+    /// The reason the offline queue is honest: a point replayed hours after a
+    /// network cut lands at the time it was measured, not the time the link
+    /// came back — which is what the queue existed to preserve and silently
+    /// did not. The server clamps anything out of its window.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ts: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -190,6 +288,128 @@ fn plain_http_allowed() -> bool {
     std::env::var("TERN_ALLOW_PLAIN_HTTP").is_ok_and(|value| value == "1")
 }
 
+/// DEV mode: one debug line per protocol request and reply, bodies included.
+///
+/// The server half is the API's own `TERN_PROTOCOL_TRACE`; turned on together
+/// they show both ends of the same exchange. The lines ride `tracing` under
+/// the `protocol` target, so they land in the ring buffer too — the `logs`
+/// instruction and the local page can read a trace from a machine nobody can
+/// shell into. Same strict spelling as the HTTP opt-in, for the same reason.
+fn protocol_trace() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("TERN_PROTOCOL_TRACE").is_ok_and(|value| value == "1"))
+}
+
+/// A refusal the server actually sent, as opposed to a network that ate the
+/// request. Parsed from the RFC 9457 problem document every error body is.
+///
+/// Typed so callers can branch on facts instead of grepping a message: the
+/// relay turns "the server refused the code" into a 401 for its zone and "the
+/// server is unreachable" into a 503, and the runner tells a dead key from a
+/// bad night on the network.
+#[derive(Debug)]
+pub struct ApiError {
+    pub status: u16,
+    /// The machine-readable `code` — `unauthorized`, `key-has-no-agent`,
+    /// `protocol-mismatch`… Empty when the body was not a problem document.
+    pub code: String,
+    pub detail: String,
+}
+
+impl std::fmt::Display for ApiError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "the server refused it ({}", self.status)?;
+        if !self.code.is_empty() {
+            write!(f, " {}", self.code)?;
+        }
+        write!(f, ")")?;
+        if !self.detail.is_empty() {
+            write!(f, ": {}", self.detail)?;
+        }
+        // The one status worth a prescription: a 401 does not heal, and the
+        // log line is read on a machine where the fix is one command away.
+        if self.status == 401 {
+            write!(
+                f,
+                " — this key is no longer accepted; re-pair with `tern-agent pair`"
+            )?;
+        }
+        Ok(())
+    }
+}
+
+impl std::error::Error for ApiError {}
+
+/// Exponential backoff for a request that keeps failing.
+///
+/// Without it a permanent 401 was one warn per minute, forever — noise exactly
+/// where somebody would need to read. Doubles from one minute to a quarter of
+/// an hour and resets on the first success.
+#[derive(Debug)]
+pub struct Backoff {
+    failures: u32,
+}
+
+const BACKOFF_FLOOR_S: u64 = 60;
+const BACKOFF_CEILING_S: u64 = 900;
+
+impl Default for Backoff {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Backoff {
+    pub fn new() -> Self {
+        Self { failures: 0 }
+    }
+
+    /// Records a failure and says how long to hold off.
+    pub fn failed(&mut self) -> std::time::Duration {
+        self.failures = self.failures.saturating_add(1);
+        let secs = BACKOFF_FLOOR_S
+            .saturating_mul(2u64.saturating_pow(self.failures.saturating_sub(1)))
+            .min(BACKOFF_CEILING_S);
+        std::time::Duration::from_secs(secs)
+    }
+
+    pub fn succeeded(&mut self) {
+        self.failures = 0;
+    }
+
+    pub fn failing(&self) -> bool {
+        self.failures > 0
+    }
+}
+
+/// The host of `scheme://host[:port]/...`, brackets and port stripped.
+///
+/// Hand-rolled because the alternative was testing by string prefix, and a
+/// prefix is not a host: `http://localhost.evil.example` begins with
+/// `http://localhost` and is nobody's loopback, while `http://[::1]` is
+/// loopback and began with neither exemption.
+fn host_of(base_url: &str) -> &str {
+    let rest = base_url
+        .split_once("://")
+        .map(|(_, rest)| rest)
+        .unwrap_or(base_url);
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or(rest);
+
+    if let Some(v6) = authority.strip_prefix('[') {
+        // Bracketed IPv6: the port sits outside the brackets.
+        return v6.split(']').next().unwrap_or(v6);
+    }
+    authority.rsplit_once(':').map_or(authority, |(host, port)| {
+        // Only strip something that is actually a port; a bare IPv6 with no
+        // brackets has colons that are not one.
+        if port.chars().all(|c| c.is_ascii_digit()) {
+            host
+        } else {
+            authority
+        }
+    })
+}
+
 pub struct Client {
     http: reqwest::Client,
     base_url: String,
@@ -216,9 +436,17 @@ impl Client {
         // then on every report for the life of the agent, so an allowance that
         // covered only the first would be a false one. The generated installer
         // sets it in the service unit for exactly that reason.
-        if !base_url.starts_with("https://")
-            && !base_url.starts_with("http://localhost")
-            && !base_url.starts_with("http://127.0.0.1")
+        //
+        // Judged on the parsed host, not a string prefix: the prefix let
+        // `http://localhost.evil.example` through and refused `http://[::1]`,
+        // which is loopback by any other name. Same `is_loopback_host` as the
+        // rest of the binary, so "loopback" means one thing here.
+        let scheme_is_https = base_url
+            .split_once("://")
+            .map(|(scheme, _)| scheme.eq_ignore_ascii_case("https"))
+            .unwrap_or(false);
+        if !scheme_is_https
+            && !crate::config::is_loopback_host(host_of(&base_url))
             && !plain_http_allowed()
         {
             bail!(
@@ -237,23 +465,98 @@ impl Client {
         Ok(Self { http, base_url })
     }
 
+    /// Sends one protocol request: version header on, trace if asked, and a
+    /// refusal parsed into `ApiError` so callers branch on facts.
+    ///
+    /// Every protocol call goes through here — it is what makes "the agent
+    /// announces its version on every exchange" true by construction rather
+    /// than per call site.
+    async fn send(
+        &self,
+        request: reqwest::RequestBuilder,
+        method: &str,
+        path: &str,
+        body: Option<&serde_json::Value>,
+    ) -> Result<reqwest::Response> {
+        if protocol_trace() {
+            tracing::debug!(
+                target: "protocol",
+                %method, %path,
+                body = %body.map(ToString::to_string).unwrap_or_default(),
+                "-> request"
+            );
+        }
+
+        let mut request = request.header(PROTOCOL_HEADER, PROTOCOL_VERSION.to_string());
+        if let Some(body) = body {
+            request = request.json(body);
+        }
+
+        let response = request.send().await.context("could not reach the server")?;
+        let status = response.status();
+
+        // The echoed version. Absent is fine — a reply that got this far came
+        // from something that accepted ours — but a *different* one present
+        // means the ends disagree, and that must never pass silently.
+        if let Some(theirs) = response.headers().get(PROTOCOL_HEADER) {
+            let theirs = theirs.to_str().unwrap_or("?");
+            if theirs != PROTOCOL_VERSION.to_string() {
+                bail!(
+                    "protocol mismatch: this agent speaks {PROTOCOL_VERSION}, \
+                     the server answered {theirs} — upgrade the older side"
+                );
+            }
+        }
+
+        if status.is_success() {
+            if protocol_trace() {
+                tracing::debug!(target: "protocol", %method, %path, status = status.as_u16(), "<- ok");
+            }
+            return Ok(response);
+        }
+
+        let text = response.text().await.unwrap_or_default();
+        if protocol_trace() {
+            tracing::debug!(target: "protocol", %method, %path, status = status.as_u16(), body = %text, "<- refused");
+        }
+
+        // Every error body is an RFC 9457 problem document; anything else
+        // (a proxy in the way, an older server) degrades to the raw text.
+        #[derive(Deserialize, Default)]
+        struct Problem {
+            #[serde(default)]
+            code: String,
+            #[serde(default)]
+            detail: String,
+            #[serde(default)]
+            title: String,
+        }
+        let problem: Problem = serde_json::from_str(&text).unwrap_or_default();
+
+        Err(anyhow::Error::new(ApiError {
+            status: status.as_u16(),
+            code: problem.code,
+            detail: if problem.detail.is_empty() {
+                if problem.title.is_empty() { text } else { problem.title }
+            } else {
+                problem.detail
+            },
+        }))
+    }
+
     /// Exchanges a PIN for an ingest-scoped API key. The key is returned once.
     pub async fn pair(&self, request: &PairRequest) -> Result<PairResponse> {
+        let path = "/api/v1/pair";
+        let body = serde_json::to_value(request).context("unencodable pairing request")?;
         let response = self
-            .http
-            .post(format!("{}/api/v1/pair", self.base_url))
-            .json(request)
-            .send()
+            .send(
+                self.http.post(format!("{}{path}", self.base_url)),
+                "POST",
+                path,
+                Some(&body),
+            )
             .await
-            .context("could not reach the server")?;
-
-        if !response.status().is_success() {
-            let status = response.status();
-            let body = response.text().await.unwrap_or_default();
-            // The server answers identically for wrong, expired and used-up
-            // codes; repeating its message verbatim keeps it that way.
-            bail!("pairing failed ({status}): {body}");
-        }
+            .context("pairing failed")?;
 
         response.json().await.context("unexpected pairing response")
     }
@@ -263,19 +566,18 @@ impl Client {
     /// Pairing happens once; what is monitored changes. An agent that never
     /// asks again runs the probes it was given the day it was installed.
     pub async fn jobs(&self, api_key: &str) -> Result<JobsResponse> {
+        let path = "/api/v1/agent/jobs";
         let response = self
-            .http
-            .get(format!("{}/api/v1/agent/jobs", self.base_url))
-            .bearer_auth(api_key)
-            .send()
+            .send(
+                self.http
+                    .get(format!("{}{path}", self.base_url))
+                    .bearer_auth(api_key),
+                "GET",
+                path,
+                None,
+            )
             .await
-            .context("could not reach the server")?;
-
-        if !response.status().is_success() {
-            let status = response.status();
-            let body = response.text().await.unwrap_or_default();
-            bail!("could not read jobs ({status}): {body}");
-        }
+            .context("could not read jobs")?;
 
         response.json().await.context("unexpected jobs response")
     }
@@ -293,21 +595,21 @@ impl Client {
     /// command that worked as pasted — the one value it needed was the one
     /// value it could not know.
     pub async fn redeem_zone_code(&self, api_key: &str, code: &str) -> Result<String> {
-        let response = self
-            .http
-            .post(format!("{}/api/v1/agent/zone/redeem", self.base_url))
-            .bearer_auth(api_key)
-            .json(&serde_json::json!({ "code": code }))
-            .send()
-            .await
-            .context("could not reach the server")?;
-
+        let path = "/api/v1/agent/zone/redeem";
         // A refusal and an unreachable server are different facts, and the
-        // caller has to be able to tell them apart. Reported as one, they sent
-        // somebody looking at their PIN while their instance was restarting.
-        if !response.status().is_success() {
-            bail!("refused:{}", response.status().as_u16());
-        }
+        // caller has to be able to tell them apart — reported as one, they
+        // sent somebody looking at their PIN while their instance was
+        // restarting. The caller downcasts to `ApiError` for the difference.
+        let response = self
+            .send(
+                self.http
+                    .post(format!("{}{path}", self.base_url))
+                    .bearer_auth(api_key),
+                "POST",
+                path,
+                Some(&serde_json::json!({ "code": code })),
+            )
+            .await?;
 
         #[derive(Deserialize)]
         #[serde(rename_all = "camelCase")]
@@ -386,22 +688,22 @@ impl Client {
     /// says it.
     /// Returns whether the server says something is waiting to be fetched.
     pub async fn heartbeat(&self, api_key: &str, ui_address: Option<&str>) -> Result<bool> {
+        let path = "/api/v1/agent/heartbeat";
         let response = self
-            .http
-            .post(format!("{}/api/v1/agent/heartbeat", self.base_url))
-            .bearer_auth(api_key)
-            .json(&serde_json::json!({ "uiAddress": ui_address }))
-            .send()
+            .send(
+                self.http
+                    .post(format!("{}{path}", self.base_url))
+                    .bearer_auth(api_key),
+                "POST",
+                path,
+                // Always the explicit field: null clears the stored address,
+                // absent would leave it alone, and the agent is the authority
+                // on whether its page exists.
+                Some(&serde_json::json!({ "uiAddress": ui_address })),
+            )
             .await
-            .context("could not reach the server")?;
+            .context("heartbeat refused")?;
 
-        if !response.status().is_success() {
-            let status = response.status();
-            bail!("heartbeat refused ({status})");
-        }
-
-        /// Only the one field, and defaulted: a server too old to send it says
-        /// nothing, which reads as "nothing waiting" — the behaviour before.
         #[derive(Deserialize)]
         #[serde(rename_all = "camelCase")]
         struct Beat {
@@ -409,11 +711,8 @@ impl Client {
             commands_waiting: bool,
         }
 
-        Ok(response
-            .json::<Beat>()
-            .await
-            .map(|b| b.commands_waiting)
-            .unwrap_or(false))
+        let beat: Beat = response.json().await.context("unexpected heartbeat response")?;
+        Ok(beat.commands_waiting)
     }
 
     /// Says what became of an instruction.
@@ -429,22 +728,17 @@ impl Client {
         result: Option<&str>,
         error: Option<&str>,
     ) -> Result<()> {
-        let response = self
-            .http
-            .post(format!(
-                "{}/api/v1/agent/commands/{command_id}/result",
-                self.base_url
-            ))
-            .bearer_auth(api_key)
-            .json(&serde_json::json!({ "result": result, "error": error }))
-            .send()
-            .await
-            .context("could not reach the server")?;
-
-        if !response.status().is_success() {
-            let status = response.status();
-            bail!("the server refused the result ({status})");
-        }
+        let path = format!("/api/v1/agent/commands/{command_id}/result");
+        self.send(
+            self.http
+                .post(format!("{}{path}", self.base_url))
+                .bearer_auth(api_key),
+            "POST",
+            &path,
+            Some(&serde_json::json!({ "result": result, "error": error })),
+        )
+        .await
+        .context("could not report the result")?;
         Ok(())
     }
 
@@ -461,51 +755,113 @@ impl Client {
         listen: &str,
         addresses: &[String],
     ) -> Result<()> {
-        let response = self
-            .http
-            .post(format!("{}/api/v1/agent/zone", self.base_url))
-            .bearer_auth(api_key)
-            // The address this relay serves its zone on, said by the only thing
-            // that knows it. The server used to infer it from where the pairing
-            // arrived from, which on a containerised TERN is a Docker bridge
-            // gateway — an address that means nothing outside that one host, and
-            // that the admin then offered as the one to reach the relay on.
-            // `listen` is where it binds; `addresses` is everywhere it could be
-            // dialled. Both, because a relay bound to every interface has a
-            // listen line that names no address anybody can type.
-            .json(&serde_json::json!({
+        let path = "/api/v1/agent/zone";
+        // The address this relay serves its zone on, said by the only thing
+        // that knows it. The server used to infer it from where the pairing
+        // arrived from, which on a containerised TERN is a Docker bridge
+        // gateway — an address that means nothing outside that one host, and
+        // that the admin then offered as the one to reach the relay on.
+        // `listen` is where it binds; `addresses` is everywhere it could be
+        // dialled. Both, because a relay bound to every interface has a
+        // listen line that names no address anybody can type.
+        self.send(
+            self.http
+                .post(format!("{}{path}", self.base_url))
+                .bearer_auth(api_key),
+            "POST",
+            path,
+            Some(&serde_json::json!({
                 "agents": agents,
                 "listen": listen,
                 "addresses": addresses,
-            }))
-            .send()
-            .await
-            .context("could not reach the server")?;
-
-        if !response.status().is_success() {
-            let status = response.status();
-            bail!("the zone declaration was refused ({status})");
-        }
+            })),
+        )
+        .await
+        .context("the zone declaration was refused")?;
 
         Ok(())
     }
 
     pub async fn ingest(&self, api_key: &str, points: &[Point]) -> Result<IngestResponse> {
+        let path = "/api/v1/ingest";
+        let body = serde_json::to_value(points).context("unencodable points")?;
         let response = self
-            .http
-            .post(format!("{}/api/v1/ingest", self.base_url))
-            .bearer_auth(api_key)
-            .json(points)
-            .send()
+            .send(
+                self.http
+                    .post(format!("{}{path}", self.base_url))
+                    .bearer_auth(api_key),
+                "POST",
+                path,
+                Some(&body),
+            )
             .await
-            .context("could not reach the server")?;
-
-        if !response.status().is_success() {
-            let status = response.status();
-            let body = response.text().await.unwrap_or_default();
-            bail!("ingest rejected ({status}): {body}");
-        }
+            .context("ingest rejected")?;
 
         response.json().await.context("unexpected ingest response")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn epochs_become_rfc3339() {
+        assert_eq!(epoch_to_rfc3339(0), "1970-01-01T00:00:00Z");
+        // A leap day, because the day arithmetic is the part worth pinning.
+        assert_eq!(epoch_to_rfc3339(1_582_934_400), "2020-02-29T00:00:00Z");
+        assert_eq!(epoch_to_rfc3339(1_786_000_000), "2026-08-06T07:06:40Z");
+        assert_eq!(epoch_to_rfc3339(4_102_444_799), "2099-12-31T23:59:59Z");
+    }
+
+    #[test]
+    fn hosts_are_parsed_not_prefixed() {
+        assert_eq!(host_of("http://localhost:3011"), "localhost");
+        assert_eq!(host_of("http://127.0.0.1"), "127.0.0.1");
+        assert_eq!(host_of("http://[::1]:8080/api"), "::1");
+        assert_eq!(host_of("https://api.example.com/v1"), "api.example.com");
+        // The attack the prefix test let through.
+        assert_eq!(host_of("http://localhost.evil.example/x"), "localhost.evil.example");
+    }
+
+    /// The two mistakes the old prefix guard made, both directions.
+    #[test]
+    fn the_plain_http_guard_judges_the_host() {
+        // Loopback by any name is exempt…
+        assert!(Client::new("http://[::1]:3011").is_ok());
+        assert!(Client::new("http://localhost:3011").is_ok());
+        assert!(Client::new("http://127.0.0.1:3011").is_ok());
+        // …and a hostname that merely *starts* like one is not.
+        assert!(Client::new("http://localhost.evil.example").is_err());
+        // Scheme case does not defeat it either way.
+        assert!(Client::new("HTTPS://api.example.com").is_ok());
+    }
+
+    #[test]
+    fn backoff_doubles_to_a_ceiling_and_resets() {
+        let mut backoff = Backoff::new();
+        assert!(!backoff.failing());
+        assert_eq!(backoff.failed().as_secs(), 60);
+        assert_eq!(backoff.failed().as_secs(), 120);
+        assert_eq!(backoff.failed().as_secs(), 240);
+        assert_eq!(backoff.failed().as_secs(), 480);
+        assert_eq!(backoff.failed().as_secs(), 900);
+        assert_eq!(backoff.failed().as_secs(), 900, "capped, not unbounded");
+        backoff.succeeded();
+        assert!(!backoff.failing());
+        assert_eq!(backoff.failed().as_secs(), 60, "a success starts over");
+    }
+
+    #[test]
+    fn an_unknown_kind_still_parses() {
+        let command: Command =
+            serde_json::from_str(r#"{"id":"c1","kind":"defragment-the-hyperdrive"}"#).unwrap();
+        assert_eq!(
+            command.kind,
+            CommandKind::Unknown("defragment-the-hyperdrive".into())
+        );
+        // And the known ones land where they should.
+        let command: Command = serde_json::from_str(r#"{"id":"c2","kind":"ui-on"}"#).unwrap();
+        assert_eq!(command.kind, CommandKind::UiOn);
     }
 }

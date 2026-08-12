@@ -37,6 +37,10 @@ struct QueuedPoint {
     latency_ms: Option<i64>,
     value: Option<f64>,
     message: Option<String>,
+    /// When it was measured — the fact the queue exists to preserve. Defaulted
+    /// so a queue written by an older build still replays, just undated.
+    #[serde(default)]
+    ts: Option<String>,
 }
 
 impl From<&QueuedPoint> for Point {
@@ -47,6 +51,20 @@ impl From<&QueuedPoint> for Point {
             latency_ms: queued.latency_ms,
             value: queued.value,
             message: queued.message.clone(),
+            ts: queued.ts.clone(),
+        }
+    }
+}
+
+impl From<&Point> for QueuedPoint {
+    fn from(point: &Point) -> Self {
+        QueuedPoint {
+            control_key: point.control_key.clone(),
+            status: point.status,
+            latency_ms: point.latency_ms,
+            value: point.value,
+            message: point.message.clone(),
+            ts: point.ts.clone(),
         }
     }
 }
@@ -126,13 +144,7 @@ impl Queue {
     /// Buffers points received from somewhere else — a proxy's local agents.
     pub fn push_points(&mut self, points: &[Point]) {
         for point in points {
-            self.push(QueuedPoint {
-                control_key: point.control_key.clone(),
-                status: point.status,
-                latency_ms: point.latency_ms,
-                value: point.value,
-                message: point.message.clone(),
-            });
+            self.push(QueuedPoint::from(point));
         }
         self.persist();
     }
@@ -169,6 +181,14 @@ pub async fn run_once(entry: &ProbeEntry) -> Point {
         latency_ms: result.latency_ms,
         value: result.value,
         message: result.message,
+        // Stamped here, at measurement, precisely so a replay from the queue
+        // is dated when it was measured and not when the link came back.
+        ts: Some(crate::transport::epoch_to_rfc3339(
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0),
+        )),
     }
 }
 
@@ -536,13 +556,7 @@ pub async fn run(
                 checks_failed += 1;
             }
 
-            batch.push(QueuedPoint {
-                control_key: point.control_key,
-                status: point.status,
-                latency_ms: point.latency_ms,
-                value: point.value,
-                message: point.message,
-            });
+            batch.push(QueuedPoint::from(&point));
 
             let interval = config.interval_for(entry);
             schedule.insert(
@@ -658,6 +672,7 @@ mod tests {
             latency_ms: Some(1),
             value: None,
             message: None,
+            ts: Some("2026-08-12T09:15:07Z".to_string()),
         }
     }
 
