@@ -998,6 +998,9 @@ impl crate::commands::Controllable for Config {
     fn write(&self, path: &Path) -> anyhow::Result<()> {
         self.save(path)
     }
+    fn upstream(&self) -> String {
+        self.server.clone()
+    }
     fn paused_means(&self) -> &'static str {
         "no probes will run"
     }

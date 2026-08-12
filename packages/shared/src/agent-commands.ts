@@ -50,3 +50,40 @@ export const AGENT_COMMAND_LABEL: Record<AgentCommandKind, string> = {
   'ui-on': 'Turn its page on',
   'ui-off': 'Turn its page off',
 }
+
+/**
+ * What `ui-on` answers with.
+ *
+ * Two facts rather than one, so the console can show the password and offer the
+ * link in the same breath. The address is what the machine worked out to be
+ * reachable — not what it bound: a page on `0.0.0.0:38788` is served on every
+ * interface and is an address nobody can open, so the agent resolves the one
+ * facing the server and answers null when there is none, which is the honest
+ * answer for a page on loopback.
+ *
+ * Written by the agent as JSON in the command's result, read here. Anything
+ * that fails to parse is shown as the plain text it is — an agent older than
+ * this shape answers with the bare password, and that is still worth showing.
+ */
+export interface UiOnResult {
+  password: string
+  address: string | null
+}
+
+export function readUiOnResult(result: string): UiOnResult {
+  try {
+    const parsed: unknown = JSON.parse(result)
+    if (
+      typeof parsed === 'object' &&
+      parsed !== null &&
+      'password' in parsed &&
+      typeof (parsed as UiOnResult).password === 'string'
+    ) {
+      const shaped = parsed as UiOnResult
+      return { password: shaped.password, address: shaped.address ?? null }
+    }
+  } catch {
+    // Not JSON: an older agent, which answered with the password alone.
+  }
+  return { password: result, address: null }
+}

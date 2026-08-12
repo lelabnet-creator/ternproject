@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import * as Icons from 'lucide-react'
-import { AGENT_COMMAND_LABEL } from '@tern/shared/agent-commands'
+import { AGENT_COMMAND_LABEL, readUiOnResult } from '@tern/shared/agent-commands'
 import { Tabs } from '../../components/Tabs'
 import {
   adminApi,
@@ -2104,36 +2104,7 @@ function CommandTrail({ commands }: { commands: AgentCommand[] }) {
           {c.error && <Banner tone="down">{c.error}</Banner>}
           {/* The password, laid out to be read off a screen and typed
               elsewhere — which is what somebody is about to do with it. */}
-          {c.kind === 'ui-on' && c.result && (
-            <div style={{ marginTop: 'var(--space-1)' }}>
-              <Banner tone="operational">
-                Its page is on. This password is shown once — the agent stores only a hash of it, so
-                nothing can show it again. Ask again for a new one.
-              </Banner>
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 'var(--space-2)',
-                  marginTop: 'var(--space-2)',
-                }}
-              >
-                <code
-                  className="tabular"
-                  style={{
-                    fontSize: 'var(--text-base)',
-                    padding: 'var(--space-2) var(--space-3)',
-                    background: 'var(--color-bg)',
-                    border: '1px solid var(--color-border-strong)',
-                    borderRadius: 'var(--radius-sm)',
-                  }}
-                >
-                  {c.result}
-                </code>
-                <CopyButton value={c.result} label="Copy the password" size="sm" />
-              </div>
-            </div>
-          )}
+          {c.kind === 'ui-on' && c.result && <UiOnAnswer result={c.result} />}
           {c.kind === 'logs' && c.result && (
             <div style={{ marginTop: 'var(--space-1)' }}>
               <CodeBlock label="What the agent has said since it started" copyable>
@@ -2149,6 +2120,83 @@ function CommandTrail({ commands }: { commands: AgentCommand[] }) {
           )}
         </div>
       ))}
+    </div>
+  )
+}
+
+/**
+ * The answer to "turn its page on": a password, and the door it opens.
+ *
+ * The link is the point. Handing somebody a password and leaving them to find
+ * the address — which is nowhere on this screen, and is not what the agent
+ * bound, since a page on every interface reports `0.0.0.0` — is most of the way
+ * to useless. The machine resolves the interface that faces this server and
+ * sends it back with the password, so both arrive together.
+ *
+ * No link when the agent reported none: the page is on loopback and can be
+ * opened only from that machine. An offer to open it would be a lie in a green
+ * box, which is the worst place for one.
+ */
+function UiOnAnswer({ result }: { result: string }) {
+  const { password, address } = readUiOnResult(result)
+
+  return (
+    <div style={{ marginTop: 'var(--space-1)' }}>
+      <Banner tone="operational">
+        Its page is on. This password is shown once — the agent stores only a hash of it, so nothing
+        can show it again. Ask again for a new one.
+      </Banner>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 'var(--space-2)',
+          marginTop: 'var(--space-2)',
+          flexWrap: 'wrap',
+        }}
+      >
+        <code
+          className="tabular"
+          style={{
+            fontSize: 'var(--text-base)',
+            padding: 'var(--space-2) var(--space-3)',
+            background: 'var(--color-bg)',
+            border: '1px solid var(--color-border-strong)',
+            borderRadius: 'var(--radius-sm)',
+          }}
+        >
+          {password}
+        </code>
+        <CopyButton value={password} label="Copy the password" size="sm" />
+        {address && (
+          <a
+            href={`http://${address}/`}
+            target="_blank"
+            rel="noreferrer noopener"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 'var(--space-1)',
+              fontSize: 'var(--text-sm)',
+              color: 'var(--color-accent)',
+            }}
+          >
+            <Icons.ExternalLink size={14} aria-hidden="true" />
+            Open {address}
+          </a>
+        )}
+      </div>
+      {!address && (
+        <p
+          style={{
+            margin: 'var(--space-1) 0 0',
+            fontSize: 'var(--text-xs)',
+            color: 'var(--color-fg-subtle)',
+          }}
+        >
+          Bound to loopback, so it can only be opened from that machine.
+        </p>
+      )}
     </div>
   )
 }

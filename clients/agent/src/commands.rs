@@ -56,6 +56,11 @@ pub trait Controllable {
      * one of the two something untrue.
      */
     fn paused_means(&self) -> &'static str;
+
+    /// Where this thing sends. Needed to work out which of its own interfaces
+    /// faces the console, so `ui-on` can hand back an address worth clicking
+    /// rather than the `0.0.0.0` it may have bound.
+    fn upstream(&self) -> String;
 }
 
 /// What carrying out an instruction did, and what to do next.
@@ -136,13 +141,31 @@ pub fn run<C: Controllable>(command: &Command, config: &mut C, path: &std::path:
                 .ui()
                 .map(|u| u.listen.clone())
                 .unwrap_or_else(|| "0.0.0.0:38788".to_string());
+            let upstream = config.upstream();
             let (settings, password) = crate::ui::configure(config.ui(), Some(listen));
-            let address = settings.listen.clone();
+            let bound = settings.listen.clone();
+            /*
+             * The address to click, not the one it bound.
+             *
+             * A page on `0.0.0.0:38788` is served on every interface and is not
+             * an address anybody can open; the console would have shown a link
+             * to nowhere. The machine resolves which of its interfaces faces
+             * the server — the console is served from the far end of exactly
+             * that path — and null when there is none, which is the honest
+             * answer for a page on loopback.
+             */
+            let reachable = settings.reachable_address(&upstream);
             config.set_ui(Some(settings));
             match config.write(path) {
                 Ok(()) => {
-                    info!(%address, "the local page was turned on from the console");
-                    Outcome::Done(Some(password))
+                    info!(%bound, "the local page was turned on from the console");
+                    // Two facts in one answer, so the console can show the
+                    // password and offer the link in the same breath. Shaped in
+                    // `@tern/shared/agent-commands`, where the console reads it.
+                    Outcome::Done(Some(
+                        serde_json::json!({ "password": password, "address": reachable })
+                            .to_string(),
+                    ))
                 }
                 Err(error) => Outcome::Failed(format!("could not write the config: {error}")),
             }
@@ -254,6 +277,8 @@ pub struct Settings {
     pub ui: Option<UiSettings>,
     pub state: Running,
     pub paused_means: &'static str,
+    /// Carried along, because resolving a clickable address needs it.
+    pub upstream: String,
 }
 
 impl Controllable for Settings {
@@ -275,6 +300,9 @@ impl Controllable for Settings {
     }
     fn paused_means(&self) -> &'static str {
         self.paused_means
+    }
+    fn upstream(&self) -> String {
+        self.upstream.clone()
     }
 }
 
@@ -358,10 +386,15 @@ mod tests {
     #[test]
     fn turning_the_page_on_hands_back_a_password_once() {
         let (mut config, path) = scratch();
-        let Outcome::Done(Some(password)) = run(&cmd("ui-on"), &mut config, &path) else {
-            panic!("expected a password back")
+        let Outcome::Done(Some(answer)) = run(&cmd("ui-on"), &mut config, &path) else {
+            panic!("expected an answer back")
         };
 
+        // Two facts now, so the console can show the password and offer the
+        // link together — see `UiOnResult` in @tern/shared/agent-commands.
+        let parsed: serde_json::Value = serde_json::from_str(&answer).expect("json");
+        let password = parsed["password"].as_str().expect("a password").to_string();
+        assert!(parsed.get("address").is_some(), "and where to open it");
         assert!(password.len() >= 12);
         assert!(config.ui.is_some(), "the page is on");
         // Stored hashed, never in the clear: the reply above is the only copy.
@@ -371,10 +404,11 @@ mod tests {
         assert!(credential.matches(&password), "and it is the right one");
 
         // Asked again, another one — the same promise `tern-agent ui` makes.
-        let Outcome::Done(Some(second)) = run(&cmd("ui-on"), &mut config, &path) else {
-            panic!("expected a password back")
+        let Outcome::Done(Some(again)) = run(&cmd("ui-on"), &mut config, &path) else {
+            panic!("expected an answer back")
         };
-        assert_ne!(second, password);
+        let second: serde_json::Value = serde_json::from_str(&again).expect("json");
+        assert_ne!(second["password"].as_str().unwrap(), password);
     }
 
     #[test]

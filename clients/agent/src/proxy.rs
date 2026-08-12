@@ -601,6 +601,7 @@ async fn apply_own_commands(state: &AppState, key: &str, commands: &[crate::tran
             crate::commands::Settings {
                 ui: inner.config.ui.clone(),
                 state: inner.config.state,
+                upstream: inner.config.server.clone(),
                 paused_means: "the zone's points are kept here, none are sent on",
             },
         )
@@ -1897,6 +1898,9 @@ impl crate::commands::Controllable for ProxyConfig {
     fn write(&self, path: &Path) -> anyhow::Result<()> {
         self.save(path)
     }
+    fn upstream(&self) -> String {
+        self.server.clone()
+    }
     fn paused_means(&self) -> &'static str {
         // Its zone keeps reporting to it; nothing leaves for upstream. The
         // queue is what makes that safe — it delays history rather than losing
@@ -2047,7 +2051,7 @@ mod tests {
      */
     #[test]
     fn re_pairing_a_zone_machine_replaces_its_entry() {
-        let mut keys = vec![LocalKey {
+        let mut keys = [LocalKey {
             name: "ubuntu".into(),
             key_hash: "ancienne".into(),
             last_seen: Some(1),
@@ -2091,6 +2095,7 @@ mod tests {
         let mut settings = crate::commands::Settings {
             ui: config.ui.clone(),
             state: config.state,
+            upstream: config.server.clone(),
             paused_means: "…",
         };
 
