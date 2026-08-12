@@ -58,9 +58,16 @@ async function transmit<T>(method: string, path: string, body?: unknown): Promis
     // the import's list of issues — has nowhere else to survive.
     let body: unknown
     try {
-      const parsed = (await response.json()) as { message?: string }
+      // Errors are RFC 9457 problem documents: `detail` is the sentence for
+      // people, `title` the fallback. `message` survives for anything not yet
+      // speaking problem+json (a reverse proxy's own error page, say).
+      const parsed = (await response.json()) as {
+        detail?: string
+        title?: string
+        message?: string
+      }
       body = parsed
-      if (parsed.message) message = parsed.message
+      message = parsed.detail ?? parsed.message ?? parsed.title ?? message
     } catch {
       // Non-JSON error body; the status line is all there is.
     }
