@@ -118,7 +118,9 @@ redemption returns a tenant name and never a credential.
 Two timers per agent: a beat every **60 s** (`HEARTBEAT_EVERY`) and an
 assignment poll every **300 s** (`REFRESH_EVERY`), jittered up to 10 % so a
 fleet paired from one script drifts apart. The beat is the cheap one, and it
-carries the answer that collapses instruction latency:
+carries the answer that collapses instruction latency — and it is now **held
+open** rather than answered at once, which is what takes that latency from a
+minute to a fraction of a second:
 
 ```mermaid
 sequenceDiagram
@@ -128,7 +130,9 @@ sequenceDiagram
 
     C->>S: POST /:slug/agents/:id/commands {kind}
     S-->>C: {id} — "waiting for its next check-in"
-    A->>S: POST /api/v1/agent/heartbeat {uiAddress}
+    A->>S: POST /api/v1/agent/heartbeat {uiAddress, waitSeconds: 20}
+    Note over S: held open — nothing waits yet
+    Note over S: the instruction above wakes it
     S-->>A: {ok, commandsWaiting: true}
     Note over A: next_refresh = now
     A->>S: GET /api/v1/agent/jobs
@@ -157,6 +161,36 @@ the way back is `tern-agent resume` in a shell on the machine. `ui-on` answers
 with the page password, hashed at rest on the machine: the reply is the only
 moment it travels.
 
+### The held beat
+
+`waitSeconds` asks the server to keep the request open until there is something
+to say. It is **asked for, never imposed**: a beat that omits it is answered
+immediately, which is what every agent older than this does and what a
+hand-written client will do. Three bounds, each for a different reason:
+
+| Bound                   | Value | Why                                                                                                                                                                               |
+| ----------------------- | ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Server hold             | 25 s  | Under the 30 s idle timeout of nginx and most load balancers, so the hold ends on TERN's terms rather than as a dropped connection an agent has to tell apart from a real failure |
+| Agent request           | 20 s  | Under the agent's own 30 s HTTP timeout                                                                                                                                           |
+| Relay hold for its zone | 20 s  | Sits _inside_ the relay's own wait — waiting longer than your relay does buys nothing                                                                                             |
+
+The agent asks again the moment a held beat returns, which is what makes the
+wait continuous. A reply that comes back **immediately** is read as "this server
+does not hold" and the agent keeps its 60 s cadence — so a new agent against an
+older TERN degrades to the old behaviour instead of hot-looping against it.
+
+Why a held POST and not a WebSocket: the property that makes an agent reachable
+at all is that the agent opens the connection. Through a firewall, through a
+relay, through a corporate proxy that has never heard of an upgrade header — it
+all works, because it is a POST that happens to take a while. A socket would buy
+pushing things other than instructions, which nothing needs yet, at the cost of
+a second protocol, a reconnection dance, and a fallback for the proxies that
+refuse it.
+
+The wake-up is **best effort, the database is the authority**: a beat held in
+another process misses the in-process signal and ends on its own timer instead,
+which costs a fraction of the hold rather than the instruction.
+
 On `uiAddress`: `null` and _absent_ are different statements. `null` clears
 the stored address ("no page, or loopback"); an absent field leaves it alone.
 The agent always sends the field explicitly.
@@ -176,7 +210,8 @@ sequenceDiagram
     P->>S: GET /api/v1/agent/jobs
     S-->>P: {zoneCommands: [{id, kind, agent: "name"}]} — delivered, at most once
     Note over P: held in memory, keyed by name —<br/>the relay knows its zone by the names it issued keys to
-    ZA->>P: POST /api/v1/agent/heartbeat
+    ZA->>P: POST /api/v1/agent/heartbeat {waitSeconds}
+    Note over P: held too — woken when zone instructions arrive
     P-->>ZA: {ok, commandsWaiting: true} — computed from what it holds
     ZA->>P: GET /api/v1/agent/jobs
     P-->>ZA: {commands: [{id, kind}]} — removed as handed over
@@ -185,8 +220,11 @@ sequenceDiagram
     Note over S: accepted because the instruction belongs to a machine<br/>behind this relay — and refused for anything else
 ```
 
-Two bounds worth knowing. A zone instruction crosses two polling hops, so its
-floor is two beat intervals rather than one. And the relay holds undelivered
+One bound worth knowing, and one that used to be. A zone instruction crosses
+two hops, and each of them holds its beat — so the floor is two round trips
+rather than two beat intervals. Measured on the bench, console to a machine with
+no route back to the server at all: **0.30 s**, against 46 s before the hold.
+The relay holds undelivered
 zone instructions in memory only: a relay restarted before passing one on
 loses it, and the console shows "asked, no answer" — the same promise as
 everywhere else, chosen over a replay that could restart a machine twice.
