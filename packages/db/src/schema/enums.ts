@@ -1,3 +1,4 @@
+import { AGENT_COMMAND_KINDS } from '@tern/shared'
 import { pgEnum } from 'drizzle-orm/pg-core'
 
 /**
@@ -154,23 +155,6 @@ export const agentRole = pgEnum('agent_role', ['agent', 'proxy'])
  * needs a shell on the machine (`tern-agent resume`). The console says so
  * before asking.
  */
-export const agentCommandKind = pgEnum('agent_command_kind', [
-  'pause',
-  'resume',
-  'stop',
-  'restart',
-  'logs',
-  /**
-   * Turn the agent's own page on, and hand back the password it generated.
-   *
-   * The password is the answer to this instruction, which is the only reason
-   * it can be shown at all: it is hashed the moment it is stored, so the agent
-   * is the one place it exists in the clear and the reply is the one moment it
-   * passes. The console shows it once and never again — the same promise
-   * `tern-agent ui` makes on the machine itself.
-   */
-  'ui-on',
-  'ui-off',
-])
+export const agentCommandKind = pgEnum('agent_command_kind', AGENT_COMMAND_KINDS)
 
 export const certStatus = pgEnum('cert_status', ['pending', 'issued', 'failed', 'expired'])

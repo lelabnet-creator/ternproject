@@ -1,3 +1,4 @@
+import type { AgentCommandKind } from '@tern/shared/agent-commands'
 import type { Block } from '@tern/shared/blocks'
 import type { IncidentImpactValue } from '@tern/shared/status'
 import { ApiError } from './api'
@@ -238,7 +239,15 @@ export type TenantSettingsPatch = Partial<
   setupCompleted?: boolean
 }
 
-export type AgentCommandKind = 'pause' | 'resume' | 'stop' | 'restart' | 'logs' | 'ui-on' | 'ui-off'
+/**
+ * The one list, from the package the database and this both already depend on.
+ *
+ * Re-exported rather than restated: it was three copies — the column, the
+ * route's schema and this — and they drifted, which is how the console came to
+ * ask for a kind the API refused with a message naming five it had never heard
+ * of.
+ */
+export type { AgentCommandKind } from '@tern/shared/agent-commands'
 
 /**
  * One instruction and its life.

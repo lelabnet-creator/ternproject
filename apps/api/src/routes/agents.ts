@@ -930,11 +930,16 @@ const routes: FastifyPluginAsyncZod = async (app) => {
       schema: {
         params: z.object({ slug: z.string(), agentId: z.string().uuid() }),
         body: z.object({
-          // Kept in step with the column's enum by hand, and that is the risk:
-          // a kind the database knows and this list does not is refused here
-          // with a message naming the ones it accepts, which is how the gap
-          // was found rather than shipped.
-          kind: z.enum(['pause', 'resume', 'stop', 'restart', 'logs', 'ui-on', 'ui-off']),
+          /*
+           * Read from the column, not written again beside it.
+           *
+           * These were two lists kept in step by hand, and they drifted: the
+           * database learned `ui-on` and this one did not, so the console asked
+           * for something the schema allowed and got a 400 naming five kinds it
+           * had never heard of. Derived, the two cannot disagree — adding a
+           * kind is one edit, in the one place that decides what a kind is.
+           */
+          kind: z.enum(schema.agentCommandKind.enumValues),
         }),
         response: { 200: z.object({ id: z.string() }) },
       },

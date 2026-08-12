@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import * as Icons from 'lucide-react'
+import { AGENT_COMMAND_LABEL } from '@tern/shared/agent-commands'
 import { Tabs } from '../../components/Tabs'
 import {
   adminApi,
@@ -2088,7 +2089,9 @@ function CommandTrail({ commands }: { commands: AgentCommand[] }) {
     >
       {commands.slice(0, 5).map((c) => (
         <div key={c.id} style={{ fontSize: 'var(--text-sm)', minWidth: 0 }}>
-          <span style={{ fontWeight: 600 }}>{LABEL[c.kind] ?? c.kind}</span>{' '}
+          <span style={{ fontWeight: 600 }}>
+            {AGENT_COMMAND_LABEL[c.kind as AgentCommandKind] ?? c.kind}
+          </span>{' '}
           <span style={{ color: 'var(--color-fg-subtle)' }}>
             {c.error
               ? '— refused'
@@ -2148,14 +2151,4 @@ function CommandTrail({ commands }: { commands: AgentCommand[] }) {
       ))}
     </div>
   )
-}
-
-const LABEL: Record<string, string> = {
-  'ui-on': 'Turn its page on',
-  'ui-off': 'Turn its page off',
-  logs: 'Fetch recent logs',
-  restart: 'Restart it',
-  pause: 'Pause measuring',
-  resume: 'Resume',
-  stop: 'Stop it for good',
 }

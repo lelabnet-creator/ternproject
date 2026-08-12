@@ -183,6 +183,13 @@
       "when": 1786479245830,
       "tag": "0025_needy_rhodey",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1786524294235,
+      "tag": "0026_amusing_kid_colt",
+      "breakpoints": true
     }
   ]
 }

@@ -76,9 +76,16 @@ ma clé, et toucher à ton instance est ce que tu m'as demandé de ne pas faire.
       de cinq. Le battement et le chargement de l'assignation sont deux choses
       sur deux périodes, ce qui était le fond du problème.
 
-- [ ] **L'enum SQL et le `z.enum` de la route sont tenus en phase à la main.**
-      C'est ce qui a produit un 400 en pleine session : les genres `ui-on` /
-      `ui-off` existaient en base et pas dans le schéma de la route.
+- [x] **Une seule liste, dans `@tern/shared`.** Il y en avait trois — la
+      colonne, le schéma de la route, le type du web — et elles ont dérivé : la
+      base connaissait `ui-on`, la route non, d'où un 400 nommant cinq genres
+      qu'elle n'avait jamais entendus. Toutes dérivent maintenant de
+      `AGENT_COMMAND_KINDS`. Prouvé en ajoutant un genre au seul endroit : le
+      compilateur exige aussitôt son libellé ailleurs.
+      Au passage, la migration `0026` a révélé que mon édition manuelle du SQL
+      de `0025` n'avait pas mis à jour l'instantané — une base neuve aurait
+      échoué. Elle est donc en `ADD VALUE IF NOT EXISTS`, et les deux chemins
+      sont vérifiés : base existante, et base vierge montée puis supprimée.
 
 ## 4. Documentation — rien de tout ceci n'est écrit
 
