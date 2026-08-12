@@ -51,7 +51,7 @@ describe('creating a control', () => {
 
     const second = await create({ key })
     expect(second.statusCode).toBe(409)
-    expect(second.json().message).toMatch(/already exists/i)
+    expect(second.json().detail).toMatch(/already exists/i)
   })
 
   it('refuses a degraded threshold at or above the down threshold', async () => {
@@ -59,7 +59,7 @@ describe('creating a control', () => {
     // from healthy to down and the middle state silently never appears.
     const response = await create({ degradedThresholdMs: 3000, downThresholdMs: 1000 })
     expect(response.statusCode).toBe(400)
-    expect(response.json().message).toMatch(/degraded/i)
+    expect(response.json().detail).toMatch(/degraded/i)
 
     expect((await create({ degradedThresholdMs: 500, downThresholdMs: 3000 })).statusCode).toBe(201)
   })
@@ -355,7 +355,7 @@ describe('forcing a check', () => {
 
     const response = await force(id)
     expect(response.statusCode).toBe(400)
-    expect(response.json().message).toMatch(/pushed to/i)
+    expect(response.json().detail).toMatch(/pushed to/i)
 
     // And nothing was written for it.
     const rows = await fx.app.db.select().from(schema.checks).where(eq(schema.checks.controlId, id))
@@ -381,7 +381,7 @@ describe('forcing a check', () => {
 
     const response = await force(id)
     expect(response.statusCode).toBe(400)
-    expect(response.json().message).toMatch(/disabled/i)
+    expect(response.json().detail).toMatch(/disabled/i)
   })
 
   it('requires admin', async () => {

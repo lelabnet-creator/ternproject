@@ -3,13 +3,25 @@ import { z } from 'zod'
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod'
 import { schema } from '@tern/db'
 import {
+  commandResultRequestSchema,
   generatePin,
   hashToken,
+  heartbeatRequestSchema,
+  heartbeatResponseSchema,
+  jobsResponseSchema,
   normalisePin,
+  okResponseSchema,
+  pairRequestSchema,
+  pairResponseSchema,
   renderAgentPairCommand,
   renderProxyInitCommand,
+  zoneDeclarationResponseSchema,
+  zoneDeclarationSchema,
+  zoneRedeemRequestSchema,
+  zoneRedeemResponseSchema,
 } from '@tern/shared'
 import { config } from '../config.js'
+import { withCode } from '../plugins/problem-json.js'
 import { authenticateApiKey, issueApiKey, touchAgent } from '../services/apikeys.js'
 import { assignmentsFor, jobsForAgent } from '../services/jobs.js'
 import { audit } from '../services/audit.js'
@@ -24,14 +36,6 @@ import { LOCAL_AGENT_NAME } from '../services/local-agent.js'
  * long-lived key it is exchanged for matters, and that never passes through a
  * human.
  */
-
-const jobSchema = z.object({
-  controlKey: z.string(),
-  intervalS: z.number().nullable(),
-  probe: z.record(z.string(), z.unknown()),
-  assertions: z.array(z.record(z.string(), z.unknown())),
-  payloadShape: z.enum(['status', 'value']),
-})
 
 /** Wrong guesses before the code is dead. 40 bits of entropy, but only briefly. */
 const MAX_FAILED_ATTEMPTS = 5
@@ -52,38 +56,11 @@ const redeemRoute: FastifyPluginAsyncZod = async (app) => {
   app.post(
     '/pair',
     {
+      // The shapes live in @tern/shared/agent-protocol, beside the Rust
+      // fixtures that hold the other end to the same contract.
       schema: {
-        body: z.object({
-          code: z.string().min(4).max(32),
-          hostname: z.string().max(255).optional(),
-          os: z.string().max(64).optional(),
-          arch: z.string().max(32).optional(),
-          agentVersion: z.string().max(64).optional(),
-          /**
-           * What this install is, so re-pairing replaces its row.
-           *
-           * Generated and kept by the agent in its own config, never derived
-           * from the host. Optional: an agent older than this sends none and
-           * gets a row of its own, which is what happened to every re-pairing
-           * before this existed.
-           */
-          installId: z.string().min(8).max(64).optional(),
-        }),
-        response: {
-          200: z.object({
-            apiKey: z.string(),
-            agentId: z.string(),
-            agentName: z.string(),
-            tenantSlug: z.string(),
-            /**
-             * What this agent is to run, resolved from the pairing code's
-             * scope. Handed over here so a paired agent is already configured:
-             * the alternative leaves the list of probes on the monitored host,
-             * where it drifts from the server's idea of what is monitored.
-             */
-            jobs: z.array(jobSchema),
-          }),
-        },
+        body: pairRequestSchema,
+        response: { 200: pairResponseSchema },
       },
     },
     async (req) => {
@@ -280,6 +257,11 @@ const redeemRoute: FastifyPluginAsyncZod = async (app) => {
         ip: req.ip,
       })
 
+      req.log.info(
+        { agentId: agent.id, agent: agentName, repaired: Boolean(existing) },
+        'agent paired',
+      )
+
       // The key is returned exactly once, here.
       return {
         apiKey: issued.key,
@@ -323,46 +305,10 @@ const routes: FastifyPluginAsyncZod = async (app) => {
     '/agent/heartbeat',
     {
       schema: {
-        /*
-         * Optional, and it has to be: an agent from before this existed sends
-         * no body at all, and a heartbeat that started refusing those would
-         * take a whole fleet quiet on upgrade — the one failure a monitoring
-         * tool can least afford, because the screen just shows it as silence.
-         */
-        body: z
-          .object({
-            /**
-             * Where the agent's own page can be reached, as the agent works it
-             * out. Explicitly nullable: null says "there is no page, or it is
-             * on loopback", which must clear whatever was stored.
-             */
-            uiAddress: z.string().max(255).nullable().optional(),
-          })
-          // `nullish`, not `optional`. An agent from before this existed posts
-          // with no body at all, which arrives here as null rather than as
-          // undefined — and `optional()` alone rejected it with a 400. Every
-          // deployed agent would have gone quiet the moment the server was
-          // upgraded, which the two heartbeat tests caught and which is the
-          // entire reason they assert a bodiless call.
-          .nullish(),
-        response: {
-          200: z.object({
-            ok: z.boolean(),
-            /**
-             * Whether something is waiting for this agent to come and get it.
-             *
-             * A beat is the cheapest thing an agent sends and the most frequent
-             * — every minute — while the assignment poll is every five. Putting
-             * one boolean on the reply is what turns "up to five minutes"
-             * into "up to one" without a second timer, a socket, or anything
-             * for the server to keep open.
-             *
-             * True for a relay when the wait is one of its zone's, because it
-             * is the relay that must come and fetch it.
-             */
-            commandsWaiting: z.boolean(),
-          }),
-        },
+        // Shared with the Rust structs; `nullish` because a bare POST with no
+        // body arrives as null, and refusing that took a fleet quiet once.
+        body: heartbeatRequestSchema,
+        response: { 200: heartbeatResponseSchema },
       },
     },
     async (req) => {
@@ -392,6 +338,10 @@ const routes: FastifyPluginAsyncZod = async (app) => {
             )
             .limit(1)
         : []
+
+      // Debug, not info: one line per agent per minute is a log nobody can
+      // read at exactly the moment they need to.
+      req.log.debug({ agentId: agent?.id ?? null, waiting: waiting.length > 0 }, 'heartbeat')
 
       return { ok: true, commandsWaiting: waiting.length > 0 }
     },
@@ -457,8 +407,8 @@ const routes: FastifyPluginAsyncZod = async (app) => {
     '/agent/zone/redeem',
     {
       schema: {
-        body: z.object({ code: z.string().min(4).max(32) }),
-        response: { 200: z.object({ tenantSlug: z.string() }) },
+        body: zoneRedeemRequestSchema,
+        response: { 200: zoneRedeemResponseSchema },
       },
     },
     async (req) => {
@@ -471,7 +421,17 @@ const routes: FastifyPluginAsyncZod = async (app) => {
         .where(eq(schema.agents.apiKeyId, key.id))
         .limit(1)
 
-      if (!proxy) throw app.httpErrors.notFound('No agent holds this key')
+      // 403, not 404: the key is real and authenticated — what is refused is
+      // what it may do. `key-has-no-agent` is the code the agent branches on,
+      // and the same condition answers the same way on every zone route.
+      if (!proxy) {
+        throw withCode(
+          app.httpErrors.forbidden(
+            'This key is valid but no agent row holds it; only a paired agent may call this.',
+          ),
+          'key-has-no-agent',
+        )
+      }
       if (proxy.role !== 'proxy') {
         throw app.httpErrors.forbidden('Only a proxy redeems a code for a zone')
       }
@@ -547,49 +507,8 @@ const routes: FastifyPluginAsyncZod = async (app) => {
     '/agent/zone',
     {
       schema: {
-        body: z.object({
-          agents: z
-            .array(
-              z.object({
-                name: z.string().min(1).max(200),
-                /*
-                 * Unix seconds, not RFC 3339.
-                 *
-                 * The proxy holds this as an integer already, and formatting it
-                 * would have meant a date library in a binary whose whole point
-                 * is being small enough to drop anywhere. The conversion is one
-                 * line here and none there.
-                 */
-                lastSeenUnix: z.number().int().nonnegative().nullable(),
-                /** As the proxy sees it, inside the zone. */
-                ip: z.string().max(64).nullable(),
-              }),
-            )
-            .max(500),
-          /**
-           * Where this relay serves its zone, as it sees itself.
-           *
-           * Optional: a relay from before this release says nothing, and must
-           * keep working. Read here rather than inferred from `req.ip`, which
-           * with TERN in a container is the bridge gateway — an address that
-           * means nothing outside that one host, and which the admin was
-           * offering as the one to reach the relay on.
-           */
-          listen: z.string().max(255).optional(),
-          /**
-           * Every address it could be dialled on.
-           *
-           * `.catch` and not a plain refusal: this is a convenience, and a
-           * convenience must never cost the inventory. A cap of sixteen looked
-           * generous until a relay on a Docker host reported twenty-four — the
-           * whole declaration was then refused with a 400, every five minutes,
-           * and the fleet showed an empty zone with nothing to explain it. A
-           * list that will not fit is dropped; the agents behind the relay are
-           * what this request is for.
-           */
-          addresses: z.array(z.string().max(64)).max(64).optional().catch(undefined),
-        }),
-        response: { 200: z.object({ known: z.number() }) },
+        body: zoneDeclarationSchema,
+        response: { 200: zoneDeclarationResponseSchema },
       },
     },
     async (req) => {
@@ -602,7 +521,14 @@ const routes: FastifyPluginAsyncZod = async (app) => {
         .where(eq(schema.agents.apiKeyId, key.id))
         .limit(1)
 
-      if (!proxy) throw app.httpErrors.notFound('No agent holds this key')
+      if (!proxy) {
+        throw withCode(
+          app.httpErrors.forbidden(
+            'This key is valid but no agent row holds it; only a paired agent may call this.',
+          ),
+          'key-has-no-agent',
+        )
+      }
 
       // Only a proxy may claim children. An ordinary agent posting here is
       // either a misconfiguration or an attempt to invent machines, and both
@@ -677,7 +603,10 @@ const routes: FastifyPluginAsyncZod = async (app) => {
             site: proxy.site,
             role: 'agent' as const,
             parentAgentId: proxy.id,
-            lastSeenAt: agent.lastSeenUnix === null ? null : new Date(agent.lastSeenUnix * 1000),
+            // RFC 3339 on the wire like every other protocol timestamp; the
+            // relay formats it with its own 25-line helper rather than a date
+            // library.
+            lastSeenAt: agent.lastSeenAt === null ? null : new Date(agent.lastSeenAt),
           }
 
           const [existing] = await tx
@@ -699,6 +628,11 @@ const routes: FastifyPluginAsyncZod = async (app) => {
       })
 
       await touchAgent(app, key.id, req.headers['user-agent'])
+
+      // Debug: a declaration arrives every refresh, and the interesting ones —
+      // refused, or shrinking — are visible from the fleet screen anyway.
+      req.log.debug({ proxyId: proxy.id, declared: req.body.agents.length }, 'zone declared')
+
       return { known: req.body.agents.length }
     },
   )
@@ -707,38 +641,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
     '/agent/jobs',
     {
       schema: {
-        response: {
-          200: z.object({
-            tenantSlug: z.string(),
-            jobs: z.array(jobSchema),
-            /**
-             * What the console has asked this agent to do since it last asked.
-             *
-             * Carried on the poll it was already making rather than on a
-             * channel of its own: nothing here can reach an agent — they poll,
-             * and one behind a relay has no route back at all — so this is the
-             * only moment an instruction can be handed over. An agent too old
-             * to know the field ignores it, which is why it is added here
-             * rather than made a route of its own it would never call.
-             */
-            commands: z.array(z.object({ id: z.string(), kind: z.string() })),
-            /**
-             * Instructions for the machines behind this relay, when it is one.
-             *
-             * A zone agent never reaches this server, so its instructions have
-             * to travel the way everything else about it does: through the
-             * relay, which hands each one to the machine it names on that
-             * machine's own next poll. Named rather than keyed by id because
-             * the relay knows its zone by name — it issued those keys itself,
-             * and this server never saw them.
-             *
-             * Empty for anything that is not a relay.
-             */
-            zoneCommands: z.array(
-              z.object({ id: z.string(), kind: z.string(), agent: z.string() }),
-            ),
-          }),
-        },
+        response: { 200: jobsResponseSchema },
       },
     },
     async (req) => {
@@ -817,6 +720,23 @@ const routes: FastifyPluginAsyncZod = async (app) => {
             })
         : []
 
+      /*
+       * The one log that matters on this route: from here on the instruction
+       * is marked delivered and will never be handed over again, so if it
+       * vanishes — an agent that dies mid-restart, a relay that drops before
+       * passing one on — this line is the last trace the server has of it.
+       */
+      if (commands.length > 0 || zoneCommands.length > 0) {
+        req.log.info(
+          {
+            agentId: agent?.id,
+            commands: commands.map((c) => ({ id: c.id, kind: c.kind })),
+            zoneCommands: zoneCommands.map((c) => ({ id: c.id, kind: c.kind })),
+          },
+          'instructions delivered',
+        )
+      }
+
       // Turned into names, because that is what a relay knows its zone by.
       const names = new Map(
         zoneCommands.length > 0
@@ -860,13 +780,8 @@ const routes: FastifyPluginAsyncZod = async (app) => {
     {
       schema: {
         params: z.object({ commandId: z.string().uuid() }),
-        body: z.object({
-          // Bounded here as well as at the agent: what protects this server is
-          // what it enforces, not what a client promises.
-          result: z.string().max(256_000).nullable().optional(),
-          error: z.string().max(2_000).nullable().optional(),
-        }),
-        response: { 200: z.object({ ok: z.boolean() }) },
+        body: commandResultRequestSchema,
+        response: { 200: okResponseSchema },
       },
     },
     async (req) => {
@@ -878,7 +793,17 @@ const routes: FastifyPluginAsyncZod = async (app) => {
         .from(schema.agents)
         .where(and(eq(schema.agents.apiKeyId, key.id), eq(schema.agents.tenantId, key.tenantId)))
         .limit(1)
-      if (!agent) throw app.httpErrors.unauthorized('Invalid or missing API key')
+      // The same answer as the zone routes for the same condition: the key is
+      // real, what is missing is the agent behind it. It used to be a 401 here
+      // and a 404 there, and the agent could not tell "re-pair" from "retry".
+      if (!agent) {
+        throw withCode(
+          app.httpErrors.forbidden(
+            'This key is valid but no agent row holds it; only a paired agent may call this.',
+          ),
+          'key-has-no-agent',
+        )
+      }
 
       /*
        * Scoped to what this key legitimately speaks for.
@@ -910,6 +835,18 @@ const routes: FastifyPluginAsyncZod = async (app) => {
         .returning({ id: schema.agentCommands.id })
 
       if (updated.length === 0) throw app.httpErrors.notFound('Unknown command')
+
+      // The other end of the 'instructions delivered' line: between the two,
+      // an instruction that never came back is visible from the server alone.
+      req.log.info(
+        {
+          agentId: agent.id,
+          commandId: req.params.commandId,
+          failed: Boolean(req.body.error),
+        },
+        'instruction answered',
+      )
+
       return { ok: true }
     },
   )
@@ -1504,8 +1441,14 @@ const routes: FastifyPluginAsyncZod = async (app) => {
   )
 }
 
+/**
+ * Through `config`, not `process.env`: the config validates the URL at boot,
+ * and reading the raw variable here let the pairing command and the installer
+ * URLs (`download.ts`, which already used `config`) disagree about where this
+ * instance lives.
+ */
 function publicOrigin(): string {
-  return process.env.PUBLIC_BASE_URL ?? 'http://localhost:5173'
+  return config.PUBLIC_BASE_URL
 }
 
 export default routes

@@ -126,7 +126,7 @@ describe('it cannot be taken away', () => {
     })
 
     expect(response.statusCode).toBe(409)
-    expect(response.json().message).toContain(LOCAL_AGENT_NAME)
+    expect(response.json().detail).toContain(LOCAL_AGENT_NAME)
 
     // Still active, and its key still works: a refusal that half-applied would
     // leave the running agent pushing with a revoked credential.
@@ -222,7 +222,7 @@ describe('liveness', () => {
     const response = await fx.app.inject({
       method: 'GET',
       url: '/api/v1/agent/jobs',
-      headers: { authorization: `Bearer ${issued.key}` },
+      headers: { 'x-tern-protocol': '1', authorization: `Bearer ${issued.key}` },
     })
     expect(response.statusCode).toBe(200)
 
@@ -245,7 +245,7 @@ describe('the heartbeat', () => {
     return fx.app.inject({
       method: 'POST',
       url: '/api/v1/agent/heartbeat',
-      headers: { authorization: `Bearer ${key}`, 'user-agent': 'tern-agent/9.9.9' },
+      headers: { 'x-tern-protocol': '1', authorization: `Bearer ${key}`, 'user-agent': 'tern-agent/9.9.9' },
       ...(body ? { payload: body } : {}),
     })
   }
@@ -339,7 +339,7 @@ describe('the heartbeat', () => {
     const response = await fx.app.inject({
       method: 'POST',
       url: '/api/v1/agent/heartbeat',
-      headers: { authorization: `Bearer ${issued.key}`, 'user-agent': 'tern-agent/9.9.9' },
+      headers: { 'x-tern-protocol': '1', authorization: `Bearer ${issued.key}`, 'user-agent': 'tern-agent/9.9.9' },
     })
 
     expect(response.statusCode).toBe(200)
@@ -352,7 +352,13 @@ describe('the heartbeat', () => {
   })
 
   it('refuses a caller without a key', async () => {
-    const response = await fx.app.inject({ method: 'POST', url: '/api/v1/agent/heartbeat' })
+    // The protocol header, so the refusal under test is the missing key and
+    // not the version check that would otherwise answer first.
+    const response = await fx.app.inject({
+      method: 'POST',
+      url: '/api/v1/agent/heartbeat',
+      headers: { 'x-tern-protocol': '1' },
+    })
     expect(response.statusCode).toBe(401)
   })
 })

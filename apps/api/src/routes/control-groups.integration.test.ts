@@ -112,7 +112,7 @@ describe('folders through the API', () => {
     const response = await api('PATCH', `/control-groups/${outer.id}`, { parentId: inner.id })
 
     expect(response.statusCode).toBe(400)
-    expect(response.json().message).toMatch(/inside itself/i)
+    expect(response.json().detail).toMatch(/inside itself/i)
   })
 
   it('refuses to be its own parent', async () => {
@@ -140,7 +140,7 @@ describe('folders through the API', () => {
       parentId: '00000000-0000-4000-8000-000000000000',
     })
     expect(response.statusCode).toBe(400)
-    expect(response.json().message).toMatch(/unknown parent/i)
+    expect(response.json().detail).toMatch(/unknown parent/i)
   })
 })
 

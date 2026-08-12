@@ -42,7 +42,7 @@ describe('login', () => {
 
     expect(wrongPassword.statusCode).toBe(401)
     expect(unknownAccount.statusCode).toBe(401)
-    expect(unknownAccount.json().message).toBe(wrongPassword.json().message)
+    expect(unknownAccount.json().detail).toBe(wrongPassword.json().detail)
   })
 
   it('sets an httpOnly session cookie', async () => {

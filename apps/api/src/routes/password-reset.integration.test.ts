@@ -143,7 +143,7 @@ describe('redeeming a reset link', () => {
 
     const messages = await Promise.all(
       [spent, expired, generateToken(32)].map(
-        async (token) => (await reset(token, 'a-perfectly-fine-password')).json().message,
+        async (token) => (await reset(token, 'a-perfectly-fine-password')).json().detail,
       ),
     )
 

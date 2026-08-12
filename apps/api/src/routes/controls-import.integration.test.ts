@@ -172,7 +172,7 @@ describe('groups', () => {
     groupId: 0b7a3a2e-2c1a-4f0e-9a3f-1b2c3d4e5f60
 `)
     expect(response.statusCode).toBe(404)
-    expect(response.json().message).toMatch(/no group with id/i)
+    expect(response.json().detail).toMatch(/no group with id/i)
   })
 })
 
@@ -237,7 +237,7 @@ describe('a file that will not do', () => {
   it('refuses a file too large to be a list of controls', async () => {
     const response = await importFile(`# ${'x'.repeat(MAX_IMPORT_BYTES)}\ncontrols: []\n`)
     expect(response.statusCode).toBe(413)
-    expect(response.json().message).toMatch(/larger than 256 KB/)
+    expect(response.json().detail).toMatch(/larger than 256 KB/)
   })
 
   it('says an empty file is empty', async () => {

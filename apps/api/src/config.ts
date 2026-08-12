@@ -227,6 +227,19 @@ const schema = z.object({
     .transform((v) => v === 'true'),
   MAIL_FROM: z.string().default('TERN Status <status@example.com>'),
 
+  /**
+   * DEV mode for the agent protocol: one debug line per exchange on the agent
+   * routes, request and reply bodies included, under `mod: 'agent-protocol'`.
+   *
+   * Strictly `1`, matching the agent's own `TERN_PROTOCOL_TRACE` — the two are
+   * meant to be turned on together to see both ends of one exchange. Needs
+   * `LOG_LEVEL=debug` or lower to be visible.
+   */
+  TERN_PROTOCOL_TRACE: z
+    .string()
+    .default('')
+    .transform((v) => v === '1'),
+
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   // `silent` is a real pino level, and the one tests want: an integration suite
   // that prints a request log per assertion buries the failure that matters.

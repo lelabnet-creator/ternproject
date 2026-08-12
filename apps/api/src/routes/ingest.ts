@@ -2,7 +2,12 @@ import { and, eq, inArray } from 'drizzle-orm'
 import { z } from 'zod'
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod'
 import { schema } from '@tern/db'
-import { checkStatusSchema } from '@tern/shared'
+import {
+  checkStatusSchema,
+  heartbeatIngestResponseSchema,
+  ingestPointSchema,
+  ingestResponseSchema,
+} from '@tern/shared'
 import {
   authenticateApiKey,
   keyCoversControl,
@@ -21,64 +26,11 @@ import { config } from '../config.js'
  * user and their first working check.
  */
 
-const pointSchema = z
-  .object({
-    controlKey: z.string().min(1).max(200),
-    /**
-     * Optional when a `value` is sent.
-     *
-     * A control that reports a measurement — a queue depth, a session count —
-     * has no status to invent. Receiving the number is itself the evidence that
-     * the thing is reporting, so the point defaults to `operational` and the
-     * widget's own thresholds decide how it is drawn.
-     *
-     * Requiring a status here forced every measurement client to make one up,
-     * which is both busywork and an invitation to make it up wrongly.
-     */
-    status: checkStatusSchema.optional(),
-    latencyMs: z.number().int().min(0).max(3_600_000).optional(),
-    value: z.number().finite().optional(),
-    /**
-     * Anything else worth charting, by name.
-     *
-     * `latencyMs` and `value` are two names that happened to get columns; a
-     * caller measuring a queue depth *and* a latency, or three temperatures,
-     * should not have to choose one and drop the rest.
-     *
-     * Bounded on purpose: names are constrained because they become chart
-     * labels and option values, and an unbounded map on the hot ingest path is
-     * a way to fill a disk one point at a time.
-     */
-    metrics: z
-      .record(
-        z
-          .string()
-          .min(1)
-          .max(60)
-          .regex(/^[a-zA-Z][a-zA-Z0-9_.-]*$/, 'Metric names start with a letter'),
-        z.number().finite(),
-      )
-      .refine((m) => Object.keys(m).length <= 25, 'At most 25 metrics per point')
-      .optional(),
-    message: z.string().max(2000).optional(),
-    /** Defaults to now. Accepted so a queued agent can report when it measured. */
-    ts: z.coerce.date().optional(),
-    meta: z.record(z.string(), z.unknown()).optional(),
-  })
-  // One of the two must be present. A point carrying neither says nothing, and
-  // silently storing it as `operational` would invent a claim nobody made.
-  .refine(
-    (point) =>
-      point.status !== undefined ||
-      point.value !== undefined ||
-      (point.metrics !== undefined && Object.keys(point.metrics).length > 0),
-    { message: 'Send a status, a value, or at least one metric' },
-  )
-  .transform((point) => ({
-    ...point,
-    status: point.status ?? ('operational' as const),
-  }))
-
+/*
+ * The point shape lives in @tern/shared/agent-protocol, beside the rest of the
+ * agent protocol and the fixtures the Rust side is tested against. What stays
+ * here is everything about *storing* one.
+ */
 const MAX_BATCH = 500
 
 /** Timestamps outside this window are clamped — see below. */
@@ -100,13 +52,8 @@ const routes: FastifyPluginAsyncZod = async (app) => {
     '/ingest',
     {
       schema: {
-        body: z.union([pointSchema, z.array(pointSchema).min(1).max(MAX_BATCH)]),
-        response: {
-          200: z.object({
-            accepted: z.number(),
-            rejected: z.array(z.object({ controlKey: z.string(), reason: z.string() })),
-          }),
-        },
+        body: z.union([ingestPointSchema, z.array(ingestPointSchema).min(1).max(MAX_BATCH)]),
+        response: { 200: ingestResponseSchema },
       },
     },
     async (req) => {
@@ -135,7 +82,8 @@ const routes: FastifyPluginAsyncZod = async (app) => {
         }
 
         rows.push({
-          ts: clampTimestamp(point.ts),
+          // A string on the wire (see the shared schema); a Date from here on.
+          ts: clampTimestamp(point.ts === undefined ? undefined : new Date(point.ts)),
           tenantId: key.tenantId,
           controlId,
           status: point.status,
@@ -149,6 +97,24 @@ const routes: FastifyPluginAsyncZod = async (app) => {
       }
 
       if (rows.length > 0) await app.db.insert(schema.checks).values(rows)
+
+      /*
+       * Rejections were invisible from the server: the agent logged them, but
+       * an operator reading this side saw an ingest that answered 200 and a
+       * control that never moved. Deduplicated by reason — a 500-point batch
+       * against a revoked scope is one line, not five hundred.
+       */
+      if (rejected.length > 0) {
+        req.log.warn(
+          {
+            apiKeyId: key.id,
+            rejected: rejected.length,
+            reasons: [...new Set(rejected.map((r) => r.reason))],
+            controlKeys: [...new Set(rejected.map((r) => r.controlKey))].slice(0, 10),
+          },
+          'ingest points rejected',
+        )
+      }
 
       return { accepted: rows.length, rejected }
     },
@@ -171,7 +137,10 @@ const routes: FastifyPluginAsyncZod = async (app) => {
           value: z.coerce.number().finite().optional(),
           message: z.string().max(2000).optional(),
         }),
-        response: { 200: z.object({ accepted: z.literal(true), controlKey: z.string() }) },
+        // `accepted` is a count here as it is on /ingest — the two success
+        // envelopes used to disagree (`true` vs a number) for no reason a
+        // client could use.
+        response: { 200: heartbeatIngestResponseSchema },
       },
     },
     async (req) => {
@@ -194,7 +163,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
         synthetic: false,
       })
 
-      return { accepted: true as const, controlKey: req.params.controlKey }
+      return { accepted: 1, controlKey: req.params.controlKey }
     },
   )
 }

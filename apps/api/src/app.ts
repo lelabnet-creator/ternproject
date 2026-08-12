@@ -31,6 +31,13 @@ export async function buildApp(): Promise<FastifyInstance> {
   app.setSerializerCompiler(serializerCompiler)
 
   await app.register(import('@fastify/sensible'))
+
+  // Right after sensible, whose errors it reshapes: every error body this API
+  // sends is an RFC 9457 problem document — see the plugin for why.
+  await app.register(import('./plugins/problem-json.js'))
+  // And the protocol version check + DEV wire trace for the agent routes.
+  await app.register(import('./plugins/agent-protocol.js'))
+
   await app.register(import('@fastify/cookie'))
   await app.register(import('@fastify/cors'), {
     // Credentials travel in a cookie, so the origin cannot be a wildcard.

@@ -44,6 +44,7 @@ const redeem = (code: string, extra: Record<string, unknown> = {}) =>
   fx.app.inject({
     method: 'POST',
     url: '/api/v1/pair',
+    headers: { 'x-tern-protocol': '1' },
     payload: { code, hostname: 'srv-db-01', os: 'linux', arch: 'x86_64', ...extra },
   })
 
@@ -174,7 +175,7 @@ describe('redeeming', () => {
     const usedUp = await redeem(pin)
 
     expect(wrong.statusCode).toBe(usedUp.statusCode)
-    expect(wrong.json().message).toBe(usedUp.json().message)
+    expect(wrong.json().detail).toBe(usedUp.json().detail)
   })
 
   it('grants ingest only — never read or management', async () => {
@@ -241,6 +242,7 @@ describe('brute-force resistance', () => {
         const response = await app.inject({
           method: 'POST',
           url: '/api/v1/pair',
+          headers: { 'x-tern-protocol': '1' },
           payload: { code: 'ZZZZ-ZZZZ' },
         })
         codes.push(response.statusCode)
@@ -299,6 +301,7 @@ describe('revocation', () => {
       const paired = await other.app.inject({
         method: 'POST',
         url: '/api/v1/pair',
+        headers: { 'x-tern-protocol': '1' },
         payload: { code: otherPin, hostname: 'their-host' },
       })
       const foreignAgentId = paired.json().agentId
@@ -350,6 +353,7 @@ describe('jobs handed over at pairing', () => {
     const paired = await fx.app.inject({
       method: 'POST',
       url: '/api/v1/pair',
+      headers: { 'x-tern-protocol': '1' },
       payload: { code: code.json().pin, hostname: 'jobs-test' },
     })
     expect(paired.statusCode).toBe(200)
@@ -390,13 +394,14 @@ describe('jobs handed over at pairing', () => {
     const paired = await fx.app.inject({
       method: 'POST',
       url: '/api/v1/pair',
+      headers: { 'x-tern-protocol': '1' },
       payload: { code: code.json().pin, hostname: 'refresh-test' },
     })
 
     const refreshed = await fx.app.inject({
       method: 'GET',
       url: '/api/v1/agent/jobs',
-      headers: { authorization: `Bearer ${paired.json().apiKey}` },
+      headers: { 'x-tern-protocol': '1', authorization: `Bearer ${paired.json().apiKey}` },
     })
     expect(refreshed.statusCode).toBe(200)
     expect(refreshed.json().tenantSlug).toBe(fx.slug)
@@ -404,7 +409,13 @@ describe('jobs handed over at pairing', () => {
   })
 
   it('refuses to hand out an assignment without a key', async () => {
-    const response = await fx.app.inject({ method: 'GET', url: '/api/v1/agent/jobs' })
+    // Speaks the protocol — what is being refused here is the missing key, and
+    // without the header the version check answers first with a 400.
+    const response = await fx.app.inject({
+      method: 'GET',
+      url: '/api/v1/agent/jobs',
+      headers: { 'x-tern-protocol': '1' },
+    })
     expect(response.statusCode).toBe(401)
   })
 })
@@ -426,6 +437,7 @@ describe('who runs a probe', () => {
     const paired = await fx.app.inject({
       method: 'POST',
       url: '/api/v1/pair',
+      headers: { 'x-tern-protocol': '1' },
       payload: { code: code.json().pin, hostname },
     })
     return paired.json() as { apiKey: string; agentId: string; jobs: unknown[] }
@@ -503,7 +515,7 @@ describe('who runs a probe', () => {
     const jobs = await fx.app.inject({
       method: 'GET',
       url: '/api/v1/agent/jobs',
-      headers: { authorization: `Bearer ${chosen.apiKey}` },
+      headers: { 'x-tern-protocol': '1', authorization: `Bearer ${chosen.apiKey}` },
     })
     expect(
       (jobs.json().jobs as { controlKey: string }[]).some((j) =>
@@ -555,6 +567,7 @@ describe('who runs a probe', () => {
       const theirAgent = await other.app.inject({
         method: 'POST',
         url: '/api/v1/pair',
+        headers: { 'x-tern-protocol': '1' },
         payload: { code: code.json().pin, hostname: 'theirs' },
       })
 
@@ -600,6 +613,7 @@ describe('removing agents', () => {
     const paired = await fx.app.inject({
       method: 'POST',
       url: '/api/v1/pair',
+      headers: { 'x-tern-protocol': '1' },
       payload: { code: code.json().pin, hostname },
     })
     return paired.json() as { agentId: string; apiKey: string }
@@ -623,7 +637,7 @@ describe('removing agents', () => {
     const jobs = await fx.app.inject({
       method: 'GET',
       url: '/api/v1/agent/jobs',
-      headers: { authorization: `Bearer ${a.apiKey}` },
+      headers: { 'x-tern-protocol': '1', authorization: `Bearer ${a.apiKey}` },
     })
     expect(jobs.statusCode).toBe(401)
   })
@@ -653,7 +667,7 @@ describe('removing agents', () => {
     const jobs = await fx.app.inject({
       method: 'GET',
       url: '/api/v1/agent/jobs',
-      headers: { authorization: `Bearer ${b.apiKey}` },
+      headers: { 'x-tern-protocol': '1', authorization: `Bearer ${b.apiKey}` },
     })
     expect(jobs.statusCode).toBe(401)
   })
@@ -673,6 +687,7 @@ describe('removing agents', () => {
       const theirs = await other.app.inject({
         method: 'POST',
         url: '/api/v1/pair',
+        headers: { 'x-tern-protocol': '1' },
         payload: { code: code.json().pin, hostname: 'theirs-bulk' },
       })
 
@@ -689,7 +704,7 @@ describe('removing agents', () => {
       const stillJobs = await fx.app.inject({
         method: 'GET',
         url: '/api/v1/agent/jobs',
-        headers: { authorization: `Bearer ${mine.apiKey}` },
+        headers: { 'x-tern-protocol': '1', authorization: `Bearer ${mine.apiKey}` },
       })
       expect(stillJobs.statusCode).toBe(200)
     } finally {
@@ -749,7 +764,7 @@ describe('a proxy declaring its zone', () => {
     fx.app.inject({
       method: 'POST',
       url: '/api/v1/agent/zone',
-      headers: { authorization: `Bearer ${key}` },
+      headers: { 'x-tern-protocol': '1', authorization: `Bearer ${key}` },
       payload: { agents },
     })
 
@@ -783,8 +798,8 @@ describe('a proxy declaring its zone', () => {
     const proxy = await pairAs('proxy/0.1.0')
 
     const declared = await declare(proxy.key, [
-      { name: 'zone-a', lastSeenUnix: 1_786_000_000, ip: '10.0.0.4' },
-      { name: 'zone-b', lastSeenUnix: null, ip: null },
+      { name: 'zone-a', lastSeenAt: '2026-08-06T07:06:40Z', ip: '10.0.0.4' },
+      { name: 'zone-b', lastSeenAt: null, ip: null },
     ])
     expect(declared.statusCode).toBe(200)
     expect(declared.json().known).toBe(2)
@@ -797,8 +812,8 @@ describe('a proxy declaring its zone', () => {
 
   it('unlinks an agent the zone no longer has, rather than deleting it', async () => {
     const proxy = await pairAs('proxy/0.1.0')
-    await declare(proxy.key, [{ name: 'leaving', lastSeenUnix: 1_786_000_000, ip: '10.0.0.9' }])
-    await declare(proxy.key, [{ name: 'staying', lastSeenUnix: null, ip: null }])
+    await declare(proxy.key, [{ name: 'leaving', lastSeenAt: '2026-08-06T07:06:40Z', ip: '10.0.0.9' }])
+    await declare(proxy.key, [{ name: 'staying', lastSeenAt: null, ip: null }])
 
     const rows = await fleet()
     const gone = rows.find((row) => row.name === 'leaving')
@@ -822,7 +837,7 @@ describe('a proxy declaring its zone', () => {
     const name = rows.find((row) => row.id === direct.id)!.name
 
     const proxy = await pairAs('proxy/0.1.0')
-    await declare(proxy.key, [{ name, lastSeenUnix: 1_786_000_000, ip: '10.0.0.4' }])
+    await declare(proxy.key, [{ name, lastSeenAt: '2026-08-06T07:06:40Z', ip: '10.0.0.4' }])
 
     const after = await fleet()
     const untouched = after.find((row) => row.id === direct.id)
@@ -848,7 +863,7 @@ describe('a proxy declaring its zone', () => {
       .set({ parentAgentId: proxy.id })
       .where(eq(schema.agents.id, direct.id))
 
-    await declare(proxy.key, [{ name: 'unrelated', lastSeenUnix: null, ip: null }])
+    await declare(proxy.key, [{ name: 'unrelated', lastSeenAt: null, ip: null }])
 
     const after = await fleet()
     expect(after.find((row) => row.id === direct.id)?.parentAgentId).toBeNull()
@@ -856,7 +871,7 @@ describe('a proxy declaring its zone', () => {
 
   it('refuses an ordinary agent that tries to invent machines', async () => {
     const agent = await pairAs('0.1.0')
-    const attempt = await declare(agent.key, [{ name: 'ghost', lastSeenUnix: null, ip: null }])
+    const attempt = await declare(agent.key, [{ name: 'ghost', lastSeenAt: null, ip: null }])
     expect(attempt.statusCode).toBe(403)
 
     const rows = await fleet()
@@ -867,6 +882,7 @@ describe('a proxy declaring its zone', () => {
     const attempt = await fx.app.inject({
       method: 'POST',
       url: '/api/v1/agent/zone',
+      headers: { 'x-tern-protocol': '1' },
       payload: { agents: [] },
     })
     expect(attempt.statusCode).toBe(401)
@@ -887,7 +903,7 @@ describe('a proxy declaring its zone', () => {
     await fx.app.inject({
       method: 'POST',
       url: '/api/v1/agent/zone',
-      headers: { authorization: `Bearer ${proxy.key}` },
+      headers: { 'x-tern-protocol': '1', authorization: `Bearer ${proxy.key}` },
       payload: { agents: [], listen: '192.168.1.170:8787' },
     })
 
@@ -911,9 +927,9 @@ describe('a proxy declaring its zone', () => {
     const declared = await fx.app.inject({
       method: 'POST',
       url: '/api/v1/agent/zone',
-      headers: { authorization: `Bearer ${proxy.key}` },
+      headers: { 'x-tern-protocol': '1', authorization: `Bearer ${proxy.key}` },
       payload: {
-        agents: [{ name: 'zone-a', lastSeenUnix: null, ip: null }],
+        agents: [{ name: 'zone-a', lastSeenAt: null, ip: null }],
         listen: '10.0.0.1:38787',
         addresses: tooMany,
       },
@@ -937,7 +953,7 @@ describe('a proxy declaring its zone', () => {
     // A relay deployed before this release sends no such field, and must keep
     // working — the admin falls back to its guess and labels it as one.
     const proxy = await pairAs('proxy/0.1.0')
-    await declare(proxy.key, [{ name: 'zone-x', lastSeenUnix: null, ip: null }])
+    await declare(proxy.key, [{ name: 'zone-x', lastSeenAt: null, ip: null }])
 
     const rows = (await fleet()) as unknown as { id: string; zoneAddress: string | null }[]
     expect(rows.find((row) => row.id === proxy.id)?.zoneAddress).toBeNull()
@@ -959,7 +975,7 @@ describe('a proxy declaring its zone', () => {
       fx.app.inject({
         method: 'POST',
         url: '/api/v1/agent/zone/redeem',
-        headers: { authorization: `Bearer ${key}` },
+        headers: { 'x-tern-protocol': '1', authorization: `Bearer ${key}` },
         payload: { code },
       })
 
@@ -1003,7 +1019,7 @@ describe('a proxy declaring its zone', () => {
       const proxy = await pairAs('proxy/0.1.0')
       const wrong = await redeemFor(proxy.key, 'ZZZZ-ZZZZ')
       expect(wrong.statusCode).toBe(401)
-      expect(wrong.json().message).toBe('Invalid or expired pairing code')
+      expect(wrong.json().detail).toBe('Invalid or expired pairing code')
     })
   })
 })
@@ -1104,6 +1120,7 @@ describe('pairing the same install twice', () => {
     fx.app.inject({
       method: 'POST',
       url: '/api/v1/pair',
+      headers: { 'x-tern-protocol': '1' },
       payload: { code: pin, hostname: 'srv-web-01', os: 'linux', arch: 'x86_64', ...body },
     })
 
@@ -1139,7 +1156,7 @@ describe('pairing the same install twice', () => {
       fx.app.inject({
         method: 'POST',
         url: '/api/v1/agent/heartbeat',
-        headers: { authorization: `Bearer ${key}` },
+        headers: { 'x-tern-protocol': '1', authorization: `Bearer ${key}` },
       })
 
     expect((await beat(oldKey)).statusCode).toBe(401)
