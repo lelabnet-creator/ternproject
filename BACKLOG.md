@@ -1,46 +1,75 @@
-# Backlog
+# Reste à faire
 
-Le sujet précédent — **validation de bout en bout sur trois VM réelles** — est
-terminé. Le bilan complet, les preuves et les hypothèses sont dans
-`deploy-tests/e2e-2026-08-11/RESTITUTION.md`.
+Établi le 2026-08-12, après la session qui a mené de `v0.1.27` à `v0.1.30` plus
+le canal d'ordres non publié. Ordonné par ce qui bloque, puis par ce qui n'a pas
+été vérifié, puis par la dette.
 
-## Ce que la validation e2e a établi (2026-08-11)
+## 1. Ce qui manque à ce qui vient d'être écrit
 
-Les trois rôles déployés et vivants sur trois distributions (Ubuntu, Rocky,
-Arch) : agent direct, relais, agent de zone **isolé** (installé via le relais
-uniquement, l'instance bloquée au pare-feu). Les onze genres de contrôle
-exécutés par l'agent, 328 points persistés en base — `cert` rend `down` à raison
-(rejet d'un cert auto-signé), tout le reste `operational`.
+- [ ] **Les ordres n'atteignent pas les agents de zone.** Le `jobs_route` du
+      relais construit sa propre réponse (`tenantSlug`, `jobs`) sans le champ
+      `commands`, et il n'a aucune route pour remonter un résultat. La demande
+      était « pareil pour les agents derrière les proxy » : elle n'est pas
+      satisfaite. À l'écran il n'y a pas de promesse fausse — un agent de zone
+      n'a pas de menu — mais le message du commit `83877c0` affirme le
+      contraire et se trompe.
+      Travail : porter `commands` dans la réponse du relais, ajouter chez lui la
+      route de résultat, et faire suivre les deux vers l'amont.
 
-Un **bug réel** trouvé et corrigé sur une vraie machine : `default_path()` /
-`default_config()` étaient relatifs, si bien qu'un `pair`/`run`/`doctor` sans
-`--config` visait le cwd et divergeait du fichier du service → 401 en boucle sur
-une config qu'on croyait fraîche (probable cause du « never reported » initial).
-Corrigés en chemin XDG absolu, cohérent avec l'installeur (commit `13817d2`),
-validé en réel.
+- [ ] **Le canal d'ordres n'a jamais été exercé sur un relais.** Six ordres
+      testés sur la VM ubuntu (agent direct), zéro sur rocky. `tern-proxy` a la
+      même boucle de rafraîchissement mais pas le même code de démarrage.
 
-Un **tutoriel** de démarrage rapide, appuyé sur ces vraies sorties :
-`docs/tutorial.md`.
+- [ ] **L'affichage des retours n'a pas été vu à l'écran.** `CommandTrail` —
+      mot de passe montré une fois, bloc de logs, états « en attente / pris /
+      répondu » — est écrit et compilé, jamais regardé avec de vrais retours.
+      C'est exactement le genre d'endroit où j'ai déjà eu des assertions vraies
+      sur une page fausse.
 
-## Ce qui reste ouvert (non bloquant)
+## 2. Publier, et rattraper l'existant
 
-- **Cadence de refresh 300 s** : réactivité lente à une nouvelle assignation et
-  à l'apparition d'un agent de zone. Piste : intervalle plus court, ou
-  déclenchement sur événement.
-- **Logs du relais silencieux** sur l'activité périodique réussie (heartbeat,
-  déclaration de zone) — un log debug aiderait au diagnostic.
-- **Reset du mot de passe de l'UI de l'agent depuis la console** : toujours non
-  fait (demande un canal serveur→agent à concevoir).
+- [ ] **Sortir `v0.1.31`** : canal d'ordres, sous-menu des adresses, déduction
+      du rôle dans l'installeur. Rien de tout cela n'est encore chez toi.
 
-## Règles de la boucle
+- [ ] **Mettre à jour l'agent de `192.168.1.170`.** Il sert encore `Basic
+    realm` — d'où la popup du navigateur. Procédure prouvée sur les deux VM ;
+      il n'y a que l'exécution qui manque, et je n'ai pas d'accès à cette
+      machine.
 
-- Un point à la fois, dans l'ordre, entièrement, prouvé par des commandes
-  réellement exécutées.
-- Vérification avant de cocher : `pnpm typecheck`, `lint`, `format`, `test` ; et
-  pour l'agent `cargo test`, `cargo fmt --check`, `cargo clippy -- -D warnings`.
-  `pnpm format` **après** la dernière édition.
-- Commiter le point seul, en nommant les chemins ; jamais `git add -A` ni un
-  répertoire. Inspecter les hunks des fichiers partagés.
-- Ne pas toucher au relais de prod de Jacques (`192.168.1.170:38787`).
-- Regrouper les corrections de code pour minimiser builds et CI ; ne pousser
-  qu'une fois en fin de mission.
+- [ ] **Supprimer les doublons déjà en base.** Ils ont été créés avant
+      l'identifiant d'installation et ne se résorbent pas seuls.
+
+## 3. Ce qui rend les ordres pénibles à l'usage
+
+- [ ] **Latence jusqu'à 5 minutes.** C'est l'intervalle de rafraîchissement, et
+      c'est l'architecture — les agents interrogent, on ne les joint pas. Pour
+      « redémarre » ou « donne-moi tes logs », c'est long. Piste : intervalle
+      plus court quand un ordre est en attente, ou un signal sur le heartbeat,
+      qui lui bat toutes les minutes.
+
+- [ ] **Le premier battement d'un relais arrive à +300 s.** Sa boucle saute son
+      premier tick. Un relais fraîchement installé paraît muet cinq minutes.
+
+- [ ] **L'enum SQL et le `z.enum` de la route sont tenus en phase à la main.**
+      C'est ce qui a produit un 400 en pleine session : les genres `ui-on` /
+      `ui-off` existaient en base et pas dans le schéma de la route.
+
+## 4. Documentation — rien de tout ceci n'est écrit
+
+- [ ] Les ordres depuis la console, et ce que « pause » et « stop » veulent
+      dire l'un par rapport à l'autre.
+- [ ] `tern-agent resume`, qui est la seule porte de sortie d'un stop.
+- [ ] La page du relais (`tern-proxy ui`), qui n'existait pas avant `0.1.28`.
+- [ ] Le chemin de mise à jour : relancer l'installeur sans `--pin`.
+- [ ] L'identifiant d'installation, et pourquoi il ne dérive de rien de l'hôte.
+
+## 5. Plus ancien, toujours ouvert
+
+- [ ] **Logs du relais silencieux** sur l'activité périodique réussie : rien ne
+      confirme une déclaration de zone qui s'est bien passée.
+
+## Fait dans cette session (pour mémoire)
+
+Le mot de passe de la page se réinitialise désormais depuis la console — c'était
+au backlog depuis longtemps et attendait « un canal serveur→agent à concevoir ».
+L'ordre `ui-on` est ce canal.
