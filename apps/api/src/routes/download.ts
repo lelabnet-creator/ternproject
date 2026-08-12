@@ -232,6 +232,24 @@ DONE=0
 OK="✓"
 GOING="›"
 
+# Colour, and only where somebody is looking.
+#
+# The closing frame is the one place this script says something in colour,
+# because it is the one place a glance has to answer two questions at once. A
+# log file, a CI step or a pipe gets the same words with none of the escapes.
+if [ -t 1 ]; then
+  # Built with printf rather than written as an escape: a backslash-033 in a
+  # is interpreted by some echos and not others, and this script is POSIX sh on
+  # whatever the machine happens to have.
+  ESC=$(printf '\\033')
+  GREEN="$ESC[32m"; RED="$ESC[31m"; RESET="$ESC[0m"
+else
+  GREEN=""; RED=""; RESET=""
+fi
+
+# Which supervisor took it, named in the frame so "starts at boot" says by what.
+SUPERVISOR="none"
+
 # Everything else printed from here on is held back until the list has stopped
 # moving, and shown in one go after it.
 #
@@ -506,6 +524,7 @@ PLIST_EOF
     launchctl bootstrap "gui/$(id -u)" "$PLIST" 2>/dev/null || true
   fi
   STARTED=1
+  SUPERVISOR="launchd"
   echo "✓ Registered with launchd — starts at boot."
   echo "  Stop:   launchctl unload $PLIST"
 
@@ -573,6 +592,7 @@ UNIT_EOF
     # for.
     systemctl restart --no-block "$BIN.service"
     STARTED=1
+    SUPERVISOR="systemd"
     echo "✓ Registered with systemd — starts at boot."
     echo "  Status: systemctl status $BIN"
     echo "  Logs:   journalctl -u $BIN -f"
@@ -609,6 +629,7 @@ UNIT_EOF
     # noticed until a reboot, and then nothing reports, quietly.
     if [ "$LINGER" = yes ]; then
       STARTED=1
+      SUPERVISOR="systemd (user)"
       echo "✓ Registered as a systemd user service — starts at boot."
     else
       echo "⚠ Registered as a systemd user service, but it will NOT start at boot."
@@ -646,6 +667,7 @@ RC_EOF
     rc-update add "$BIN" default
     rc-service "$BIN" restart
     STARTED=1
+    SUPERVISOR="OpenRC"
     echo "✓ Registered with OpenRC — starts at boot."
   fi
 
@@ -713,25 +735,58 @@ fi
 # whether anything was running at all, which is a fair conclusion to draw from
 # a screen that ends with "check it end to end" and never says "it is on".
 if [ "$SERVICE" = 1 ]; then
-  echo
-  echo "  ─────────────────────────────────────────────────────────"
-  if [ "$STARTED" = 1 ]; then
-    # An update and a first install end the same way — running — but they
-    # answer different questions, and somebody who came to take a new version
-    # wants to read that the new version is the one now running.
-    if [ "$UPDATED" = 1 ]; then
-      echo "  $OK Updated and restarted. The new version is the one running."
+  # Two facts, asked rather than assumed.
+  #
+  # "Running" used to mean "we issued a start", which is not the same thing —
+  # the start is queued with --no-block, and a unit that fails to come up says
+  # so nowhere. So it is looked at, with a few seconds' grace for a unit that
+  # is still pulling in network-online.
+  RUNNING=no
+  i=0
+  while [ $i -lt 10 ]; do
+    if [ "$(id -u)" = 0 ]; then
+      systemctl is-active --quiet "$BIN.service" 2>/dev/null && RUNNING=yes && break
     else
-      echo "  $OK Running now, and again after a reboot."
+      systemctl --user is-active --quiet "$BIN.service" 2>/dev/null && RUNNING=yes && break
     fi
+    # launchd and OpenRC have no equivalent this script can rely on; there,
+    # what was registered is the best it can honestly say.
+    command -v systemctl >/dev/null 2>&1 || { RUNNING=$([ "$STARTED" = 1 ] && echo yes || echo no); break; }
+    i=$((i + 1))
+    sleep 1
+  done
+
+  # And whether it comes back on its own. STARTED already carries that: it is
+  # set only where the unit was enabled *and*, for a user service, lingering was
+  # verified — which is the pair that decides it.
+  BOOT=$([ "$STARTED" = 1 ] && echo yes || echo no)
+
+  if [ "$RUNNING" = yes ] && [ "$BOOT" = yes ]; then
+    C="$GREEN"
   else
-    # Named as the exception it is, with the one command that fixes it. A
-    # process nobody restarts is a monitor that stops at the first power cut
-    # and reports nothing, silently, from then on.
-    echo "  ! Installed, but NOT set to start after a reboot."
-    echo "    Start it now:  $DEST/$BIN run --config $CONF --queue $QUEUE"
+    C="$RED"
   fi
-  echo "  ─────────────────────────────────────────────────────────"
+
+  WHAT="$BIN"
+  [ "$UPDATED" = 1 ] && WHAT="$BIN, updated"
+
+  echo
+  echo "$C  ┌───────────────────────────────────────────────────────┐$RESET"
+  printf "$C  │$RESET  %s  %-18s %-31s$C│$RESET\n" \
+    "$([ "$RUNNING" = yes ] && echo "$OK" || echo "✗")" "Running now" "$WHAT"
+  printf "$C  │$RESET  %s  %-18s %-31s$C│$RESET\n" \
+    "$([ "$BOOT" = yes ] && echo "$OK" || echo "✗")" "Starts at boot" "$SUPERVISOR"
+  echo "$C  └───────────────────────────────────────────────────────┘$RESET"
+
+  # The exceptions, each with the one command that fixes it. A monitor nobody
+  # restarts stops at the first power cut and reports nothing, quietly, from
+  # then on — so a cross here is worth more words than a tick.
+  if [ "$RUNNING" != yes ]; then
+    echo "  Not running. Start it:  $DEST/$BIN run --config $CONF --queue $QUEUE"
+  fi
+  if [ "$BOOT" != yes ]; then
+    echo "  Will not come back after a reboot. See the note above."
+  fi
 fi
 `
 }

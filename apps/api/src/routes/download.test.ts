@@ -180,13 +180,22 @@ describe('the shell installer', () => {
      * conclusion from a screen that ends with "check it end to end" and never
      * says "it is on".
      */
-    expect(script).toContain('Running now, and again after a reboot')
+    /*
+     * It used to be one sentence — "Running now, and again after a reboot" —
+     * and the two halves fail independently. A unit that started and will not
+     * survive a reboot is the case that costs a fleet at the first power cut,
+     * and one line could only ever be half true about it. Two lines now, each
+     * with its own mark.
+     */
+    expect(script).toContain('"Running now"')
+    expect(script).toContain('"Starts at boot"')
 
-    // And the honest other half, with the command that fixes it: a process
-    // nobody restarts is a monitor that stops at the first power cut and
-    // reports nothing, silently, from then on.
-    expect(script).toContain('NOT set to start after a reboot')
+    // And the command that fixes each: a process nobody restarts is a monitor
+    // that stops at the first power cut and reports nothing, silently, from
+    // then on.
+    expect(script).toContain('Not running. Start it:')
     expect(script).toContain('run --config $CONF --queue $QUEUE')
+    expect(script).toContain('Will not come back after a reboot')
   })
 
   it('decides that where a supervisor actually took it, not at the end', () => {
@@ -418,8 +427,12 @@ describe('updating rather than installing', () => {
     expect(script).toContain('The running process is still the old one')
   })
 
-  it('says the new version is the one running, once it is', () => {
-    expect(script).toContain('Updated and restarted. The new version is the one running.')
+  it('says in the frame that this was an update', () => {
+    // An update and a first install both end running, and answer different
+    // questions; somebody who came to take a new version wants to read that it
+    // is the new one now running. Said beside the name rather than as a
+    // separate sentence, so the frame stays two lines.
+    expect(script).toContain('WHAT="$BIN, updated"')
   })
 
   it('parses as POSIX sh with all three paths in it', () => {
@@ -427,5 +440,57 @@ describe('updating rather than installing', () => {
     const path = join(dir, 'install.sh')
     writeFileSync(path, script)
     expect(() => execFileSync('sh', ['-n', path], { stdio: 'pipe' })).not.toThrow()
+  })
+})
+
+/**
+ * The frame the installer ends on.
+ *
+ * Two facts, not one sentence: whether it is running, and whether it comes back
+ * after a reboot. They fail independently — a unit that started and will not
+ * survive a reboot is the case that costs a fleet at the first power cut — and
+ * one line saying "Running now, and again after a reboot" could only ever be
+ * half true.
+ */
+describe('the closing frame', () => {
+  const script = shellScript()
+
+  it('asks whether it is running rather than assuming', () => {
+    // `restart --no-block` queues the start; it does not perform it. Claiming
+    // "running" off the back of having asked was a claim about the wrong thing.
+    expect(script).toContain('RUNNING=no')
+    expect(script).toMatch(/systemctl --user is-active --quiet/)
+    expect(script).toMatch(/systemctl is-active --quiet/)
+  })
+
+  it('shows the two facts as two lines, each with its own mark', () => {
+    expect(script).toContain('"Running now"')
+    expect(script).toContain('"Starts at boot"')
+    // Widths that add up to the border, or the right edge wanders.
+    expect(script.match(/%-18s %-31s/g) ?? []).toHaveLength(2)
+  })
+
+  it('is green only when both are true', () => {
+    expect(script).toContain('if [ "$RUNNING" = yes ] && [ "$BOOT" = yes ]; then')
+    expect(script).toContain('C="$GREEN"')
+    expect(script).toContain('C="$RED"')
+  })
+
+  it('names the supervisor that took it, or none', () => {
+    // "Starts at boot" without saying by what is half an answer on a machine
+    // where three of them might have.
+    expect(script).toContain('SUPERVISOR="none"')
+    for (const s of ['systemd', 'systemd (user)', 'launchd', 'OpenRC']) {
+      expect(script).toContain(`SUPERVISOR="${s}"`)
+    }
+  })
+
+  it('leaves the escapes out when nobody is looking', () => {
+    // A log file, a CI step or a pipe gets the same words without them.
+    expect(script).toContain('if [ -t 1 ]; then')
+    expect(script).toContain('GREEN=""; RED=""; RESET=""')
+    // Built with printf: a backslash-033 in a shell string is interpreted by
+    // some echos and not others.
+    expect(script).toMatch(/ESC=\$\(printf/)
   })
 })
