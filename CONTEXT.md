@@ -2,19 +2,21 @@
 
 ## Current Task
 
-Release v0.2.1 : le battement d'agent est retenu ouvert (long-poll), et un
-`flock` empêche deux copies de se disputer une même config.
+Release v0.2.2 : la page locale d'un agent s'ouvre enfin quand on le demande,
+et un agent en retard se met à jour depuis la console.
 
 ## Key Decisions
 
-- **Un POST retenu, pas un WebSocket** : c'est l'agent qui ouvre la connexion,
-  et c'est cette propriété qui le rend joignable derrière pare-feu et relais.
-- **`holding` est dit, jamais déduit** : deviner d'après le temps de réponse
-  était faux quand un relais relâche ses battements en s'arrêtant (57 s perdues).
-- **Le verrou refuse, ne tue pas** : il nomme le pid et propose le `kill`.
+- **`ui::reconcile` est le seul chemin** : démarrage et `ui-on` partagent la
+  même fonction, sinon l'instruction écrit la config et n'ouvre aucun port.
+- **La machine se met à jour elle-même** : somme SHA-256, puis `--version` sur
+  le binaire téléchargé, puis « est-il plus récent » — et alors seulement le
+  renommage. Aucun des trois échecs ne touche l'agent qui marchait.
+- **Le tag vient après la collecte** : l'image d'une release construite avant
+  que la CI ait rafraîchi `clients/agent/bin` embarque les binaires précédents.
 
 ## Next Steps
 
-- Mettre à jour les agents 0.1.0 de Jacques (protocole v1 les refuse).
+- Essayer le bouton d'upgrade de bout en bout sur un vrai agent.
 - Supprimer l'entrée fantôme de zone restée à « never reported ».
 - Surfacer `protocol-mismatch` comme motif sur la ligne de flotte.
