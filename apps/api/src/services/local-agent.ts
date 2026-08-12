@@ -110,7 +110,11 @@ export function dataPaths() {
   const configured = config.TERN_DATA_DIR
   const dir = isAbsolute(configured) ? configured : resolve(process.cwd(), '..', '..', configured)
 
-  return { dir, configPath: join(dir, 'agent.toml'), queuePath: join(dir, 'agent-queue.jsonl') }
+  // `.json` because that is what the file is — one JSON array, rewritten
+  // whole. The old `.jsonl` name promised lines and invited a `tail` that
+  // read everything or nothing; the agent absorbs a leftover `.jsonl` buffer
+  // on first open, so an upgrade mid-outage loses no points.
+  return { dir, configPath: join(dir, 'agent.toml'), queuePath: join(dir, 'agent-queue.json') }
 }
 
 /**

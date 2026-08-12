@@ -459,28 +459,68 @@ async fn main() -> Result<()> {
                 }
             }
 
+            let queue_path = queue.unwrap_or_else(|| path.with_extension("queue.json"));
+
             if once {
-                let client = Client::new(&config.server)?;
-                let mut points = Vec::with_capacity(config.probes.len());
-                for entry in &config.probes {
-                    let point = tern_agent::runner::run_once(entry).await;
+                /*
+                 * `--once` honours the state like the loop does.
+                 *
+                 * It ran regardless: a stopped agent invoked from cron measured
+                 * and pushed anyway, which contradicted the one promise `stop`
+                 * makes — a stopped agent talks to nothing. Same words as the
+                 * loop's refusal, same way back.
+                 */
+                if !config.state.reports() {
+                    println!("This agent was stopped from the console. It reports nothing.");
                     println!(
-                        "{:<24} {:?}{}",
-                        point.control_key,
-                        point.status,
-                        point
-                            .latency_ms
-                            .map(|ms| format!("  {ms} ms"))
-                            .unwrap_or_default()
+                        "Undo it here with: tern-agent resume --config {}",
+                        path.display()
                     );
-                    points.push(point);
+                    return Ok(());
                 }
-                let response = client.ingest(&config.api_key, &points).await?;
-                println!("pushed {} point(s)", response.accepted);
+
+                let client = Client::new(&config.server)?;
+                // Paused: reporting is allowed — that is what lets a queued
+                // backlog drain — but nothing new is measured.
+                let mut points = Vec::with_capacity(config.probes.len());
+                if config.state.measures() {
+                    for entry in &config.probes {
+                        let point = tern_agent::runner::run_once(entry).await;
+                        println!(
+                            "{:<24} {:?}{}",
+                            point.control_key,
+                            point.status,
+                            point
+                                .latency_ms
+                                .map(|ms| format!("  {ms} ms"))
+                                .unwrap_or_default()
+                        );
+                        points.push(point);
+                    }
+                } else {
+                    println!("Paused from the console — measuring nothing, sending what waits.");
+                }
+
+                /*
+                 * Through the queue, not past it.
+                 *
+                 * This is the cron path, and it used to push directly: one
+                 * failed request and the measurements were gone — the very
+                 * loss the queue exists to prevent, on the schedule least
+                 * likely to retry soon. Now a failure leaves the points on
+                 * disk, dated at measurement, and the next run drains them.
+                 */
+                let mut queue = tern_agent::runner::Queue::open(&queue_path);
+                queue.push_points(&points);
+                match tern_agent::runner::drain(&client, &config.api_key, &mut queue).await {
+                    Ok(accepted) => println!("pushed {accepted} point(s)"),
+                    Err(error) => {
+                        eprintln!("could not push ({error}) — {} point(s) kept for the next run", queue.len());
+                    }
+                }
                 return Ok(());
             }
 
-            let queue_path = queue.unwrap_or_else(|| path.with_extension("queue.json"));
             // The runner keeps asking after this first fetch, so a control
             // added in the admin starts being measured without a restart.
             tern_agent::runner::run(config, path, queue_path, !no_refresh).await

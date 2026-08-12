@@ -24,7 +24,7 @@ use tracing::{info, warn};
 use crate::config::{Config, ProbeEntry};
 use crate::probe::{evaluate, Status};
 use crate::probe_transport::observe;
-use crate::transport::{Client, Point};
+use crate::transport::{Backoff, Client, Point};
 
 /// How many points survive an outage. At one minute per probe this is about a
 /// day for a single probe, less for many — bounded on purpose.
@@ -78,10 +78,33 @@ pub struct Queue {
 
 impl Queue {
     pub fn open(path: &Path) -> Self {
-        let points = std::fs::read_to_string(path)
+        let mut points = std::fs::read_to_string(path)
             .ok()
             .and_then(|raw| serde_json::from_str::<VecDeque<QueuedPoint>>(&raw).ok())
             .unwrap_or_default();
+
+        /*
+         * A buffer left by the misnamed era, absorbed once.
+         *
+         * The queue used to be handed paths ending in `.jsonl` — by the Docker
+         * entrypoint and the local-agent supervisor — while what it wrote was
+         * a single JSON array. The name now says what the file is, but a
+         * machine upgrading mid-outage may hold unsent points under the old
+         * name, and a rename that lost them would betray the queue's one job.
+         */
+        let legacy = path.with_extension("jsonl");
+        if legacy != path {
+            if let Some(mut old) = std::fs::read_to_string(&legacy)
+                .ok()
+                .and_then(|raw| serde_json::from_str::<VecDeque<QueuedPoint>>(&raw).ok())
+            {
+                // The legacy buffer is the older half, so it goes first: the
+                // queue is a FIFO and eviction eats the front.
+                old.extend(points.drain(..));
+                points = old;
+                let _ = std::fs::remove_file(&legacy);
+            }
+        }
 
         // A corrupt or half-written queue starts empty rather than aborting the
         // agent: losing buffered history is bad, monitoring nothing is worse.
@@ -442,6 +465,7 @@ pub async fn run(
     // owes the fleet is that it exists. Without this an idle agent is invisible
     // for its first interval, which is the interval somebody is watching.
     let mut next_heartbeat = Instant::now();
+    let mut heartbeat_backoff = Backoff::new();
 
     loop {
         let wake_at = next_wake(refresh, next_refresh, next_heartbeat, &schedule);
@@ -488,6 +512,7 @@ pub async fn run(
                 .await
             {
                 Ok(waiting) => {
+                    heartbeat_backoff.succeeded();
                     // Told there is something to fetch, so fetch it now rather
                     // than at the next refresh — which is what the wait was.
                     if waiting {
@@ -498,10 +523,19 @@ pub async fn run(
                         snapshot.last_heartbeat_ok_s = Some(0);
                         snapshot.last_heartbeat_error = None;
                     })
-                    .await
+                    .await;
+                    next_heartbeat = Instant::now() + HEARTBEAT_EVERY;
                 }
                 Err(error) => {
-                    warn!(%error, "heartbeat failed");
+                    /*
+                     * Backed off, doubling to a quarter of an hour. A
+                     * permanent 401 used to be one warn per minute forever —
+                     * noise exactly where somebody needs to read — and
+                     * hammering an unreachable server helps nobody. The first
+                     * success resets the cadence.
+                     */
+                    let delay = heartbeat_backoff.failed();
+                    warn!(%error, retry_in_s = delay.as_secs(), "heartbeat failed");
                     // The message, not a boolean. "heartbeat refused (401)" and
                     // "could not reach the server" send somebody to two
                     // different places, and a red light that says neither sends
@@ -509,9 +543,9 @@ pub async fn run(
                     let text = error.to_string();
                     ui.update(|snapshot| snapshot.last_heartbeat_error = Some(text))
                         .await;
+                    next_heartbeat = Instant::now() + delay;
                 }
             }
-            next_heartbeat = Instant::now() + HEARTBEAT_EVERY;
         }
 
         if refresh && now >= next_refresh {
@@ -634,6 +668,31 @@ async fn flush(
     }
 }
 
+/// Sends everything queued, in chunks, and says how many were accepted.
+///
+/// The one-shot path (`run --once`): the loop uses `flush`, which also feeds
+/// the local page. Stops at the first failure with the remainder still on
+/// disk — `push_points` persisted before the first request went out, so a
+/// failure here loses nothing.
+pub async fn drain(client: &Client, api_key: &str, queue: &mut Queue) -> anyhow::Result<usize> {
+    const CHUNK: usize = 200;
+    let mut accepted = 0;
+
+    while !queue.is_empty() {
+        let chunk = queue.peek(CHUNK);
+        let response = client.ingest(api_key, &chunk).await?;
+        queue.drop_front(chunk.len());
+        accepted += response.accepted;
+        for rejected in &response.rejected {
+            // Named rather than retried, like the loop: an unknown control key
+            // is a configuration mistake, and replaying it forever hides it.
+            warn!(control = %rejected.control_key, reason = %rejected.reason, "point rejected");
+        }
+    }
+
+    Ok(accepted)
+}
+
 /// A deterministic spread of first runs across the interval.
 fn stagger(index: usize, total: usize, interval_s: u64) -> Duration {
     if total <= 1 {
@@ -700,6 +759,36 @@ mod tests {
             probes: keys.iter().map(|key| probe_entry(key)).collect(),
             ui: None,
         }
+    }
+
+    /// The rename must not cost a single buffered point: a machine upgrading
+    /// mid-outage holds unsent history under the old `.jsonl` name.
+    #[test]
+    fn opening_absorbs_a_legacy_jsonl_buffer_oldest_first() {
+        let dir = std::env::temp_dir().join(format!(
+            "tern-queue-{}",
+            crate::transport::random_token(8)
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let new_path = dir.join("agent-queue.json");
+        let old_path = dir.join("agent-queue.jsonl");
+
+        std::fs::write(
+            &old_path,
+            serde_json::to_string(&vec![point("from-before")]).unwrap(),
+        )
+        .unwrap();
+        std::fs::write(
+            &new_path,
+            serde_json::to_string(&vec![point("from-now")]).unwrap(),
+        )
+        .unwrap();
+
+        let queue = Queue::open(&new_path);
+        let keys: Vec<String> = queue.peek(10).iter().map(|p| p.control_key.clone()).collect();
+        // Older half first: the queue is a FIFO and eviction eats the front.
+        assert_eq!(keys, ["from-before", "from-now"]);
+        assert!(!old_path.exists(), "absorbed once, not on every start");
     }
 
     #[test]

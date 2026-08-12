@@ -46,5 +46,5 @@ fi
 # setup wizard.
 exec "$AGENT" run \
   --config "$DATA_DIR/agent.toml" \
-  --queue "$DATA_DIR/agent-queue.jsonl" \
+  --queue "$DATA_DIR/agent-queue.json" \
   --wait-for-config

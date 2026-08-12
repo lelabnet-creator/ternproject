@@ -628,7 +628,7 @@ TERN_ADMIN_PASSWORD=…          # 8 characters minimum</code></pre></div>
 <tbody>
 <tr><td>Everything the product knows</td><td>Volume <code>tern-prod_db-data</code>, mounted at <code>/home/postgres/pgdata</code></td></tr>
 <tr><td><code>APP_SECRET</code>, when generated rather than given</td><td>Volume <code>tern-prod_tern-data</code>, file <code>/var/lib/tern/app_secret</code>, mode 600</td></tr>
-<tr><td>The local agent's key and offline queue</td><td>The same volume: <code>agent.toml</code> (mode 600) and <code>agent-queue.jsonl</code></td></tr>
+<tr><td>The local agent's key and offline queue</td><td>The same volume: <code>agent.toml</code> (mode 600) and <code>agent-queue.json</code></td></tr>
 <tr><td>The stack's own configuration</td><td><code>.env</code> beside the compose file, mode 600</td></tr>
 </tbody>
 </table></div>

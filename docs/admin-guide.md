@@ -258,7 +258,7 @@ expected to get them wrong occasionally without an operator being involved.
 | ---------------------------------------------- | ----------------------------------------------------------------------- |
 | Everything the product knows                   | Volume `tern-prod_db-data`, mounted at `/home/postgres/pgdata`          |
 | `APP_SECRET`, when generated rather than given | Volume `tern-prod_tern-data`, file `/var/lib/tern/app_secret`, mode 600 |
-| The local agent's key and offline queue        | The same volume: `agent.toml` (mode 600) and `agent-queue.jsonl`        |
+| The local agent's key and offline queue        | The same volume: `agent.toml` (mode 600) and `agent-queue.json`        |
 | The stack's own configuration                  | `.env` beside the compose file, mode 600                                |
 
 **`APP_SECRET` is not in the database.** It encrypts TOTP secrets, probe
