@@ -2,25 +2,29 @@
 
 ## Current Task
 
-Rien en cours. `v0.1.30` : relancer l'installeur sans `--pin` met vraiment à
-jour — il s'arrêtait avant de redémarrer le service, donc le binaire neuf ne
-tournait jamais.
+Boucle autonome sur `BACKLOG.md`. Section 1 close, `v0.1.31` en cours de
+publication. Restent la dette (latence des ordres, premier battement d'un
+relais, enum tenu à la main) et cinq points de documentation.
 
 ## Key Decisions
 
-- **L'agent porte un identifiant d'installation**, engendré au premier
-  appairage et gardé dans sa config. Se ré-appairer remplace sa ligne, réveille
-  une ligne révoquée, et tue la clé précédente — après avoir pointé la ligne sur
-  la neuve. Fondé sur le fichier de config, **jamais sur l'hôte** : un nom
-  d'hôte ou un machine-id fusionnerait deux VM clonées d'une même image, ce qui
-  ferait disparaître en silence la supervision de l'une.
-- Un agent trop ancien n'envoie pas d'identifiant et garde une ligne à lui —
-  refuser sa requête mettrait une flotte hors service.
-- La version stockée à l'appairage perd le préfixe `proxy/` : le rôle a sa
-  propre colonne.
+- **Un canal d'ordres**, parce que rien n'atteint un agent : ils interrogent, et
+  un agent de zone n'a aucune route de retour. Six ordres — page, logs,
+  redémarrage, pause, reprise, arrêt — pris au prochain sondage. Le relais porte
+  ceux de sa zone et fait remonter les réponses sous sa clé.
+- **Pause et stop** ne diffèrent que par ce qui continue d'écouter. Arrêté, rien
+  n'entend une reprise : c'est ce qui le rend définitif, et la seule porte de
+  sortie est `tern-agent resume` sur la machine. Les deux états sont dans la
+  config, parce que le superviseur relance à toute sortie.
+- **Le mot de passe de la page** revient comme réponse à `ui-on` : haché à
+  l'écriture, c'est le seul instant où il existe ailleurs que sur la machine.
+- **Les sondages de démarrage avalaient les ordres** — sur l'agent puis sur le
+  relais. Le serveur les marque livrés en les livrant, donc ils étaient
+  détruits. C'était le chemin le plus probable : on redémarre pour hâter.
 
 ## Next Steps
 
-- Les doublons déjà en base ne se résorbent pas seuls (créés sans identifiant) —
-  à supprimer depuis la console.
-- Reset du mot de passe de la page depuis la console (canal serveur→agent).
+- Latence jusqu'à 5 min sur les ordres — piste : cadence courte tant qu'un ordre
+  attend, ou signal sur le heartbeat qui bat toutes les minutes.
+- Documentation : ordres, `resume`, page du relais, mise à jour, identifiant
+  d'installation.
