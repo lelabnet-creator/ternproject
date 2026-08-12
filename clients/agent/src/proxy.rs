@@ -520,17 +520,8 @@ pub async fn run(
         state.inner.lock().await.zone_commands.extend(startup_zone);
     }
     if !startup_commands.is_empty() {
-        let (path, mut own) = {
-            let inner = state.inner.lock().await;
-            (inner.config_path.clone(), inner.config.clone())
-        };
-        let key = own.api_key.clone();
-        let restart =
-            crate::commands::apply(&state.client, &key, &startup_commands, &mut own, &path).await;
-        state.inner.lock().await.config = own;
-        if restart {
-            crate::commands::leave_for_restart();
-        }
+        let key = state.inner.lock().await.config.api_key.clone();
+        apply_own_commands(&state, &key, &startup_commands).await;
     }
 
     // Two background loops: one to refresh the assignment, one to drain the
@@ -558,6 +549,47 @@ pub async fn run(
     .context("the proxy server stopped unexpectedly")?;
 
     Ok(())
+}
+
+/**
+ * Carries out the relay's own instructions without clobbering its config.
+ *
+ * The config is shared: a zone agent pairing pushes a key into it at any
+ * moment. Cloning the whole thing, spending seconds on the network, then
+ * writing the clone back erased those keys — in memory and on disk — and the
+ * agent that had just paired was refused on its next heartbeat with a 401.
+ *
+ * So only the two fields an instruction can touch travel, and they are merged
+ * back under the lock before the file is written once, from the live config.
+ */
+async fn apply_own_commands(state: &AppState, key: &str, commands: &[crate::transport::Command]) {
+    let (path, mut settings) = {
+        let inner = state.inner.lock().await;
+        (
+            inner.config_path.clone(),
+            crate::commands::Settings {
+                ui: inner.config.ui.clone(),
+                state: inner.config.state,
+                paused_means: "the zone's points are kept here, none are sent on",
+            },
+        )
+    };
+
+    let restart = crate::commands::apply(&state.client, key, commands, &mut settings, &path).await;
+
+    let saved = {
+        let mut inner = state.inner.lock().await;
+        inner.config.ui = settings.ui;
+        inner.config.state = settings.state;
+        inner.config.save(&path)
+    };
+    if let Err(error) = saved {
+        warn!(%error, "carried out an instruction but could not write the config");
+    }
+
+    if restart {
+        crate::commands::leave_for_restart();
+    }
 }
 
 fn spawn_refresh(state: AppState, every_s: u64) {
@@ -634,21 +666,9 @@ fn spawn_refresh(state: AppState, every_s: u64) {
 
                     // The relay's own instructions, carried out here.
                     if !response.commands.is_empty() {
-                        let path = inner.config_path.clone();
-                        let mut config = inner.config.clone();
+                        let own = response.commands.clone();
                         drop(inner);
-                        let restart = crate::commands::apply(
-                            &state.client,
-                            &key,
-                            &response.commands,
-                            &mut config,
-                            &path,
-                        )
-                        .await;
-                        state.inner.lock().await.config = config;
-                        if restart {
-                            crate::commands::leave_for_restart();
-                        }
+                        apply_own_commands(&state, &key, &own).await;
                     }
                 }
                 // Keeping the previous copy is the point: agents restarting
@@ -1775,6 +1795,64 @@ mod tests {
         let config = config_with_one_agent();
         assert_eq!(config.local_keys[0].last_seen, None);
         assert_eq!(config.local_keys[0].ip, None);
+    }
+
+    /**
+     * The keys of a zone survive an instruction being carried out.
+     *
+     * The relay's config is shared: a machine pairing pushes a key into it at
+     * any moment. Carrying out an instruction used to clone the whole config,
+     * spend seconds on the network reporting the result, then write the clone
+     * back — erasing every key added in between, in memory and on disk. The
+     * agent that had just paired was then refused with a 401 on its next
+     * heartbeat, and the relay declared an empty zone. Both symptoms, one
+     * cause.
+     *
+     * Only the two fields an instruction can touch travel now, so this asserts
+     * the merge rather than the race: what comes back must not be able to carry
+     * a stale inventory with it.
+     */
+    #[test]
+    fn an_instruction_cannot_erase_the_zone_it_serves() {
+        let mut config = config_with_one_agent();
+        assert_eq!(config.local_keys.len(), 1);
+
+        // What travels while the network call happens.
+        let mut settings = crate::commands::Settings {
+            ui: config.ui.clone(),
+            state: config.state,
+            paused_means: "…",
+        };
+
+        // Meanwhile, a machine pairs: the live config gains a key.
+        config.local_keys.push(LocalKey {
+            name: "arrived-during".into(),
+            key_hash: "hash".into(),
+            last_seen: None,
+            ip: None,
+        });
+
+        // The instruction lands.
+        crate::commands::run(
+            &crate::transport::Command {
+                id: "c1".into(),
+                kind: "pause".into(),
+            },
+            &mut settings,
+            std::path::Path::new("/nonexistent"),
+        );
+
+        // Merged the way the relay merges it.
+        config.ui = settings.ui;
+        config.state = settings.state;
+
+        assert_eq!(
+            config.state,
+            crate::config::Running::Paused,
+            "it took effect"
+        );
+        assert_eq!(config.local_keys.len(), 2, "and kept both keys");
+        assert!(config.local_keys.iter().any(|k| k.name == "arrived-during"));
     }
 
     #[test]

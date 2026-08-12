@@ -35,6 +35,15 @@ pub trait Controllable {
     fn set_ui(&mut self, ui: Option<UiSettings>);
     fn state(&self) -> Running;
     fn set_state(&mut self, state: Running);
+    /**
+     * Persist the change.
+     *
+     * A no-op is legitimate: a caller that holds the live config behind a lock
+     * cannot hand it here, so it hands a small view of the two fields an
+     * instruction may touch and writes the real thing itself afterwards. See
+     * the relay, where writing a copy taken before a network call destroyed the
+     * keys a zone agent had paired for in the meantime.
+     */
     fn write(&self, path: &std::path::Path) -> anyhow::Result<()>;
 
     /**
@@ -229,6 +238,44 @@ pub async fn apply<C: Controllable>(
 pub fn leave_for_restart() -> ! {
     info!("restarting at the console's request");
     std::process::exit(0)
+}
+
+/**
+ * The two things an instruction may change, apart from the config holding them.
+ *
+ * For a caller whose config is shared — the relay's is, behind a mutex, and a
+ * zone agent pairing mutates it at any moment. Cloning the whole config, going
+ * to the network, and writing the clone back destroyed whatever had been added
+ * in between: the keys of agents that had just paired, in memory and on disk,
+ * so their next heartbeat was refused. This carries only what an instruction
+ * touches, and the caller merges it under its own lock.
+ */
+pub struct Settings {
+    pub ui: Option<UiSettings>,
+    pub state: Running,
+    pub paused_means: &'static str,
+}
+
+impl Controllable for Settings {
+    fn ui(&self) -> Option<&UiSettings> {
+        self.ui.as_ref()
+    }
+    fn set_ui(&mut self, ui: Option<UiSettings>) {
+        self.ui = ui;
+    }
+    fn state(&self) -> Running {
+        self.state
+    }
+    fn set_state(&mut self, state: Running) {
+        self.state = state;
+    }
+    /// Nothing: the caller owns the file and writes it once, afterwards.
+    fn write(&self, _path: &std::path::Path) -> anyhow::Result<()> {
+        Ok(())
+    }
+    fn paused_means(&self) -> &'static str {
+        self.paused_means
+    }
 }
 
 #[cfg(test)]
