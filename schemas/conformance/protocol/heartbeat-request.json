@@ -1,0 +1,9 @@
+{
+  "$comment": "Agent → server. null and absent uiAddress mean different things: null clears the stored address, absent leaves it alone. The agent always sends the field.",
+  "message": "heartbeatRequest",
+  "examples": [
+    { "uiAddress": "192.168.1.50:38788" },
+    { "uiAddress": null },
+    {}
+  ]
+}

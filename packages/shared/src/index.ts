@@ -10,6 +10,7 @@
  * `@tern/shared/mock` and `@tern/shared/status`, which are pure and portable.
  */
 export * from './agent-commands.js'
+export * from './agent-protocol.js'
 export * from './availability.js'
 export * from './crypto.js'
 export * from './mock.js'

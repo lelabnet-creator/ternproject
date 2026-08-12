@@ -1,0 +1,32 @@
+{
+  "$id": "https://tern.dev/schemas/agent-protocol/ingest-response.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "accepted": {
+      "type": "number"
+    },
+    "rejected": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "controlKey": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "controlKey",
+          "reason"
+        ]
+      }
+    }
+  },
+  "required": [
+    "accepted",
+    "rejected"
+  ]
+}

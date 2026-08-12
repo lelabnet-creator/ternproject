@@ -8,6 +8,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./agent-commands": "./src/agent-commands.ts",
+    "./agent-protocol": "./src/agent-protocol.ts",
     "./availability": "./src/availability.ts",
     "./mock": "./src/mock.ts",
     "./status": "./src/status.ts",

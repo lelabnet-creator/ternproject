@@ -1,0 +1,39 @@
+{
+  "$comment": "Server → agent, the assignment poll. The second example carries an instruction kind no agent knows — receiving it must not break the poll — and zone instructions for a relay.",
+  "message": "jobsResponse",
+  "examples": [
+    {
+      "tenantSlug": "acme",
+      "jobs": [
+        {
+          "controlKey": "api-gw",
+          "intervalS": 60,
+          "probe": {
+            "type": "http",
+            "url": "https://api.example.com/health",
+            "timeout_ms": 5000
+          },
+          "assertions": [{ "type": "status_code", "comparator": "eq", "value": 200 }],
+          "payloadShape": "status"
+        }
+      ],
+      "commands": [],
+      "zoneCommands": []
+    },
+    {
+      "tenantSlug": "acme",
+      "jobs": [],
+      "commands": [
+        { "id": "3f2b9c1e-8a4d-4e6f-9b2a-1c3d5e7f9a0b", "kind": "restart" },
+        { "id": "4a3c0d2f-9b5e-4f70-8c3b-2d4e6f80ab1c", "kind": "defragment-the-hyperdrive" }
+      ],
+      "zoneCommands": [
+        {
+          "id": "5b4d1e30-ac6f-4081-9d4c-3e5f7091bc2d",
+          "kind": "logs",
+          "agent": "zone-box-07"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,45 @@
+{
+  "$comment": "Server → anyone, every error body. code is what a program branches on; issues appears on validation failures only.",
+  "message": "problem",
+  "examples": [
+    {
+      "type": "https://tern.dev/problems/unauthorized",
+      "title": "Unauthorized",
+      "status": 401,
+      "code": "unauthorized",
+      "detail": "Invalid or missing API key",
+      "instance": "/api/v1/agent/jobs"
+    },
+    {
+      "type": "https://tern.dev/problems/protocol-mismatch",
+      "title": "Protocol mismatch",
+      "status": 400,
+      "code": "protocol-mismatch",
+      "detail": "This server speaks protocol 1; the request announced 2.",
+      "instance": "/api/v1/agent/heartbeat"
+    },
+    {
+      "type": "https://tern.dev/problems/validation",
+      "title": "Bad Request",
+      "status": 400,
+      "code": "validation",
+      "detail": "body/agents/0/lastSeenAt Invalid ISO datetime",
+      "instance": "/api/v1/agent/zone",
+      "issues": [
+        {
+          "code": "invalid_format",
+          "path": ["agents", 0, "lastSeenAt"],
+          "message": "Invalid ISO datetime"
+        }
+      ]
+    },
+    {
+      "type": "https://tern.dev/problems/key-has-no-agent",
+      "title": "Forbidden",
+      "status": 403,
+      "code": "key-has-no-agent",
+      "detail": "This key is valid but no agent row holds it; only a paired agent may call this.",
+      "instance": "/api/v1/agent/zone"
+    }
+  ]
+}

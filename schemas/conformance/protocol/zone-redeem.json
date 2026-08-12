@@ -1,0 +1,6 @@
+{
+  "$comment": "Relay → server (request) and back (response). The response never carries a key: the relay mints its own.",
+  "message": "zoneRedeem",
+  "examples": [{ "code": "AAAA-BBBB" }],
+  "responseExamples": [{ "tenantSlug": "acme" }]
+}

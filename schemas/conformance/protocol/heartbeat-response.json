@@ -1,0 +1,8 @@
+{
+  "$comment": "Server → agent. commandsWaiting true is what turns instruction latency from the refresh interval into the heartbeat interval.",
+  "message": "heartbeatResponse",
+  "examples": [
+    { "ok": true, "commandsWaiting": false },
+    { "ok": true, "commandsWaiting": true }
+  ]
+}

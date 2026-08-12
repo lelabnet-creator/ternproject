@@ -1,0 +1,108 @@
+{
+  "$id": "https://tern.dev/schemas/agent-protocol/jobs-response.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "tenantSlug": {
+      "type": "string"
+    },
+    "jobs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "controlKey": {
+            "type": "string"
+          },
+          "intervalS": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "probe": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          },
+          "assertions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {}
+            }
+          },
+          "payloadShape": {
+            "type": "string",
+            "enum": [
+              "status",
+              "value"
+            ]
+          }
+        },
+        "required": [
+          "controlKey",
+          "intervalS",
+          "probe",
+          "assertions",
+          "payloadShape"
+        ]
+      }
+    },
+    "commands": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind"
+        ]
+      }
+    },
+    "zoneCommands": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "agent": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "agent"
+        ]
+      }
+    }
+  },
+  "required": [
+    "tenantSlug",
+    "jobs",
+    "commands",
+    "zoneCommands"
+  ]
+}

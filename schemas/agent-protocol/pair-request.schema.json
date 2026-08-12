@@ -1,0 +1,36 @@
+{
+  "$id": "https://tern.dev/schemas/agent-protocol/pair-request.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "code": {
+      "type": "string",
+      "minLength": 4,
+      "maxLength": 32
+    },
+    "hostname": {
+      "type": "string",
+      "maxLength": 255
+    },
+    "os": {
+      "type": "string",
+      "maxLength": 64
+    },
+    "arch": {
+      "type": "string",
+      "maxLength": 32
+    },
+    "agentVersion": {
+      "type": "string",
+      "maxLength": 64
+    },
+    "installId": {
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 64
+    }
+  },
+  "required": [
+    "code"
+  ]
+}

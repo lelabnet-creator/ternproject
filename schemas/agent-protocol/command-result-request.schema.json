@@ -1,0 +1,29 @@
+{
+  "$id": "https://tern.dev/schemas/agent-protocol/command-result-request.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "result": {
+      "anyOf": [
+        {
+          "type": "string",
+          "maxLength": 256000
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "error": {
+      "anyOf": [
+        {
+          "type": "string",
+          "maxLength": 2000
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  }
+}

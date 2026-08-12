@@ -1,0 +1,11 @@
+{
+  "$comment": "Server → agent. Rejections are individual, never the whole batch.",
+  "message": "ingestResponse",
+  "examples": [
+    { "accepted": 4, "rejected": [] },
+    {
+      "accepted": 3,
+      "rejected": [{ "controlKey": "tpyo", "reason": "unknown or out-of-scope control" }]
+    }
+  ]
+}

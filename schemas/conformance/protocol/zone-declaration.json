@@ -1,0 +1,17 @@
+{
+  "$comment": "Relay → server. lastSeenAt is RFC 3339 like every other protocol timestamp; null means the relay issued a key that has never spoken.",
+  "message": "zoneDeclaration",
+  "examples": [
+    {
+      "agents": [
+        { "name": "zone-box-07", "lastSeenAt": "2026-08-12T09:15:00Z", "ip": "10.20.0.7" },
+        { "name": "zone-box-08", "lastSeenAt": null, "ip": null }
+      ],
+      "listen": "192.168.1.9:38787",
+      "addresses": ["192.168.1.9", "10.20.0.1"]
+    },
+    {
+      "agents": []
+    }
+  ]
+}

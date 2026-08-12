@@ -1,0 +1,9 @@
+{
+  "$comment": "Agent → server, what became of an instruction. Exactly one of result/error is meaningful; both nullable.",
+  "message": "commandResultRequest",
+  "examples": [
+    { "result": "restarting", "error": null },
+    { "result": null, "error": "this agent does not know the instruction `defragment-the-hyperdrive`" },
+    { "result": null, "error": null }
+  ]
+}

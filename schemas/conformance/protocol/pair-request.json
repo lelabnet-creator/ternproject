@@ -1,0 +1,25 @@
+{
+  "$comment": "Agent → server. Emitted by transport.rs::pair; round-tripped by the Rust suite.",
+  "message": "pairRequest",
+  "examples": [
+    {
+      "code": "AAAA-BBBB",
+      "hostname": "web-01",
+      "os": "linux",
+      "arch": "x86_64",
+      "agentVersion": "0.1.0",
+      "installId": "a1b2c3d4e5f6a7b8"
+    },
+    {
+      "code": "CCCC-DDDD",
+      "hostname": "relay-dmz",
+      "os": "linux",
+      "arch": "aarch64",
+      "agentVersion": "proxy/0.1.0",
+      "installId": "0011223344556677"
+    },
+    {
+      "code": "EEEE-FFFF"
+    }
+  ]
+}

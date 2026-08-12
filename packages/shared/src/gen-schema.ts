@@ -2,6 +2,17 @@ import { mkdirSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { z } from 'zod'
+import {
+  commandResultRequestSchema,
+  heartbeatResponseSchema,
+  ingestPointSchema,
+  ingestResponseSchema,
+  jobsResponseSchema,
+  pairRequestSchema,
+  pairResponseSchema,
+  problemSchema,
+  zoneDeclarationSchema,
+} from './agent-protocol.js'
 import { probeResultSchema, probeSchema } from './probe.js'
 import { controlsFileYamlSchema } from './yaml-schema.js'
 
@@ -22,9 +33,31 @@ const documents = [
     schema: probeResultSchema,
     id: 'https://tern.dev/schemas/probe-result.json',
   },
+  /*
+   * The agent protocol, one document per message. Under a directory of their
+   * own so `schemas/` stays readable: the probe contract is two files, the
+   * protocol is nine.
+   */
+  ...(
+    [
+      ['pair-request', pairRequestSchema],
+      ['pair-response', pairResponseSchema],
+      ['jobs-response', jobsResponseSchema],
+      ['heartbeat-response', heartbeatResponseSchema],
+      ['command-result-request', commandResultRequestSchema],
+      ['zone-declaration', zoneDeclarationSchema],
+      ['ingest-point', ingestPointSchema],
+      ['ingest-response', ingestResponseSchema],
+      ['problem', problemSchema],
+    ] as const
+  ).map(([name, schema]) => ({
+    file: `agent-protocol/${name}.schema.json`,
+    schema,
+    id: `https://tern.dev/schemas/agent-protocol/${name}.json`,
+  })),
 ] as const
 
-mkdirSync(outDir, { recursive: true })
+mkdirSync(join(outDir, 'agent-protocol'), { recursive: true })
 
 for (const doc of documents) {
   const json = z.toJSONSchema(doc.schema, { io: 'input' })
