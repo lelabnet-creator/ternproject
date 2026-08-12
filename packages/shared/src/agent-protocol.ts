@@ -108,6 +108,16 @@ export const pairResponseSchema = z.object({
 export const heartbeatRequestSchema = z
   .object({
     uiAddress: z.string().max(255).nullable().optional(),
+    /**
+     * How long the agent is willing to have this beat held open.
+     *
+     * The long poll, asked for rather than imposed: an agent that says nothing
+     * gets an immediate answer, which is what every older build expects and
+     * what a hand-written client will do. The server caps it at its own bound —
+     * see `MAX_HOLD_MS` — so a value from the wire cannot hold a connection for
+     * as long as it likes.
+     */
+    waitSeconds: z.number().int().min(0).max(300).optional(),
   })
   // `nullish`, not `optional`: a bare `POST` with no body at all arrives here
   // as null rather than undefined, and refusing it would take every curl-based

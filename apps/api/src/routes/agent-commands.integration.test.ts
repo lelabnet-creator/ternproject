@@ -199,6 +199,71 @@ describe('delivery', () => {
   })
 })
 
+/**
+ * The held beat — the difference between "within a minute" and "within a
+ * second". Asserted on elapsed time because that is the entire feature: the
+ * answers were already correct when it took a minute to get them.
+ */
+describe('the held beat', () => {
+  it('waits, and comes back the moment something is asked', async () => {
+    const { key, agentId } = await pair('cmd-held')
+
+    const started = Date.now()
+    const held = beat(key, { waitSeconds: 10 })
+    // Asked while the beat is already open, which is the case that matters:
+    // an instruction that arrived a moment before would need no holding.
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    await ask(agentId)
+
+    const response = await held
+    const elapsed = Date.now() - started
+    expect(response.json()).toEqual({ ok: true, commandsWaiting: true })
+    expect(elapsed).toBeLessThan(2_000)
+  })
+
+  it('gives up on its own, and says so, when nothing comes', async () => {
+    const { key } = await pair('cmd-held-quiet')
+
+    const started = Date.now()
+    const response = await beat(key, { waitSeconds: 1 })
+    expect(response.json()).toEqual({ ok: true, commandsWaiting: false })
+    // It really waited rather than answering straight away...
+    expect(Date.now() - started).toBeGreaterThanOrEqual(900)
+    // ...and it really stopped, rather than running to the server's own bound.
+    expect(Date.now() - started).toBeLessThan(5_000)
+  })
+
+  it('answers at once when the agent does not ask to wait', async () => {
+    const { key } = await pair('cmd-held-optout')
+
+    const started = Date.now()
+    expect((await beat(key)).json().commandsWaiting).toBe(false)
+    // Every agent older than this feature, and the bodiless beat besides.
+    expect(Date.now() - started).toBeLessThan(1_000)
+  })
+
+  /*
+   * A relay waits for its whole zone: the instruction is for a machine it can
+   * reach and it cannot, so its beat is the only thing that can find out.
+   */
+  it('a relay is woken by an instruction for one of its machines', async () => {
+    const proxy = await pairProxy('cmd-held-relay')
+    const behind = await pair('cmd-held-behind')
+    await fx.app.db
+      .update(schema.agents)
+      .set({ parentAgentId: proxy.agentId })
+      .where(eq(schema.agents.id, behind.agentId))
+
+    const started = Date.now()
+    const held = beat(proxy.key, { waitSeconds: 10 })
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    await ask(behind.agentId)
+
+    expect((await held).json().commandsWaiting).toBe(true)
+    expect(Date.now() - started).toBeLessThan(2_000)
+  })
+})
+
 describe('answering', () => {
   it('stores the result against the command', async () => {
     const { key, agentId } = await pair('cmd-result')

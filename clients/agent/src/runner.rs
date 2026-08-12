@@ -277,6 +277,20 @@ const REFRESH_EVERY: Duration = Duration::from_secs(300);
  */
 const HEARTBEAT_EVERY: Duration = Duration::from_secs(60);
 
+/**
+ * How long the agent asks the server to hold its beat.
+ *
+ * The long poll: rather than asking every minute whether anything is waiting,
+ * the beat stays open until there is an answer, and the agent asks again as
+ * soon as it returns. An instruction then reaches the machine within a second
+ * of being asked for instead of within a minute.
+ *
+ * Twenty, under both bounds that matter: the server holds at most twenty-five,
+ * and this client gives up at thirty. A hold that outlived the client's own
+ * timeout would look like a network failure every single time.
+ */
+pub(crate) const HOLD_SECONDS: u32 = 20;
+
 /// Re-reads the assignment, returning whether anything about it changed.
 ///
 /// A failure is a warning, never fatal — an agent that stops because the server
@@ -509,8 +523,9 @@ pub async fn run(
                 .as_ref()
                 .and_then(|settings| settings.reachable_address(&config.server));
 
+            let asked_at = Instant::now();
             match client
-                .heartbeat(&config.api_key, ui_address.as_deref())
+                .heartbeat(&config.api_key, ui_address.as_deref(), HOLD_SECONDS)
                 .await
             {
                 Ok(waiting) => {
@@ -526,7 +541,23 @@ pub async fn run(
                         snapshot.last_heartbeat_error = None;
                     })
                     .await;
-                    next_heartbeat = Instant::now() + HEARTBEAT_EVERY;
+                    /*
+                     * Straight back in, when the server did hold it.
+                     *
+                     * That is what makes the wait continuous: the beat is the wait, so
+                     * the moment one returns the next should be open. A server too old
+                     * to hold anything answers at once, and asking again immediately
+                     * would be a hot loop against it — so a reply that came back far
+                     * too quickly is read as "this one does not hold", and the old
+                     * cadence is kept.
+                     */
+                    let held = asked_at.elapsed() > Duration::from_secs(2);
+                    next_heartbeat = Instant::now()
+                        + if held {
+                            Duration::from_millis(200)
+                        } else {
+                            HEARTBEAT_EVERY
+                        };
                 }
                 Err(error) => {
                     /*

@@ -399,6 +399,17 @@ struct AppState {
     client: Arc<Client>,
     /// Rung by `ingest` in stream mode, waited on by the flush loop.
     flush: Arc<tokio::sync::Notify>,
+    /**
+     * Bumped whenever instructions for the zone arrive, waited on by the beats
+     * being held in `heartbeat`.
+     *
+     * A watch rather than a `Notify`, and deliberately: a receiver taken before
+     * the check cannot miss a send that lands between the check and the wait,
+     * because the value it has already seen is recorded at subscription. With a
+     * `Notify` that same race drops the wakeup and the machine waits out the
+     * full hold with its instruction sitting one process away.
+     */
+    zone_woken: Arc<tokio::sync::watch::Sender<u64>>,
     /// What the local page reports, when one is being served.
     ui: Arc<crate::ui::UiState>,
 }
@@ -465,6 +476,7 @@ pub async fn run(
         })),
         client: Arc::new(client),
         flush: Arc::new(tokio::sync::Notify::new()),
+        zone_woken: Arc::new(tokio::sync::watch::Sender::new(0)),
         ui: crate::ui::UiState::new(config.ui.as_ref().and_then(|u| u.credential.clone())),
     };
 
@@ -639,8 +651,17 @@ fn spawn_refresh(state: AppState, every_s: u64) {
         const BEAT: std::time::Duration = std::time::Duration::from_secs(60);
         let assignment_every = std::time::Duration::from_secs(every_s.max(30));
 
-        let mut ticker = tokio::time::interval(BEAT);
-        ticker.tick().await; // the immediate first tick, already done at startup
+        /*
+         * An echeance rather than a ticker, because the beat now takes time on
+         * purpose.
+         *
+         * A fixed sixty-second ticker and a beat the server holds for twenty
+         * cancel each other out: the hold ends, the ticker still fires on its
+         * own minute, and the relay is back to asking once a minute — with its
+         * whole zone waiting behind it. Computing the next beat from when the
+         * last one *returned* is what makes the wait continuous.
+         */
+        let mut next_beat = tokio::time::Instant::now() + BEAT;
         let mut next_assignment = tokio::time::Instant::now() + assignment_every;
         let mut fetch_now = false;
         // The same pacing as the agent's own heartbeat: a dead upstream is
@@ -650,7 +671,8 @@ fn spawn_refresh(state: AppState, every_s: u64) {
         let mut beat_hold: Option<tokio::time::Instant> = None;
 
         loop {
-            ticker.tick().await;
+            tokio::time::sleep_until(next_beat).await;
+            next_beat = tokio::time::Instant::now() + BEAT;
 
             /*
              * A stopped relay says nothing upstream, and that includes asking
@@ -674,12 +696,21 @@ fn spawn_refresh(state: AppState, every_s: u64) {
                 // Nothing to fetch this minute; the beat below is the whole
                 // point of waking up.
                 if !held {
+                    let asked_at = tokio::time::Instant::now();
                     match beat(&state, &key).await {
                         Some(waiting) => {
                             beat_backoff.succeeded();
                             beat_hold = None;
                             if waiting {
                                 fetch_now = true;
+                            }
+                            // Held by the server, so straight back in. A reply
+                            // that came back at once is a server too old to
+                            // hold anything, and asking it again immediately
+                            // would be a hot loop — it keeps the minute.
+                            if asked_at.elapsed() > std::time::Duration::from_secs(2) {
+                                next_beat = tokio::time::Instant::now()
+                                    + std::time::Duration::from_millis(200);
                             }
                         }
                         None => {
@@ -714,6 +745,8 @@ fn spawn_refresh(state: AppState, every_s: u64) {
                             "instructions for the zone"
                         );
                         inner.zone_commands.extend(response.zone_commands);
+                        // Anyone holding a beat downstream looks again now.
+                        state.zone_woken.send_modify(|n| *n += 1);
                     }
 
                     // The relay's own instructions, carried out here.
@@ -745,12 +778,17 @@ fn spawn_refresh(state: AppState, every_s: u64) {
              * different question.
              */
             if !held {
+                let asked_at = tokio::time::Instant::now();
                 match beat(&state, &key).await {
                     Some(waiting) => {
                         beat_backoff.succeeded();
                         beat_hold = None;
                         if waiting {
                             fetch_now = true;
+                        }
+                        if asked_at.elapsed() > std::time::Duration::from_secs(2) {
+                            next_beat =
+                                tokio::time::Instant::now() + std::time::Duration::from_millis(200);
                         }
                     }
                     None => {
@@ -791,7 +829,10 @@ async fn beat(state: &AppState, key: &str) -> Option<bool> {
         )
     };
 
-    let outcome = state.client.heartbeat(key, ui_address.as_deref()).await;
+    let outcome = state
+        .client
+        .heartbeat(key, ui_address.as_deref(), crate::runner::HOLD_SECONDS)
+        .await;
 
     // The page is refreshed here rather than on a loop of its own: this
     // is the moment the two facts it most needs — whether upstream
@@ -1286,12 +1327,22 @@ async fn heartbeat(
     State(state): State<AppState>,
     ConnectInfo(peer): ConnectInfo<SocketAddr>,
     headers: HeaderMap,
+    body: Option<Json<serde_json::Value>>,
 ) -> impl IntoResponse {
-    let mut inner = state.inner.lock().await;
-    let Some(index) = identify(&inner, &headers) else {
-        return unauthorised();
+    /*
+     * Taken before anything is read, so that instructions arriving during the
+     * check are still seen. See `zone_woken`.
+     */
+    let mut woken = state.zone_woken.subscribe();
+
+    let name = {
+        let mut inner = state.inner.lock().await;
+        let Some(index) = identify(&inner, &headers) else {
+            return unauthorised();
+        };
+        touch(&mut inner, index, Some(peer.ip().to_string()));
+        inner.config.local_keys[index].name.clone()
     };
-    touch(&mut inner, index, Some(peer.ip().to_string()));
 
     /*
      * Whether an instruction waits for *this* machine — the answer that was
@@ -1303,14 +1354,52 @@ async fn heartbeat(
      * beat lands here, never heard and slept out its full refresh interval.
      * The relay had the instruction in hand the entire time.
      */
-    let name = &inner.config.local_keys[index].name;
-    let waiting = inner.zone_commands.iter().any(|c| &c.agent == name);
+    let mut waiting = zone_command_waits(&state, &name).await;
+
+    /*
+     * And now the same hold TERN gives the relay, given to the zone.
+     *
+     * Without this the chain is only as quick as its slowest link: the server
+     * holds the relay's beat, the relay learns within a second — and then the
+     * machine behind it asks a minute later anyway. Answering at once is still
+     * the default; the agent has to ask for the wait, and an older one does not.
+     */
+    let hold = body
+        .as_ref()
+        .and_then(|Json(v)| v.get("waitSeconds"))
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0)
+        .min(MAX_ZONE_HOLD_S);
+    if !waiting && hold > 0 {
+        let deadline = std::time::Duration::from_secs(hold);
+        if tokio::time::timeout(deadline, woken.changed())
+            .await
+            .is_ok()
+        {
+            waiting = zone_command_waits(&state, &name).await;
+        }
+    }
 
     (
         StatusCode::OK,
         Json(json!({ "ok": true, "commandsWaiting": waiting })),
     )
         .into_response()
+}
+
+/**
+ * The longest a relay will hold one of its zone's beats.
+ *
+ * Shorter than the server's own twenty-five, on purpose: this hold sits
+ * *inside* the relay's, and a machine that waited longer than its relay does
+ * would be told nothing new by waiting.
+ */
+const MAX_ZONE_HOLD_S: u64 = crate::runner::HOLD_SECONDS as u64;
+
+/// Whether anything is queued for this machine, read under the lock and let go.
+async fn zone_command_waits(state: &AppState, name: &str) -> bool {
+    let inner = state.inner.lock().await;
+    inner.zone_commands.iter().any(|c| c.agent == name)
 }
 
 async fn jobs_route(

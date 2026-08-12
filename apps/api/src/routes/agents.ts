@@ -24,6 +24,7 @@ import { config } from '../config.js'
 import { withCode } from '../plugins/problem-json.js'
 import { authenticateApiKey, issueApiKey, touchAgent } from '../services/apikeys.js'
 import { assignmentsFor, jobsForAgent } from '../services/jobs.js'
+import { holdFor, wake, waitForWork } from '../services/waiting.js'
 import { audit } from '../services/audit.js'
 import { LOCAL_AGENT_NAME } from '../services/local-agent.js'
 
@@ -325,25 +326,55 @@ const routes: FastifyPluginAsyncZod = async (app) => {
 
       // Its own, and its zone's. `limit(1)` because the only question is
       // whether there is any — the poll that follows is what reads them.
-      const waiting = agent
-        ? await app.db
-            .select({ id: schema.agentCommands.id })
-            .from(schema.agentCommands)
-            .innerJoin(schema.agents, eq(schema.agents.id, schema.agentCommands.agentId))
-            .where(
-              and(
-                isNull(schema.agentCommands.deliveredAt),
-                or(eq(schema.agents.id, agent.id), eq(schema.agents.parentAgentId, agent.id)),
-              ),
-            )
-            .limit(1)
-        : []
+      const anyWaiting = async () => {
+        if (!agent) return false
+        const rows = await app.db
+          .select({ id: schema.agentCommands.id })
+          .from(schema.agentCommands)
+          .innerJoin(schema.agents, eq(schema.agents.id, schema.agentCommands.agentId))
+          .where(
+            and(
+              isNull(schema.agentCommands.deliveredAt),
+              or(eq(schema.agents.id, agent.id), eq(schema.agents.parentAgentId, agent.id)),
+            ),
+          )
+          .limit(1)
+        return rows.length > 0
+      }
+
+      let waiting = await anyWaiting()
+
+      /*
+       * Held open, when the agent asked to wait and there is nothing yet.
+       *
+       * This is what turns "within a minute" into "within a second". The agent
+       * asks whether anything is for it; rather than answering no and leaving
+       * it to ask again after its interval, the request stays open until
+       * something is asked of it or the hold runs out. See `services/waiting`
+       * for why this and not a socket.
+       *
+       * Read again after being woken, never trusting the signal itself: the
+       * database is the authority, and a signal that arrived from another
+       * process — or not at all — must not decide the answer.
+       */
+      const hold = holdFor(req.body?.waitSeconds)
+      if (!waiting && hold > 0 && agent) {
+        const zone = await app.db
+          .select({ id: schema.agents.id })
+          .from(schema.agents)
+          .where(eq(schema.agents.parentAgentId, agent.id))
+        const listening = [agent.id, ...zone.map((a) => a.id)]
+
+        if (await waitForWork(listening, hold)) {
+          waiting = await anyWaiting()
+        }
+      }
 
       // Debug, not info: one line per agent per minute is a log nobody can
       // read at exactly the moment they need to.
-      req.log.debug({ agentId: agent?.id ?? null, waiting: waiting.length > 0 }, 'heartbeat')
+      req.log.debug({ agentId: agent?.id ?? null, waiting, held: hold }, 'heartbeat')
 
-      return { ok: true, commandsWaiting: waiting.length > 0 }
+      return { ok: true, commandsWaiting: waiting }
     },
   )
 
@@ -883,7 +914,12 @@ const routes: FastifyPluginAsyncZod = async (app) => {
     },
     async (req) => {
       const [agent] = await app.db
-        .select({ id: schema.agents.id, isLocal: schema.agents.isLocal })
+        .select({
+          id: schema.agents.id,
+          isLocal: schema.agents.isLocal,
+          // Its relay, when it has one: that is who will come and fetch this.
+          parentAgentId: schema.agents.parentAgentId,
+        })
         .from(schema.agents)
         .where(
           and(eq(schema.agents.id, req.params.agentId), eq(schema.agents.tenantId, req.tenant!.id)),
@@ -921,6 +957,16 @@ const routes: FastifyPluginAsyncZod = async (app) => {
           requestedBy: req.actor.userId ?? null,
         })
         .returning({ id: schema.agentCommands.id })
+
+      /*
+       * Wake whoever is holding a beat for this machine.
+       *
+       * Its own beat, and — when it is behind a relay — the relay's, because
+       * the relay is what will come and fetch it. Best effort by design: a beat
+       * held in another process misses this and ends on its own timer instead,
+       * which costs a fraction of the hold rather than the instruction.
+       */
+      wake([agent.id, ...(agent.parentAgentId ? [agent.parentAgentId] : [])])
 
       await audit(app, {
         action: 'agent.command',

@@ -222,9 +222,39 @@ mod tests {
                 panic!("expected to take a free lock")
             };
         }
-        // Same process, so this proves the release rather than the exclusion —
-        // the cross-process case is covered above.
-        assert!(matches!(take(&config, "0.2.0"), Outcome::Taken(_)));
+
+        /*
+         * Same process, so this proves the release rather than the exclusion —
+         * the cross-process case is covered above.
+         *
+         * Retried, for a reason worth writing down: an `flock` belongs to the
+         * open file description, and a `fork` in another thread duplicates it.
+         * Rust opens files close-on-exec, so the child loses it the instant it
+         * execs — but between the fork and the exec it holds the lock, and a
+         * release that lands in that window is briefly not a release. The test
+         * above forks a shell, and these two run concurrently; one run in ten
+         * of the whole suite landed exactly there.
+         *
+         * Bounded rather than blind: a lock that genuinely failed to release
+         * still fails this, a second later.
+         */
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(1);
+        let outcome = loop {
+            match take(&config, "0.2.0") {
+                Outcome::Taken(lock) => break Outcome::Taken(lock),
+                other if std::time::Instant::now() >= deadline => break other,
+                _ => std::thread::sleep(std::time::Duration::from_millis(10)),
+            }
+        };
+        match outcome {
+            Outcome::Taken(_) => {}
+            Outcome::Busy(held) => panic!(
+                "still held a second later, by pid={:?} version={:?}",
+                held.pid, held.version
+            ),
+            Outcome::Unavailable(why) => panic!("could not be attempted: {why}"),
+        }
+
         std::fs::remove_dir_all(config.parent().unwrap()).ok();
     }
 

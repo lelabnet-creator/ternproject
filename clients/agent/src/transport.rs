@@ -701,7 +701,15 @@ impl Client {
     /// knows which of its interfaces faces the server, so the machine is what
     /// says it.
     /// Returns whether the server says something is waiting to be fetched.
-    pub async fn heartbeat(&self, api_key: &str, ui_address: Option<&str>) -> Result<bool> {
+    /// `wait_seconds` asks the server to hold the reply until there is
+    /// something to say, up to its own bound. Zero answers at once, which is
+    /// what a server too old to hold it does anyway.
+    pub async fn heartbeat(
+        &self,
+        api_key: &str,
+        ui_address: Option<&str>,
+        wait_seconds: u32,
+    ) -> Result<bool> {
         let path = "/api/v1/agent/heartbeat";
         let response = self
             .send(
@@ -713,7 +721,10 @@ impl Client {
                 // Always the explicit field: null clears the stored address,
                 // absent would leave it alone, and the agent is the authority
                 // on whether its page exists.
-                Some(&serde_json::json!({ "uiAddress": ui_address })),
+                Some(&serde_json::json!({
+                    "uiAddress": ui_address,
+                    "waitSeconds": wait_seconds,
+                })),
             )
             .await
             .context("heartbeat refused")?;
