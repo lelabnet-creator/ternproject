@@ -31,7 +31,8 @@ Conventions, fixed once:
   `probe` and `assertions`, which stays snake_case because the agent reads the
   identical shape from `agent.toml` — TOML's convention — and a translation
   layer is a place for the two ends to disagree.
-- Every timestamp is RFC 3339, UTC.
+- Every timestamp is RFC 3339. The binaries always emit UTC (`…Z`);
+  hand-written clients may send an offset.
 - Success bodies are typed objects, never bare arrays.
 - Every error body is an RFC 9457 problem document (below).
 
@@ -243,9 +244,12 @@ has no agent row **succeeds** with scope-derived jobs — a hand-minted key
 running probes from a script is a feature, and it needs no fleet row.
 
 The agent parses problem documents into typed errors, says what to do about a
-401 in its log line, and **backs off exponentially** on repeated failures of
-the same call — 60 s doubling to 15 min, reset by the first success — instead
-of warning once a minute forever.
+401 in its log line, and **backs off exponentially** on repeated failures —
+60 s doubling to 15 min, reset by the first success — instead of warning once
+a minute forever. The pacing applies to every recurring upstream call: the
+agent's heartbeat and ingest flush, and the relay's beat and forward loop.
+Queued points keep accumulating (and persisting) during a hold, so backing
+off costs freshness, never history.
 
 ## DEV mode
 

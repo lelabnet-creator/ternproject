@@ -625,6 +625,11 @@ fn spawn_refresh(state: AppState, every_s: u64) {
         ticker.tick().await; // the immediate first tick, already done at startup
         let mut next_assignment = tokio::time::Instant::now() + assignment_every;
         let mut fetch_now = false;
+        // The same pacing as the agent's own heartbeat: a dead upstream is
+        // asked again in a minute, then two, up to fifteen — not sixty times
+        // an hour forever. The first answer resets the cadence.
+        let mut beat_backoff = crate::transport::Backoff::new();
+        let mut beat_hold: Option<tokio::time::Instant> = None;
 
         loop {
             ticker.tick().await;
@@ -644,11 +649,27 @@ fn spawn_refresh(state: AppState, every_s: u64) {
                 continue;
             }
 
+            let held = beat_hold.is_some_and(|until| tokio::time::Instant::now() < until);
+
             let due = fetch_now || tokio::time::Instant::now() >= next_assignment;
             if !due {
                 // Nothing to fetch this minute; the beat below is the whole
                 // point of waking up.
-                beat(&state, &key).await;
+                if !held {
+                    match beat(&state, &key).await {
+                        Some(waiting) => {
+                            beat_backoff.succeeded();
+                            beat_hold = None;
+                            if waiting {
+                                fetch_now = true;
+                            }
+                        }
+                        None => {
+                            beat_hold =
+                                Some(tokio::time::Instant::now() + beat_backoff.failed());
+                        }
+                    }
+                }
                 continue;
             }
             fetch_now = false;
@@ -706,8 +727,19 @@ fn spawn_refresh(state: AppState, every_s: u64) {
              * that question differently depending on the role was answering a
              * different question.
              */
-            if beat(&state, &key).await {
-                fetch_now = true;
+            if !held {
+                match beat(&state, &key).await {
+                    Some(waiting) => {
+                        beat_backoff.succeeded();
+                        beat_hold = None;
+                        if waiting {
+                            fetch_now = true;
+                        }
+                    }
+                    None => {
+                        beat_hold = Some(tokio::time::Instant::now() + beat_backoff.failed());
+                    }
+                }
             }
 
             declare_zone(&state, &key).await;
@@ -724,7 +756,7 @@ fn spawn_refresh(state: AppState, every_s: u64) {
  *
  * Returns whether the server has something waiting for this relay or its zone.
  */
-async fn beat(state: &AppState, key: &str) -> bool {
+async fn beat(state: &AppState, key: &str) -> Option<bool> {
     let (ui_address, zone_agents, zone_listen, upstream, tenant, queued, queue_bytes) = {
         let inner = state.inner.lock().await;
         (
@@ -777,14 +809,15 @@ async fn beat(state: &AppState, key: &str) -> bool {
         // looked identical in its own log.
         Ok(false) => debug!(%queued, "beat upstream"),
         // A warning and nothing more. A relay whose upstream is down must keep
-        // serving its zone, which is the entire reason it exists — and the next
-        // beat will say so again.
+        // serving its zone, which is the entire reason it exists — the caller
+        // paces the retries.
         Err(error) => warn!(%error, "heartbeat failed"),
     }
 
-    // The caller decides what to do about it: fetching the assignment is its
-    // business, not this one's.
-    matches!(outcome, Ok(true))
+    // The caller decides what to do about it: fetching the assignment — and
+    // backing off a dead upstream — is its business, not this one's. `None`
+    // is "the server did not answer", distinct from "nothing waiting".
+    outcome.ok()
 }
 
 /*
@@ -861,6 +894,12 @@ fn spawn_flush(state: AppState, every_s: u64) {
         // At least a second: an interval of zero would spin, and a relay that
         // burns a core is worse than one that is a second behind.
         let period = std::time::Duration::from_secs(every_s.max(1));
+        // A dead upstream is retried in a minute, then two, up to fifteen —
+        // stream mode would otherwise knock on it for every point the zone
+        // measures. The queue keeps everything in the meantime, so the hold
+        // costs freshness, never history.
+        let mut backoff = crate::transport::Backoff::new();
+        let mut hold: Option<tokio::time::Instant> = None;
         loop {
             /*
              * Whichever comes first: the interval, or a point arriving in
@@ -871,6 +910,10 @@ fn spawn_flush(state: AppState, every_s: u64) {
             tokio::select! {
                 _ = tokio::time::sleep(period) => {}
                 _ = state.flush.notified() => {}
+            }
+
+            if hold.is_some_and(|until| tokio::time::Instant::now() < until) {
+                continue;
             }
 
             let (key, batch, state_now) = {
@@ -896,6 +939,8 @@ fn spawn_flush(state: AppState, every_s: u64) {
 
             match state.client.ingest(&key, &batch).await {
                 Ok(response) => {
+                    backoff.succeeded();
+                    hold = None;
                     let remaining = {
                         let mut inner = state.inner.lock().await;
                         inner.queue.drop_front(batch.len());
@@ -921,7 +966,14 @@ fn spawn_flush(state: AppState, every_s: u64) {
                         .await;
                 }
                 Err(error) => {
-                    warn!(%error, pending = batch.len(), "upstream unreachable — points kept");
+                    let delay = backoff.failed();
+                    warn!(
+                        %error,
+                        pending = batch.len(),
+                        retry_in_s = delay.as_secs(),
+                        "upstream unreachable — points kept"
+                    );
+                    hold = Some(tokio::time::Instant::now() + delay);
                     let message = error.to_string();
                     state
                         .ui

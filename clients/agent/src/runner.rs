@@ -466,6 +466,8 @@ pub async fn run(
     // for its first interval, which is the interval somebody is watching.
     let mut next_heartbeat = Instant::now();
     let mut heartbeat_backoff = Backoff::new();
+    let mut flush_backoff = Backoff::new();
+    let mut flush_hold: Option<Instant> = None;
 
     loop {
         let wake_at = next_wake(refresh, next_refresh, next_heartbeat, &schedule);
@@ -603,7 +605,26 @@ pub async fn run(
             queue.push(point);
         }
 
-        flush(&client, &config.api_key, &mut queue, &ui).await;
+        /*
+         * The same pacing as the heartbeat, for the same reason: an upstream
+         * that refuses every push does not deserve a retry on every wake.
+         * Points keep queueing (and persisting) while the hold lasts, so
+         * backing off costs freshness, never history.
+         */
+        if flush_hold.is_none_or(|until| Instant::now() >= until) {
+            match flush(&client, &config.api_key, &mut queue, &ui).await {
+                FlushOutcome::Sent => {
+                    flush_backoff.succeeded();
+                    flush_hold = None;
+                }
+                FlushOutcome::Failed => {
+                    let delay = flush_backoff.failed();
+                    warn!(retry_in_s = delay.as_secs(), "holding off the next push");
+                    flush_hold = Some(Instant::now() + delay);
+                }
+                FlushOutcome::Nothing => {}
+            }
+        }
 
         ui.update(|snapshot| {
             snapshot.probes = config.probes.len();
@@ -620,15 +641,25 @@ pub async fn run(
     }
 }
 
+/// What one flush attempt amounted to, so the loop can pace the next one.
+enum FlushOutcome {
+    /// The server took the chunk (rejections included — it answered).
+    Sent,
+    /// The server could not be reached; the points are kept.
+    Failed,
+    /// Nothing queued, nothing tried. Says nothing about the server.
+    Nothing,
+}
+
 /// Sends everything queued, keeping it if the server cannot be reached.
 async fn flush(
     client: &Client,
     api_key: &str,
     queue: &mut Queue,
     ui: &std::sync::Arc<crate::ui::UiState>,
-) {
+) -> FlushOutcome {
     if queue.is_empty() {
-        return;
+        return FlushOutcome::Nothing;
     }
 
     // Chunked, because a long outage can leave thousands queued and a single
@@ -657,6 +688,7 @@ async fn flush(
                 );
             }
             queue.persist();
+            FlushOutcome::Sent
         }
         Err(error) => {
             warn!(%error, pending = queue.len(), "could not reach the server — points kept");
@@ -664,6 +696,7 @@ async fn flush(
             ui.update(|snapshot| snapshot.last_send_error = Some(text))
                 .await;
             queue.persist();
+            FlushOutcome::Failed
         }
     }
 }
