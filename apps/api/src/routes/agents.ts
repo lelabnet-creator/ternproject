@@ -891,13 +891,24 @@ const routes: FastifyPluginAsyncZod = async (app) => {
         .limit(1)
       if (!agent) throw app.httpErrors.notFound('Unknown agent')
 
-      // The instance's own agent takes no instructions from the instance. It is
-      // started and stopped with the server it runs inside; pausing it from
-      // here would be the server asking itself to stop measuring, and nothing
-      // would be left to ask it to start again.
-      if (agent.isLocal) {
+      /*
+       * The instance's own agent takes every instruction but one.
+       *
+       * This used to refuse all of them, which was one rule too broad: asking
+       * it for its logs, or to turn its page on, is exactly as reasonable as
+       * asking any other agent, and the operator was left with a menu holding
+       * a single verb and no explanation.
+       *
+       * `stop` is the exception, and it is a real one. A stopped agent listens
+       * for nothing, so nothing here could start it again — and the one it
+       * would silence is the instance's own, which is what watches this server
+       * when no other agent is looking. Pausing it is reversible from this same
+       * screen and stays allowed.
+       */
+      if (agent.isLocal && req.body.kind === 'stop') {
         throw app.httpErrors.conflict(
-          `${LOCAL_AGENT_NAME} runs inside this instance and is controlled with it, not from here.`,
+          `${LOCAL_AGENT_NAME} watches this instance, and a stopped agent listens for nothing — ` +
+            `nothing here could start it again. Pause it instead, or turn it off with TERN_LOCAL_AGENT=false.`,
         )
       }
 

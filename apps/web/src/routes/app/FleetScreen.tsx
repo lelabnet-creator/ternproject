@@ -1456,7 +1456,7 @@ export function AgentMenu({
             None of these happens now, and the heading says so rather than
             leaving a button to imply otherwise.
           */}
-          {canWrite && !revoked && onCommand && !agent.isLocal && (
+          {canWrite && !revoked && onCommand && (
             <>
               <div
                 style={{
@@ -1472,7 +1472,18 @@ export function AgentMenu({
               <MenuItem onClick={() => ask('restart')} icon="RotateCw" label="Restart it" />
               <MenuItem onClick={() => ask('pause')} icon="Pause" label="Pause measuring" />
               <MenuItem onClick={() => ask('resume')} icon="Play" label="Resume" />
-              <MenuItem onClick={() => ask('stop')} icon="Power" label="Stop it for good" danger />
+              {/* Every instruction but this one. A stopped agent listens for
+                  nothing, so nothing here could start it again — and this is
+                  the agent that watches the instance itself. Pausing it is
+                  reversible from this same menu and stays offered. */}
+              {!agent.isLocal && (
+                <MenuItem
+                  onClick={() => ask('stop')}
+                  icon="Power"
+                  label="Stop it for good"
+                  danger
+                />
+              )}
               <hr
                 style={{
                   border: 0,
@@ -2087,39 +2098,64 @@ function CommandTrail({ commands }: { commands: AgentCommand[] }) {
         minWidth: 0,
       }}
     >
-      {commands.slice(0, 5).map((c) => (
-        <div key={c.id} style={{ fontSize: 'var(--text-sm)', minWidth: 0 }}>
-          <span style={{ fontWeight: 600 }}>
-            {AGENT_COMMAND_LABEL[c.kind as AgentCommandKind] ?? c.kind}
-          </span>{' '}
-          <span style={{ color: 'var(--color-fg-subtle)' }}>
-            {c.error
-              ? '— refused'
-              : c.completedAt
-                ? '— done'
-                : c.deliveredAt
-                  ? '— taken, no answer yet'
-                  : '— waiting for its next check-in'}
-          </span>
-          {c.error && <Banner tone="down">{c.error}</Banner>}
-          {/* The password, laid out to be read off a screen and typed
+      {commands.slice(0, 5).map((c) => {
+        /*
+         * Only the newest password still opens anything.
+         *
+         * Each `ui-on` mints one and replaces the last, so a trail of green
+         * boxes each saying "its page is on" showed three equally-confident
+         * answers of which two were dead. Somebody read the wrong one and was
+         * told their password was not right — by a machine that was, from its
+         * own point of view, telling the truth.
+         */
+        const superseded =
+          c.kind === 'ui-on' &&
+          commands.some(
+            (other) =>
+              other.kind === 'ui-on' &&
+              other.result &&
+              other.completedAt &&
+              other.createdAt > c.createdAt,
+          )
+        return (
+          <div key={c.id} style={{ fontSize: 'var(--text-sm)', minWidth: 0 }}>
+            <span style={{ fontWeight: 600 }}>
+              {AGENT_COMMAND_LABEL[c.kind as AgentCommandKind] ?? c.kind}
+            </span>{' '}
+            <span style={{ color: 'var(--color-fg-subtle)' }}>
+              {c.error
+                ? '— refused'
+                : c.completedAt
+                  ? '— done'
+                  : c.deliveredAt
+                    ? '— taken, no answer yet'
+                    : '— waiting for its next check-in'}
+            </span>
+            {c.error && <Banner tone="down">{c.error}</Banner>}
+            {/* The password, laid out to be read off a screen and typed
               elsewhere — which is what somebody is about to do with it. */}
-          {c.kind === 'ui-on' && c.result && <UiOnAnswer result={c.result} />}
-          {c.kind === 'logs' && c.result && (
-            <div style={{ marginTop: 'var(--space-1)' }}>
-              <CodeBlock label="What the agent has said since it started" copyable>
+            {c.kind === 'ui-on' && c.result && !superseded && <UiOnAnswer result={c.result} />}
+            {c.kind === 'ui-on' && c.result && superseded && (
+              <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-fg-subtle)' }}>
+                Replaced by a later one — that password no longer works.
+              </div>
+            )}
+            {c.kind === 'logs' && c.result && (
+              <div style={{ marginTop: 'var(--space-1)' }}>
+                <CodeBlock label="What the agent has said since it started" copyable>
+                  {c.result}
+                </CodeBlock>
+              </div>
+            )}
+            {/* Everything else answers in a word, and a word does not need a box. */}
+            {c.kind !== 'ui-on' && c.kind !== 'logs' && c.result && (
+              <div style={{ color: 'var(--color-fg-muted)', fontSize: 'var(--text-xs)' }}>
                 {c.result}
-              </CodeBlock>
-            </div>
-          )}
-          {/* Everything else answers in a word, and a word does not need a box. */}
-          {c.kind !== 'ui-on' && c.kind !== 'logs' && c.result && (
-            <div style={{ color: 'var(--color-fg-muted)', fontSize: 'var(--text-xs)' }}>
-              {c.result}
-            </div>
-          )}
-        </div>
-      ))}
+              </div>
+            )}
+          </div>
+        )
+      })}
     </div>
   )
 }

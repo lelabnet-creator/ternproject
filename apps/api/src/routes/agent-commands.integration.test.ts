@@ -114,7 +114,34 @@ describe('asking', () => {
     expect(body.issues.length).toBeGreaterThan(0)
   })
 
-  it('refuses the local agent with a 409 that says why', async () => {
+  /**
+   * The instance's own agent takes every instruction but one.
+   *
+   * This used to refuse all of them, which was one rule too broad: asking it
+   * for its logs, or to turn its page on, is as reasonable as asking any other
+   * agent, and the operator was left with a menu holding a single verb and no
+   * explanation for the rest.
+   */
+  it('lets the local agent be asked the reversible things', async () => {
+    const [local] = await fx.app.db
+      .insert(schema.agents)
+      .values({ tenantId: fx.tenantId, name: 'Agent-local-tern', isLocal: true })
+      .returning({ id: schema.agents.id })
+
+    for (const kind of ['pause', 'resume', 'restart', 'logs', 'ui-on'] as const) {
+      const response = await fx.app.inject({
+        method: 'POST',
+        url: `/api/v1/${fx.slug}/agents/${local!.id}/commands`,
+        headers: { cookie },
+        payload: { kind },
+      })
+      expect(response.statusCode, kind).toBe(200)
+    }
+  })
+
+  it('refuses to stop the local agent, and says why', async () => {
+    // A stopped agent listens for nothing, so nothing here could start it
+    // again — and this is the one that watches the instance itself.
     const [local] = await fx.app.db
       .insert(schema.agents)
       .values({ tenantId: fx.tenantId, name: 'Agent-local-tern', isLocal: true })
@@ -124,11 +151,12 @@ describe('asking', () => {
       method: 'POST',
       url: `/api/v1/${fx.slug}/agents/${local!.id}/commands`,
       headers: { cookie },
-      payload: { kind: 'pause' },
+      payload: { kind: 'stop' },
     })
     expect(response.statusCode).toBe(409)
     expect(response.json().code).toBe('conflict')
-    expect(response.json().detail).toMatch(/inside this instance/)
+    // Names the reversible alternative rather than only refusing.
+    expect(response.json().detail).toMatch(/Pause it instead/)
   })
 })
 

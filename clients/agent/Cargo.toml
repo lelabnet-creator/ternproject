@@ -42,6 +42,10 @@ toml = "0.8"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 socket2 = "0.6.5"
+# For `flock` alone. Already in the tree through tokio and socket2; named here
+# because a direct use deserves a direct line.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
 # One crypto provider, and it has to be the one `reqwest` already brings.
 #
 # With default features this pulled `aws-lc-rs` while reqwest pulled `ring`, so

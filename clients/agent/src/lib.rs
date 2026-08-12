@@ -7,6 +7,7 @@
 pub mod commands;
 pub mod config;
 pub mod doctor;
+pub mod lock;
 pub mod logbuf;
 pub mod probe;
 pub mod probe_transport;
