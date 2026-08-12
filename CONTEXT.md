@@ -2,20 +2,19 @@
 
 ## Current Task
 
-Release v0.2.0 en cours : le protocole agent v1 — schémas partagés, RFC 9457,
-`X-Tern-Protocol`, correction de la latence de zone, `docs/protocol.md`.
+Release v0.2.1 : le battement d'agent est retenu ouvert (long-poll), et un
+`flock` empêche deux copies de se disputer une même config.
 
 ## Key Decisions
 
-- **Rupture assumée** : serveur, relais et agents se mettent à jour ensemble ;
-  un désaccord de version répond `protocol-mismatch` en nommant les deux côtés.
-- **Une seule définition des messages** (`@tern/shared/agent-protocol`),
-  tenue côté Rust par les fixtures de `schemas/conformance/protocol/`.
-- **v0.2.0, pas 0.1.33** : la rupture mérite le cran mineur, et le crate agent
-  est bumpé aussi pour que la flotte distingue migré / à migrer.
+- **Un POST retenu, pas un WebSocket** : c'est l'agent qui ouvre la connexion,
+  et c'est cette propriété qui le rend joignable derrière pare-feu et relais.
+- **`holding` est dit, jamais déduit** : deviner d'après le temps de réponse
+  était faux quand un relais relâche ses battements en s'arrêtant (57 s perdues).
+- **Le verrou refuse, ne tue pas** : il nomme le pid et propose le `kill`.
 
 ## Next Steps
 
-- Mettre à jour l'agent de .170 (rupture : il parlera `protocol-mismatch` sinon).
-- Supprimer les doublons déjà en base (demande les machines de Jacques).
-- Fumée réelle : ordre `restart` via relais (~1 min), `TERN_PROTOCOL_TRACE=1`.
+- Mettre à jour les agents 0.1.0 de Jacques (protocole v1 les refuse).
+- Supprimer l'entrée fantôme de zone restée à « never reported ».
+- Surfacer `protocol-mismatch` comme motif sur la ligne de flotte.
