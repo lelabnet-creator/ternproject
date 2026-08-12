@@ -136,6 +136,21 @@ export const heartbeatResponseSchema = z.object({
    * must come and fetch it.
    */
   commandsWaiting: z.boolean(),
+  /**
+   * Whether this server honoured `waitSeconds` — said, rather than guessed.
+   *
+   * The agent has to know whether to ask again immediately (the hold is what
+   * makes the wait continuous) or to keep its one-minute cadence (a server too
+   * old to hold anything, which asking again at once would hammer). It used to
+   * infer that from how long the reply took, and inference was wrong in the one
+   * case that matters: a relay releases the beats it is holding as it shuts
+   * down, so its zone got instant replies, concluded "this one does not hold",
+   * and went quiet for a minute — right when the relay was coming back. Costing
+   * up to 57 s, measured, against 0.3 s otherwise.
+   *
+   * Absent from an older server, which is exactly the "does not hold" it means.
+   */
+  holding: z.boolean().optional(),
 })
 
 // ── Assignment poll — the only channel instructions travel on ──────────────

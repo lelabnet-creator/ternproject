@@ -186,10 +186,19 @@ describe('delivery', () => {
   it('tells the agent something waits, on the beat', async () => {
     const { key, agentId } = await pair('cmd-waiting')
 
-    expect((await beat(key)).json()).toEqual({ ok: true, commandsWaiting: false })
+    // `holding: false` — this beat asked for no wait, so it was answered at once.
+    expect((await beat(key)).json()).toEqual({
+      ok: true,
+      commandsWaiting: false,
+      holding: false,
+    })
 
     await ask(agentId)
-    expect((await beat(key)).json()).toEqual({ ok: true, commandsWaiting: true })
+    expect((await beat(key)).json()).toEqual({
+      ok: true,
+      commandsWaiting: true,
+      holding: false,
+    })
 
     // The beat only announces; the poll is what takes. Still waiting.
     expect((await beat(key)).json().commandsWaiting).toBe(true)
@@ -217,7 +226,7 @@ describe('the held beat', () => {
 
     const response = await held
     const elapsed = Date.now() - started
-    expect(response.json()).toEqual({ ok: true, commandsWaiting: true })
+    expect(response.json()).toEqual({ ok: true, commandsWaiting: true, holding: true })
     expect(elapsed).toBeLessThan(2_000)
   })
 
@@ -226,7 +235,7 @@ describe('the held beat', () => {
 
     const started = Date.now()
     const response = await beat(key, { waitSeconds: 1 })
-    expect(response.json()).toEqual({ ok: true, commandsWaiting: false })
+    expect(response.json()).toEqual({ ok: true, commandsWaiting: false, holding: true })
     // It really waited rather than answering straight away...
     expect(Date.now() - started).toBeGreaterThanOrEqual(900)
     // ...and it really stopped, rather than running to the server's own bound.
@@ -237,7 +246,15 @@ describe('the held beat', () => {
     const { key } = await pair('cmd-held-optout')
 
     const started = Date.now()
-    expect((await beat(key)).json().commandsWaiting).toBe(false)
+    const answer = (await beat(key)).json()
+    expect(answer.commandsWaiting).toBe(false)
+    /*
+     * And it says so, rather than leaving the agent to infer it from timing.
+     * That inference is exactly what went wrong on the bench: a relay releases
+     * the beats it holds as it shuts down, its zone read the instant replies as
+     * "this one does not hold", and went quiet for a minute.
+     */
+    expect(answer.holding).toBe(false)
     // Every agent older than this feature, and the bodiless beat besides.
     expect(Date.now() - started).toBeLessThan(1_000)
   })

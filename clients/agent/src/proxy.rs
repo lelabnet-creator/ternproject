@@ -584,9 +584,23 @@ pub async fn run(
     // `docker stop`, compose and systemd all send SIGTERM, and a relay killed
     // outright skips the graceful path. The queue persists on every push, so
     // nothing was lost — but the shutdown should be the one that was asked for.
-    .with_graceful_shutdown(async {
-        crate::runner::stop_requested().await;
-        info!("stopping");
+    .with_graceful_shutdown({
+        let woken = state.zone_woken.clone();
+        async move {
+            crate::runner::stop_requested().await;
+            /*
+             * Let go of the zone's held beats before waiting for them.
+             *
+             * Graceful shutdown waits for requests in flight, and this relay
+             * now keeps one open per machine in its zone for up to twenty
+             * seconds — so an ordinary `systemctl restart` sat there for twenty
+             * seconds doing nothing, and an update took that long per relay.
+             * Waking them makes each answer "nothing waiting" at once, which is
+             * both true and the fastest thing to say.
+             */
+            woken.send_modify(|n| *n += 1);
+            info!("stopping");
+        }
     })
     .await
     .context("the proxy server stopped unexpectedly")?;
@@ -661,7 +675,10 @@ fn spawn_refresh(state: AppState, every_s: u64) {
          * whole zone waiting behind it. Computing the next beat from when the
          * last one *returned* is what makes the wait continuous.
          */
-        let mut next_beat = tokio::time::Instant::now() + BEAT;
+        // Immediately, not in a minute: the first beat is what opens the wait,
+        // and a relay that has just restarted is exactly when somebody is
+        // watching for it to pick something up.
+        let mut next_beat = tokio::time::Instant::now();
         let mut next_assignment = tokio::time::Instant::now() + assignment_every;
         let mut fetch_now = false;
         // The same pacing as the agent's own heartbeat: a dead upstream is
@@ -698,23 +715,25 @@ fn spawn_refresh(state: AppState, every_s: u64) {
                 if !held {
                     let asked_at = tokio::time::Instant::now();
                     match beat(&state, &key).await {
-                        Some(waiting) => {
+                        Some(beat) => {
                             beat_backoff.succeeded();
                             beat_hold = None;
-                            if waiting {
+                            if beat.commands_waiting {
                                 fetch_now = true;
                             }
-                            // Held by the server, so straight back in. A reply
-                            // that came back at once is a server too old to
-                            // hold anything, and asking it again immediately
-                            // would be a hot loop — it keeps the minute.
-                            if asked_at.elapsed() > std::time::Duration::from_secs(2) {
-                                next_beat = tokio::time::Instant::now()
-                                    + std::time::Duration::from_millis(200);
-                            }
+                            next_beat = tokio::time::Instant::now()
+                                + crate::runner::after(&beat, asked_at.elapsed());
                         }
                         None => {
-                            beat_hold = Some(tokio::time::Instant::now() + beat_backoff.failed());
+                            // A dropped hold, retried in a second without
+                            // touching the backoff — see the agent's own beat.
+                            if asked_at.elapsed() > std::time::Duration::from_secs(2) {
+                                next_beat =
+                                    tokio::time::Instant::now() + std::time::Duration::from_secs(1);
+                            } else {
+                                beat_hold =
+                                    Some(tokio::time::Instant::now() + beat_backoff.failed());
+                            }
                         }
                     }
                 }
@@ -780,19 +799,22 @@ fn spawn_refresh(state: AppState, every_s: u64) {
             if !held {
                 let asked_at = tokio::time::Instant::now();
                 match beat(&state, &key).await {
-                    Some(waiting) => {
+                    Some(beat) => {
                         beat_backoff.succeeded();
                         beat_hold = None;
-                        if waiting {
+                        if beat.commands_waiting {
                             fetch_now = true;
                         }
-                        if asked_at.elapsed() > std::time::Duration::from_secs(2) {
-                            next_beat =
-                                tokio::time::Instant::now() + std::time::Duration::from_millis(200);
-                        }
+                        next_beat = tokio::time::Instant::now()
+                            + crate::runner::after(&beat, asked_at.elapsed());
                     }
                     None => {
-                        beat_hold = Some(tokio::time::Instant::now() + beat_backoff.failed());
+                        if asked_at.elapsed() > std::time::Duration::from_secs(2) {
+                            next_beat =
+                                tokio::time::Instant::now() + std::time::Duration::from_secs(1);
+                        } else {
+                            beat_hold = Some(tokio::time::Instant::now() + beat_backoff.failed());
+                        }
                     }
                 }
             }
@@ -811,7 +833,7 @@ fn spawn_refresh(state: AppState, every_s: u64) {
  *
  * Returns whether the server has something waiting for this relay or its zone.
  */
-async fn beat(state: &AppState, key: &str) -> Option<bool> {
+async fn beat(state: &AppState, key: &str) -> Option<crate::transport::Beat> {
     let (ui_address, zone_agents, zone_listen, upstream, tenant, queued, queue_bytes) = {
         let inner = state.inner.lock().await;
         (
@@ -861,11 +883,11 @@ async fn beat(state: &AppState, key: &str) -> Option<bool> {
         .await;
 
     match &outcome {
-        Ok(true) => info!("the server has an instruction waiting"),
+        Ok(beat) if beat.commands_waiting => info!("the server has an instruction waiting"),
         // The other half of the same silence: a beat that worked said nothing,
         // so a relay talking perfectly well and a relay whose loop had stopped
         // looked identical in its own log.
-        Ok(false) => debug!(%queued, "beat upstream"),
+        Ok(_) => debug!(%queued, "beat upstream"),
         // A warning and nothing more. A relay whose upstream is down must keep
         // serving its zone, which is the entire reason it exists — the caller
         // paces the retries.
@@ -1382,7 +1404,9 @@ async fn heartbeat(
 
     (
         StatusCode::OK,
-        Json(json!({ "ok": true, "commandsWaiting": waiting })),
+        // `holding` said here too, and for the same reason: its zone must not
+        // have to guess from timing whether this relay honours the wait.
+        Json(json!({ "ok": true, "commandsWaiting": waiting, "holding": hold > 0 })),
     )
         .into_response()
 }

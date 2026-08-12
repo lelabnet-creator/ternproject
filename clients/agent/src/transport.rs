@@ -350,14 +350,50 @@ impl std::error::Error for ApiError {}
 
 /// Exponential backoff for a request that keeps failing.
 ///
+/**
+ * What a beat answers.
+ *
+ * Two facts, and the second exists because the first was not enough: the agent
+ * has to know whether to ask again at once or to keep its minute, and it used
+ * to infer that from how long the reply took. See `holding`.
+ */
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Beat {
+    /// Something is queued for this machine — or, for a relay, for its zone.
+    #[serde(default)]
+    pub commands_waiting: bool,
+    /**
+     * Whether this server honours `waitSeconds`.
+     *
+     * Absent from anything older, which is exactly the `false` it defaults to.
+     * Said rather than measured: a relay lets go of the beats it holds as it
+     * shuts down, so a timing guess read "this one does not hold" at the very
+     * moment the relay was coming back, and the zone went quiet for a minute.
+     */
+    #[serde(default)]
+    pub holding: bool,
+}
+
 /// Without it a permanent 401 was one warn per minute, forever — noise exactly
 /// where somebody would need to read. Doubles from one minute to a quarter of
 /// an hour and resets on the first success.
+///
+/// The exception is the very first failure, which gets two seconds rather than
+/// a minute. Most first failures are not outages: they are a peer restarting.
+/// Since the beat became a held connection this stopped being a nicety — a
+/// relay's restart hands its zone a clean answer, each machine asks again a
+/// fraction of a second later, the port is not back yet, and one minute of
+/// silence follows a one-second restart. Measured: 52 s for an instruction
+/// posted just after a relay restart, against 0.3 s otherwise. A real outage
+/// pays for this once, in one extra request.
 #[derive(Debug)]
 pub struct Backoff {
     failures: u32,
 }
 
+/// What a first failure costs. See `Backoff`.
+const BACKOFF_FIRST_S: u64 = 2;
 const BACKOFF_FLOOR_S: u64 = 60;
 const BACKOFF_CEILING_S: u64 = 900;
 
@@ -375,8 +411,11 @@ impl Backoff {
     /// Records a failure and says how long to hold off.
     pub fn failed(&mut self) -> std::time::Duration {
         self.failures = self.failures.saturating_add(1);
+        if self.failures == 1 {
+            return std::time::Duration::from_secs(BACKOFF_FIRST_S);
+        }
         let secs = BACKOFF_FLOOR_S
-            .saturating_mul(2u64.saturating_pow(self.failures.saturating_sub(1)))
+            .saturating_mul(2u64.saturating_pow(self.failures.saturating_sub(2)))
             .min(BACKOFF_CEILING_S);
         std::time::Duration::from_secs(secs)
     }
@@ -709,7 +748,7 @@ impl Client {
         api_key: &str,
         ui_address: Option<&str>,
         wait_seconds: u32,
-    ) -> Result<bool> {
+    ) -> Result<Beat> {
         let path = "/api/v1/agent/heartbeat";
         let response = self
             .send(
@@ -729,18 +768,11 @@ impl Client {
             .await
             .context("heartbeat refused")?;
 
-        #[derive(Deserialize)]
-        #[serde(rename_all = "camelCase")]
-        struct Beat {
-            #[serde(default)]
-            commands_waiting: bool,
-        }
-
         let beat: Beat = response
             .json()
             .await
             .context("unexpected heartbeat response")?;
-        Ok(beat.commands_waiting)
+        Ok(beat)
     }
 
     /// Says what became of an instruction.
@@ -872,6 +904,8 @@ mod tests {
     fn backoff_doubles_to_a_ceiling_and_resets() {
         let mut backoff = Backoff::new();
         assert!(!backoff.failing());
+        // The first one is a peer restarting until proven otherwise.
+        assert_eq!(backoff.failed().as_secs(), 2);
         assert_eq!(backoff.failed().as_secs(), 60);
         assert_eq!(backoff.failed().as_secs(), 120);
         assert_eq!(backoff.failed().as_secs(), 240);
@@ -880,7 +914,21 @@ mod tests {
         assert_eq!(backoff.failed().as_secs(), 900, "capped, not unbounded");
         backoff.succeeded();
         assert!(!backoff.failing());
-        assert_eq!(backoff.failed().as_secs(), 60, "a success starts over");
+        assert_eq!(backoff.failed().as_secs(), 2, "a success starts over");
+    }
+
+    /// The property the two-second step exists for: a restart is not an outage.
+    #[test]
+    fn a_peer_that_comes_straight_back_costs_two_seconds_not_a_minute() {
+        let mut backoff = Backoff::new();
+        let restart = backoff.failed();
+        backoff.succeeded();
+        assert_eq!(restart.as_secs(), 2);
+
+        // And an outage still reaches the quiet cadence quickly.
+        let mut outage = Backoff::new();
+        let total: u64 = (0..6).map(|_| outage.failed().as_secs()).sum();
+        assert_eq!(total, 2 + 60 + 120 + 240 + 480 + 900);
     }
 
     #[test]

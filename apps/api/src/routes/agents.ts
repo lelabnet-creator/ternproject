@@ -374,7 +374,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
       // read at exactly the moment they need to.
       req.log.debug({ agentId: agent?.id ?? null, waiting, held: hold }, 'heartbeat')
 
-      return { ok: true, commandsWaiting: waiting }
+      return { ok: true, commandsWaiting: waiting, holding: hold > 0 }
     },
   )
 

@@ -1,5 +1,17 @@
 {
-  "$comment": "Agent → server. null and absent uiAddress mean different things: null clears the stored address, absent leaves it alone. The agent always sends the field.",
+  "$comment": "Agent → server. null and absent uiAddress mean different things: null clears the stored address, absent leaves it alone. The agent always sends the field. waitSeconds asks the server to hold the reply open; absent means answer at once, which is what every agent older than the held beat does.",
   "message": "heartbeatRequest",
-  "examples": [{ "uiAddress": "192.168.1.50:38788" }, { "uiAddress": null }, {}]
+  "examples": [
+    {
+      "uiAddress": "192.168.1.50:38788",
+      "waitSeconds": 20
+    },
+    {
+      "uiAddress": null
+    },
+    {
+      "waitSeconds": 0
+    },
+    {}
+  ]
 }

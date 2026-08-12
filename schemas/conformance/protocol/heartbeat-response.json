@@ -1,8 +1,24 @@
 {
-  "$comment": "Server → agent. commandsWaiting true is what turns instruction latency from the refresh interval into the heartbeat interval.",
+  "$comment": "Server → agent. commandsWaiting true is what turns instruction latency from the refresh interval into the heartbeat interval. holding says whether this server honoured waitSeconds — said rather than inferred from timing, because a relay releases the beats it holds as it shuts down and a timing guess reads that as 'does not hold'. Absent from an older server, which is the false it means.",
   "message": "heartbeatResponse",
   "examples": [
-    { "ok": true, "commandsWaiting": false },
-    { "ok": true, "commandsWaiting": true }
+    {
+      "ok": true,
+      "commandsWaiting": false
+    },
+    {
+      "ok": true,
+      "commandsWaiting": true
+    },
+    {
+      "ok": true,
+      "commandsWaiting": false,
+      "holding": true
+    },
+    {
+      "ok": true,
+      "commandsWaiting": true,
+      "holding": false
+    }
   ]
 }

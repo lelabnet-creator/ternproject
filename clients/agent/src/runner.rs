@@ -19,7 +19,7 @@ use std::time::Duration;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use tokio::time::Instant;
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 use crate::config::{Config, ProbeEntry};
 use crate::probe::{evaluate, Status};
@@ -291,6 +291,40 @@ const HEARTBEAT_EVERY: Duration = Duration::from_secs(60);
  */
 pub(crate) const HOLD_SECONDS: u32 = 20;
 
+/**
+ * How long to wait before beating again, given the answer just received.
+ *
+ * Four cases, and each of the last three exists because of a way this went
+ * wrong on the bench:
+ *
+ * - **Something waits** — go now. Sitting on that answer until the next minute
+ *   throws away exactly what the hold just bought.
+ * - **The server held it** — go now, because the hold *is* the wait, and it is
+ *   only continuous if the next beat is already open.
+ * - **It holds, but this one came back at once** — two seconds. That happens
+ *   when a relay lets go of the beats it holds as it shuts down; asking again
+ *   in 200 ms would be a poll at 5 Hz against a peer that is restarting, and
+ *   waiting a minute for a restart that takes one second is what cost 57 s.
+ * - **It does not hold at all** — the old cadence. Anything older than this
+ *   answers immediately by design, and hammering it would be the whole point
+ *   of the backoff, thrown away.
+ */
+pub(crate) fn after(beat: &crate::transport::Beat, took: Duration) -> Duration {
+    const AT_ONCE: Duration = Duration::from_millis(200);
+
+    if beat.commands_waiting {
+        return AT_ONCE;
+    }
+    if !beat.holding {
+        return HEARTBEAT_EVERY;
+    }
+    if took > Duration::from_secs(2) {
+        AT_ONCE
+    } else {
+        Duration::from_secs(2)
+    }
+}
+
 /// Re-reads the assignment, returning whether anything about it changed.
 ///
 /// A failure is a warning, never fatal — an agent that stops because the server
@@ -524,15 +558,34 @@ pub async fn run(
                 .and_then(|settings| settings.reachable_address(&config.server));
 
             let asked_at = Instant::now();
-            match client
-                .heartbeat(&config.api_key, ui_address.as_deref(), HOLD_SECONDS)
-                .await
-            {
-                Ok(waiting) => {
+
+            /*
+             * The stop signal has to reach *inside* the beat now.
+             *
+             * The beat used to return in milliseconds, so watching for a signal
+             * only between iterations was the same as watching always. Held
+             * open it is not: a `systemctl restart` landed mid-beat waited out
+             * the whole hold, then systemd's stop timeout, then SIGKILL — and a
+             * killed agent never reaches `queue.persist()`, so the points it
+             * was holding for an unreachable server are gone. Seen on the
+             * bench: `Failed with result 'timeout'` on an ordinary restart.
+             */
+            let beat = client.heartbeat(&config.api_key, ui_address.as_deref(), HOLD_SECONDS);
+            let outcome = tokio::select! {
+                result = beat => result,
+                _ = stop_requested() => {
+                    info!(pending = queue.len(), "stopping — the queue is on disk");
+                    queue.persist();
+                    return Ok(());
+                }
+            };
+
+            match outcome {
+                Ok(beat) => {
                     heartbeat_backoff.succeeded();
                     // Told there is something to fetch, so fetch it now rather
                     // than at the next refresh — which is what the wait was.
-                    if waiting {
+                    if beat.commands_waiting {
                         info!("the server has an instruction waiting");
                         next_refresh = Instant::now();
                     }
@@ -541,34 +594,39 @@ pub async fn run(
                         snapshot.last_heartbeat_error = None;
                     })
                     .await;
-                    /*
-                     * Straight back in, when the server did hold it.
-                     *
-                     * That is what makes the wait continuous: the beat is the wait, so
-                     * the moment one returns the next should be open. A server too old
-                     * to hold anything answers at once, and asking again immediately
-                     * would be a hot loop against it — so a reply that came back far
-                     * too quickly is read as "this one does not hold", and the old
-                     * cadence is kept.
-                     */
-                    let held = asked_at.elapsed() > Duration::from_secs(2);
-                    next_heartbeat = Instant::now()
-                        + if held {
-                            Duration::from_millis(200)
-                        } else {
-                            HEARTBEAT_EVERY
-                        };
+                    next_heartbeat = Instant::now() + after(&beat, asked_at.elapsed());
                 }
                 Err(error) => {
                     /*
-                     * Backed off, doubling to a quarter of an hour. A
-                     * permanent 401 used to be one warn per minute forever —
-                     * noise exactly where somebody needs to read — and
-                     * hammering an unreachable server helps nobody. The first
-                     * success resets the cadence.
+                     * A dropped hold is not an unreachable server.
+                     *
+                     * Backed off, doubling to a quarter of an hour: a permanent
+                     * 401 used to be one warn per minute forever — noise
+                     * exactly where somebody needs to read — and hammering an
+                     * unreachable server helps nobody. The first success resets
+                     * the cadence.
+                     *
+                     * But a beat that stayed open for a while and *then* failed
+                     * is the ordinary end of a held connection: the relay
+                     * restarted, a NAT forgot it, a load balancer timed it out.
+                     * Sixty seconds of silence for that is a minute of a zone
+                     * hearing nothing, and it is what a restarted relay cost —
+                     * measured at 57 s on the bench. So it is retried in a
+                     * second, and the backoff is left where it was, because
+                     * nothing about the server has been learnt. It cannot
+                     * become a hot loop: each attempt costs the hold itself.
                      */
-                    let delay = heartbeat_backoff.failed();
-                    warn!(%error, retry_in_s = delay.as_secs(), "heartbeat failed");
+                    let dropped_hold = asked_at.elapsed() > Duration::from_secs(2);
+                    let delay = if dropped_hold {
+                        Duration::from_secs(1)
+                    } else {
+                        heartbeat_backoff.failed()
+                    };
+                    if dropped_hold {
+                        debug!(%error, "the held beat was dropped — asking again");
+                    } else {
+                        warn!(%error, retry_in_s = delay.as_secs(), "heartbeat failed");
+                    }
                     // The message, not a boolean. "heartbeat refused (401)" and
                     // "could not reach the server" send somebody to two
                     // different places, and a red light that says neither sends
@@ -1046,6 +1104,47 @@ mod tests {
         assert_eq!(
             next_wake(true, now + Duration::from_secs(300), heartbeat, &schedule),
             soon
+        );
+    }
+}
+
+#[cfg(test)]
+mod pacing_tests {
+    use super::*;
+    use crate::transport::Beat;
+
+    fn beat(commands_waiting: bool, holding: bool) -> Beat {
+        Beat {
+            commands_waiting,
+            holding,
+        }
+    }
+
+    #[test]
+    fn something_waiting_means_now() {
+        // Even from a server that does not hold: the answer is the point.
+        assert!(after(&beat(true, false), Duration::from_millis(3)) < Duration::from_secs(1));
+        assert!(after(&beat(true, true), Duration::from_secs(19)) < Duration::from_secs(1));
+    }
+
+    #[test]
+    fn a_held_beat_reopens_immediately() {
+        assert!(after(&beat(false, true), Duration::from_secs(20)) < Duration::from_secs(1));
+    }
+
+    /// The relay-restart case: it holds, but let go of this one at once.
+    #[test]
+    fn a_hold_that_ended_at_once_waits_a_moment_rather_than_hammering() {
+        let delay = after(&beat(false, true), Duration::from_millis(4));
+        assert_eq!(delay, Duration::from_secs(2));
+    }
+
+    /// And the reason that case cannot simply be "go again now".
+    #[test]
+    fn a_server_that_does_not_hold_keeps_the_old_cadence() {
+        assert_eq!(
+            after(&beat(false, false), Duration::from_millis(4)),
+            HEARTBEAT_EVERY
         );
     }
 }

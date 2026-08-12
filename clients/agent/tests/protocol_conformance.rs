@@ -204,8 +204,33 @@ fn heartbeat_requests_round_trip() {
             skip_serializing_if = "Option::is_none"
         )]
         ui_address: Option<Option<String>>,
+        /// Absent means "answer at once", which is what every agent older than
+        /// the held beat sends — so it must survive as absent, not as zero.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        wait_seconds: Option<u32>,
     }
     round_trips::<Sent>("heartbeatRequest");
+}
+
+/**
+ * The answer the agent acts on, against every shape the server may send.
+ *
+ * Both fields are optional on the wire for the same reason — an older server
+ * sends neither — and both default to the conservative reading: nothing
+ * waiting, and no hold. That default is what lets a new agent talk to an old
+ * server without a version check.
+ */
+#[test]
+fn heartbeat_responses_fit_including_one_from_a_server_that_does_not_hold() {
+    let beats: Vec<tern_agent::transport::Beat> = parses_as("heartbeatResponse");
+
+    assert!(beats.iter().any(|b| b.commands_waiting));
+    assert!(beats.iter().any(|b| b.holding), "a server that holds");
+    // The old shape: no `holding` at all, read as "does not hold".
+    let old: tern_agent::transport::Beat =
+        serde_json::from_str(r#"{"ok":true,"commandsWaiting":true}"#).expect("the older shape");
+    assert!(old.commands_waiting);
+    assert!(!old.holding);
 }
 
 /// `ZoneAgent` requires Deserialize for the round-trip probe above; make sure
