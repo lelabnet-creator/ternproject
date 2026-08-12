@@ -2,9 +2,9 @@
 
 ## Current Task
 
-Boucle autonome sur `BACKLOG.md`. Section 1 close, `v0.1.31` en cours de
-publication. Restent la dette (latence des ordres, premier battement d'un
-relais, enum tenu à la main) et cinq points de documentation.
+Rien en cours. `BACKLOG.md` entièrement coché ; `v0.1.32` publiée. Ne restent
+que deux gestes qui demandent les machines de Jacques — mettre à jour l'agent de
+.170, et supprimer les doublons déjà en base.
 
 ## Key Decisions
 
