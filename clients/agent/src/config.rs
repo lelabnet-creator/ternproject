@@ -798,20 +798,38 @@ impl UiSettings {
     ///
     /// An explicit host is taken as given: somebody who wrote an address meant
     /// it, and second-guessing them would be worse than trusting them.
+    ///
+    /// ## When the server is on this very machine
+    ///
+    /// Asking which interface faces TERN answers `127.0.0.1` when TERN *is*
+    /// here — which is the ordinary shape of the instance's own agent, and of a
+    /// relay sharing a box with the server. That answer was then read as "on
+    /// loopback, nothing to offer", so the console showed no link and no port
+    /// for the two agents most likely to be looked at, while the page sat wide
+    /// open on `0.0.0.0:38788` the whole time.
+    ///
+    /// The page is not on loopback; only the path to the server is. So the
+    /// question is asked again, this time of the default route — the address
+    /// this machine uses to reach anything at all, which is the address the
+    /// operator's browser reached TERN on.
     pub fn reachable_address(&self, upstream: &str) -> Option<String> {
         let (host, port) = self.listen.rsplit_once(':')?;
         let host = host.trim_start_matches('[').trim_end_matches(']');
+        let port: u16 = port.parse().ok()?;
 
         if is_loopback_host(host) {
             return None;
         }
 
         if host.is_empty() || host == "0.0.0.0" || host == "*" || host == "::" {
-            let outbound = crate::proxy::outbound_address(upstream)?;
-            if outbound.is_loopback() {
-                return None;
-            }
-            return Some(format!("{outbound}:{port}"));
+            let outbound = crate::proxy::outbound_address(upstream)
+                .filter(|ip| !ip.is_loopback())
+                .or_else(crate::proxy::default_route_address)
+                .filter(|ip| !ip.is_loopback())?;
+            // Through `SocketAddr` rather than `{host}:{port}`, which writes an
+            // IPv6 address without the brackets a URL needs — `fe80::1:38788`
+            // is not an address any browser will take.
+            return Some(std::net::SocketAddr::new(outbound, port).to_string());
         }
 
         Some(self.listen.clone())
@@ -888,9 +906,28 @@ mod ui_address_tests {
         // machine has no address that reaches a server it cannot see.
     }
 
+    /// The instance's own agent, and any relay sharing a box with the server.
+    ///
+    /// Its upstream is `127.0.0.1`, so "which interface faces the server" is
+    /// loopback and the honest-looking answer was `None` — no link, no port,
+    /// and a note saying the page could only be opened from that machine, about
+    /// a page bound to every interface on it. The default route is asked
+    /// instead, which is the address the browser used to get here.
+    #[test]
+    fn a_server_on_this_machine_does_not_hide_a_page_bound_everywhere() {
+        let resolved = ui("0.0.0.0:39999").reachable_address("http://127.0.0.1:3011");
+        if let Some(address) = resolved {
+            assert!(address.ends_with(":39999"), "kept the port: {address}");
+            assert!(!address.starts_with("127."), "not loopback: {address}");
+        }
+        // None stays legitimate: a machine with no default route at all has no
+        // address to offer, and inventing one would be the worse answer.
+    }
+
     #[test]
     fn a_listen_string_without_a_port_says_nothing() {
         assert_eq!(ui("0.0.0.0").reachable_address("http://x:3000"), None);
+        assert_eq!(ui("0.0.0.0:http").reachable_address("http://x:3000"), None);
     }
 }
 
@@ -1003,5 +1040,10 @@ impl crate::commands::Controllable for Config {
     }
     fn paused_means(&self) -> &'static str {
         "no probes will run"
+    }
+    /// This file belongs to an agent. A relay's travels as `commands::Settings`
+    /// and answers `tern-proxy` there.
+    fn binary_name(&self) -> &'static str {
+        "tern-agent"
     }
 }

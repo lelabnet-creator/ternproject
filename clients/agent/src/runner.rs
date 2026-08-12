@@ -330,7 +330,12 @@ pub(crate) fn after(beat: &crate::transport::Beat, took: Duration) -> Duration {
 /// A failure is a warning, never fatal — an agent that stops because the server
 /// is briefly unreachable is exactly backwards, which is the same reasoning the
 /// startup refresh in `main.rs` already applies.
-async fn refresh_assignment(client: &Client, config: &mut Config, path: &Path) -> bool {
+async fn refresh_assignment(
+    client: &Client,
+    config: &mut Config,
+    path: &Path,
+    page: &std::sync::Arc<crate::ui::UiState>,
+) -> bool {
     let response = match client.jobs(&config.api_key).await {
         Ok(response) => response,
         Err(error) => {
@@ -348,7 +353,9 @@ async fn refresh_assignment(client: &Client, config: &mut Config, path: &Path) -
      */
     if !response.commands.is_empty() {
         let key = config.api_key.clone();
-        let restart = crate::commands::apply(client, &key, &response.commands, config, path).await;
+        let restart =
+            crate::commands::apply(client, &key, &response.commands, config, path, Some(page))
+                .await;
         if restart {
             crate::commands::leave_for_restart();
         }
@@ -478,19 +485,17 @@ pub async fn run(
     /*
      * The page, when the config asks for one.
      *
-     * Spawned rather than awaited: it serves for as long as the agent runs and
-     * has nothing to hand back. A failure to bind is a warning and not a
-     * refusal to start — an agent whose port is taken must keep measuring,
-     * because measuring is its job and the page is a convenience.
+     * Through the same call the console's `ui-on` goes through, so starting one
+     * and turning one on later cannot drift apart — which is exactly what they
+     * had done: this bound a listener the instruction had no way to create.
+     *
+     * A failure to bind is a warning and not a refusal to start. An agent whose
+     * port is taken must keep measuring, because measuring is its job and the
+     * page is a convenience.
      */
-    let ui = crate::ui::UiState::new(config.ui.as_ref().and_then(|u| u.credential.clone()));
-    if let Some(settings) = config.ui.clone() {
-        let state = ui.clone();
-        tokio::spawn(async move {
-            if let Err(error) = crate::ui::serve(state, &settings.listen).await {
-                warn!(%error, address = %settings.listen, "could not serve the agent page");
-            }
-        });
+    let ui = crate::ui::UiState::new(None);
+    if let Err(why) = crate::ui::reconcile(&ui, config.ui.as_ref()).await {
+        warn!(%why, "the agent page is not up — the agent runs on without it");
     }
 
     ui.update(|snapshot| {
@@ -640,7 +645,7 @@ pub async fn run(
         }
 
         if refresh && now >= next_refresh {
-            if refresh_assignment(&client, &mut config, &config_path).await {
+            if refresh_assignment(&client, &mut config, &config_path, &ui).await {
                 now = Instant::now();
                 schedule = reschedule(&config, &schedule, now);
             }

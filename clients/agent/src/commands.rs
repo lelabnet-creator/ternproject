@@ -61,6 +61,13 @@ pub trait Controllable {
     /// faces the console, so `ui-on` can hand back an address worth clicking
     /// rather than the `0.0.0.0` it may have bound.
     fn upstream(&self) -> String;
+
+    /// `tern-agent` or `tern-proxy` — which of the two binaries this is.
+    ///
+    /// On the trait because an upgrade has to ask the server for its own build,
+    /// and a relay that downloaded the agent would replace itself with a
+    /// process that has no zone, no listener, and no way back.
+    fn binary_name(&self) -> &'static str;
 }
 
 /// What carrying out an instruction did, and what to do next.
@@ -73,7 +80,11 @@ pub enum Outcome {
     ///
     /// Separate from `Done` because the answer has to be sent *before* leaving,
     /// and only the caller knows it has been.
-    Restart,
+    ///
+    /// The text is what the console shows. An upgrade needs one — "restarting"
+    /// alone would leave the operator to work out from the version column,
+    /// minutes later, whether the thing they pressed had done anything.
+    Restart(Option<String>),
 }
 
 /// Runs one instruction against this agent's config, saving it if it changed.
@@ -81,7 +92,22 @@ pub enum Outcome {
 /// Takes the config rather than reading it: the caller is holding the live copy
 /// the loop runs from, and a second read would let the two disagree about what
 /// this agent is doing.
-pub fn run<C: Controllable>(command: &Command, config: &mut C, path: &std::path::Path) -> Outcome {
+///
+/// `page` is the listener this process is serving its own page on, when it has
+/// got that far. `None` is for the startup pass, which carries out whatever was
+/// waiting *before* the page is brought up — there the config it leaves behind
+/// is what the runner binds from a moment later, so there is nothing live to
+/// tell. Everywhere else it must be `Some`, and the defect it exists to prevent
+/// is the one that made this whole path look broken: an instruction that
+/// changed the config and nothing else, answering with a password for a page
+/// that was never opened.
+pub async fn run<C: Controllable>(
+    command: &Command,
+    config: &mut C,
+    path: &std::path::Path,
+    page: Option<&std::sync::Arc<crate::ui::UiState>>,
+    client: &Client,
+) -> Outcome {
     match &command.kind {
         CommandKind::Pause => {
             let said = format!("paused — {}", config.paused_means());
@@ -109,9 +135,43 @@ pub fn run<C: Controllable>(command: &Command, config: &mut C, path: &std::path:
             "stopped — reporting nothing until `resume` is run on the machine",
         ),
 
-        CommandKind::Restart => Outcome::Restart,
+        CommandKind::Restart => Outcome::Restart(None),
 
         CommandKind::Logs => Outcome::Done(Some(crate::logbuf::snapshot())),
+
+        /*
+         * The binary replaced, and this process left so the new one takes over.
+         *
+         * Everything that could go wrong is checked before the file moves —
+         * checksum, then the downloaded binary actually running here, then that
+         * it is newer than this one — because the failure this cannot recover
+         * from is an agent replaced by something that will not start. See
+         * `crate::upgrade`, which is where all three live.
+         *
+         * The config is untouched: an upgrade changes what runs, not what it
+         * was told to do. Its probes, its page and its state come back with it.
+         */
+        CommandKind::Upgrade => {
+            let running = env!("CARGO_PKG_VERSION");
+            match crate::upgrade::install(client, config.binary_name(), running).await {
+                Ok(crate::upgrade::Upgraded::Installed { from, to }) => {
+                    Outcome::Restart(Some(format!("updated from {from} to {to} — restarting")))
+                }
+                // Not a failure. Somebody pressing the button on an agent that
+                // is already current should read a sentence, not a red box.
+                Ok(crate::upgrade::Upgraded::AlreadyCurrent(said)) => Outcome::Done(Some(said)),
+                // The chain, not just the last link: "could not download" on its
+                // own does not say whether the relay was down or the release
+                // has no build for this machine.
+                Err(error) => Outcome::Failed(
+                    error
+                        .chain()
+                        .map(|cause| cause.to_string())
+                        .collect::<Vec<_>>()
+                        .join(": "),
+                ),
+            }
+        }
 
         /*
          * The page turned on, and the password handed back once.
@@ -155,16 +215,42 @@ pub fn run<C: Controllable>(command: &Command, config: &mut C, path: &std::path:
              * answer for a page on loopback.
              */
             let reachable = settings.reachable_address(&upstream);
+
+            /*
+             * Opened now, not at the next restart.
+             *
+             * This is what the answer below promises, and for two releases it
+             * was not true: the config learned about the page and the running
+             * process did not, so nothing bound the port and nothing swapped
+             * the password. The console said "done", handed over a credential,
+             * and every one of them was refused — by a listener that in the
+             * common case was not even there.
+             *
+             * Before the write, so a port that cannot be bound changes nothing:
+             * the old password stays good, the file keeps saying what is true,
+             * and the console is told the actual reason.
+             */
+            if let Some(page) = page {
+                if let Err(why) = crate::ui::reconcile(page, Some(&settings)).await {
+                    return Outcome::Failed(why);
+                }
+            }
+
             config.set_ui(Some(settings));
             match config.write(path) {
                 Ok(()) => {
                     info!(%bound, "the local page was turned on from the console");
-                    // Two facts in one answer, so the console can show the
-                    // password and offer the link in the same breath. Shaped in
+                    // Three facts in one answer, so the console can show the
+                    // password, offer the link, and name the port even when
+                    // there is no link to offer. Shaped in
                     // `@tern/shared/agent-commands`, where the console reads it.
                     Outcome::Done(Some(
-                        serde_json::json!({ "password": password, "address": reachable })
-                            .to_string(),
+                        serde_json::json!({
+                            "password": password,
+                            "address": reachable,
+                            "listen": bound,
+                        })
+                        .to_string(),
                     ))
                 }
                 Err(error) => Outcome::Failed(format!("could not write the config: {error}")),
@@ -172,6 +258,15 @@ pub fn run<C: Controllable>(command: &Command, config: &mut C, path: &std::path:
         }
 
         CommandKind::UiOff => {
+            // Stopped, not merely unguarded. A page whose credential was
+            // cleared and whose listener stayed up is a page open to anybody
+            // who can reach the port — the opposite of what was asked.
+            if let Some(page) = page {
+                if let Err(why) = crate::ui::reconcile(page, None).await {
+                    return Outcome::Failed(why);
+                }
+            }
+
             config.set_ui(None);
             match config.write(path) {
                 Ok(()) => {
@@ -224,20 +319,21 @@ pub async fn apply<C: Controllable>(
     commands: &[Command],
     config: &mut C,
     path: &std::path::Path,
+    page: Option<&std::sync::Arc<crate::ui::UiState>>,
 ) -> bool {
     let mut restart = false;
 
     for command in commands {
         info!(kind = %command.kind, "carrying out an instruction from the console");
-        let (result, error) = match run(command, config, path) {
+        let (result, error) = match run(command, config, path, page, client).await {
             Outcome::Done(text) => (text, None),
             Outcome::Failed(why) => {
                 warn!(kind = %command.kind, %why, "could not carry it out");
                 (None, Some(why))
             }
-            Outcome::Restart => {
+            Outcome::Restart(said) => {
                 restart = true;
-                (Some("restarting".to_string()), None)
+                (Some(said.unwrap_or_else(|| "restarting".to_string())), None)
             }
         };
 
@@ -304,6 +400,10 @@ impl Controllable for Settings {
     fn upstream(&self) -> String {
         self.upstream.clone()
     }
+    /// Always the relay: this view of a config only ever belongs to one.
+    fn binary_name(&self) -> &'static str {
+        "tern-proxy"
+    }
 }
 
 #[cfg(test)]
@@ -336,11 +436,39 @@ mod tests {
         }
     }
 
-    /// The difference between the two states, which is the whole design.
-    #[test]
-    fn paused_stops_measuring_but_keeps_listening() {
+    /// A page for the tests to act on, so `run` is exercised the way the
+    /// running agent calls it rather than through the startup shortcut.
+    fn page() -> std::sync::Arc<crate::ui::UiState> {
+        crate::ui::UiState::new(None)
+    }
+
+    /// Never spoken to by any of these: only `upgrade` reaches the network, and
+    /// what it does there belongs to `crate::upgrade`'s own tests.
+    fn client() -> Client {
+        Client::new("https://x.example").unwrap()
+    }
+
+    /// A config whose page is already pointed at a port the kernel picks.
+    ///
+    /// The instruction reuses an address the config already carries, which is
+    /// what makes this possible: left to its default it would ask for
+    /// `0.0.0.0:38788`, and a test that binds a fixed port on the developer's
+    /// own machine fails whenever a real agent is running there — or whenever
+    /// two of these run at once, which `cargo test` does by default.
+    fn scratch_with_a_page() -> (Config, std::path::PathBuf) {
         let (mut config, path) = scratch();
-        run(&cmd("pause"), &mut config, &path);
+        config.ui = Some(crate::config::UiSettings {
+            listen: "127.0.0.1:0".into(),
+            credential: None,
+        });
+        (config, path)
+    }
+
+    /// The difference between the two states, which is the whole design.
+    #[tokio::test]
+    async fn paused_stops_measuring_but_keeps_listening() {
+        let (mut config, path) = scratch();
+        run(&cmd("pause"), &mut config, &path, None, &client()).await;
 
         assert_eq!(config.state, Running::Paused);
         assert!(!config.state.measures(), "no probes");
@@ -350,12 +478,12 @@ mod tests {
         );
     }
 
-    #[test]
-    fn stopped_stops_listening_too() {
+    #[tokio::test]
+    async fn stopped_stops_listening_too() {
         // What makes it final: nothing is left to hear a resume, which is
         // exactly what the console says before asking for it.
         let (mut config, path) = scratch();
-        run(&cmd("stop"), &mut config, &path);
+        run(&cmd("stop"), &mut config, &path, None, &client()).await;
 
         assert_eq!(config.state, Running::Stopped);
         assert!(!config.state.measures());
@@ -363,40 +491,50 @@ mod tests {
     }
 
     /// The state has to survive the restart the supervisor performs on any exit.
-    #[test]
-    fn the_state_is_written_to_the_file() {
+    #[tokio::test]
+    async fn the_state_is_written_to_the_file() {
         let (mut config, path) = scratch();
-        run(&cmd("stop"), &mut config, &path);
+        run(&cmd("stop"), &mut config, &path, None, &client()).await;
 
         let reread = Config::load(&path).unwrap();
         assert_eq!(reread.state, Running::Stopped);
     }
 
-    #[test]
-    fn resume_undoes_either_of_them() {
+    #[tokio::test]
+    async fn resume_undoes_either_of_them() {
         let (mut config, path) = scratch();
-        run(&cmd("stop"), &mut config, &path);
-        run(&cmd("resume"), &mut config, &path);
+        run(&cmd("stop"), &mut config, &path, None, &client()).await;
+        run(&cmd("resume"), &mut config, &path, None, &client()).await;
         assert_eq!(config.state, Running::Active);
         assert!(config.state.measures() && config.state.reports());
     }
 
     /// The password is the answer, because this is the one moment it exists in
     /// the clear anywhere but on this machine.
-    #[test]
-    fn turning_the_page_on_hands_back_a_password_once() {
-        let (mut config, path) = scratch();
-        let Outcome::Done(Some(answer)) = run(&cmd("ui-on"), &mut config, &path) else {
+    #[tokio::test]
+    async fn turning_the_page_on_hands_back_a_password_once() {
+        let (mut config, path) = scratch_with_a_page();
+        let live = page();
+        let Outcome::Done(Some(answer)) =
+            run(&cmd("ui-on"), &mut config, &path, Some(&live), &client()).await
+        else {
             panic!("expected an answer back")
         };
 
-        // Two facts now, so the console can show the password and offer the
-        // link together — see `UiOnResult` in @tern/shared/agent-commands.
+        // Three facts now, so the console can show the password, offer the link
+        // and name the port even when there is no link — see `UiOnResult` in
+        // @tern/shared/agent-commands.
         let parsed: serde_json::Value = serde_json::from_str(&answer).expect("json");
         let password = parsed["password"].as_str().expect("a password").to_string();
         assert!(parsed.get("address").is_some(), "and where to open it");
+        assert_eq!(
+            parsed["listen"].as_str(),
+            Some("127.0.0.1:0"),
+            "and what it bound, which is the only thing to show when there is no link",
+        );
         assert!(password.len() >= 12);
         assert!(config.ui.is_some(), "the page is on");
+        assert!(live.bound().await.is_some(), "and it is actually up");
         // Stored hashed, never in the clear: the reply above is the only copy.
         let stored = Config::load(&path).unwrap();
         let credential = stored.ui.unwrap().credential.unwrap();
@@ -404,38 +542,67 @@ mod tests {
         assert!(credential.matches(&password), "and it is the right one");
 
         // Asked again, another one — the same promise `tern-agent ui` makes.
-        let Outcome::Done(Some(again)) = run(&cmd("ui-on"), &mut config, &path) else {
+        let Outcome::Done(Some(again)) =
+            run(&cmd("ui-on"), &mut config, &path, Some(&live), &client()).await
+        else {
             panic!("expected an answer back")
         };
         let second: serde_json::Value = serde_json::from_str(&again).expect("json");
         assert_ne!(second["password"].as_str().unwrap(), password);
+
+        // And the second one is the one the page now checks against, which is
+        // the whole defect: this used to hand out a password the running
+        // process had never heard of.
+        let stored = Config::load(&path).unwrap().ui.unwrap().credential.unwrap();
+        assert!(stored.matches(second["password"].as_str().unwrap()));
     }
 
-    #[test]
-    fn turning_it_off_leaves_nothing_listening() {
+    /// Asked of an agent that has never had one, the page goes somewhere the
+    /// console can reach — not the loopback a terminal would have defaulted to.
+    #[tokio::test]
+    async fn a_page_the_console_asks_for_is_not_bound_to_loopback() {
         let (mut config, path) = scratch();
-        run(&cmd("ui-on"), &mut config, &path);
-        run(&cmd("ui-off"), &mut config, &path);
+        // No live page: this asserts what the instruction *chooses*, and
+        // binding 38788 on the machine running the tests is not its business.
+        let Outcome::Done(Some(answer)) =
+            run(&cmd("ui-on"), &mut config, &path, None, &client()).await
+        else {
+            panic!("expected an answer back")
+        };
+        let parsed: serde_json::Value = serde_json::from_str(&answer).expect("json");
+        assert_eq!(parsed["listen"].as_str(), Some("0.0.0.0:38788"));
+    }
+
+    #[tokio::test]
+    async fn turning_it_off_leaves_nothing_listening() {
+        let (mut config, path) = scratch_with_a_page();
+        let live = page();
+        run(&cmd("ui-on"), &mut config, &path, Some(&live), &client()).await;
+        assert!(live.bound().await.is_some(), "it came up");
+
+        run(&cmd("ui-off"), &mut config, &path, Some(&live), &client()).await;
         assert!(config.ui.is_none());
         assert!(Config::load(&path).unwrap().ui.is_none());
+        assert_eq!(live.bound().await, None, "and the listener went with it");
     }
 
-    #[test]
-    fn a_restart_is_not_a_config_change() {
+    #[tokio::test]
+    async fn a_restart_is_not_a_config_change() {
         let (mut config, path) = scratch();
         assert!(matches!(
-            run(&cmd("restart"), &mut config, &path),
-            Outcome::Restart
+            run(&cmd("restart"), &mut config, &path, None, &client()).await,
+            Outcome::Restart(None)
         ));
         assert_eq!(config.state, Running::Active, "restarting is not pausing");
     }
 
     /// A console newer than the agent is ordinary during a rollout. Saying so
     /// is what stops it looking like an agent that is not listening.
-    #[test]
-    fn an_unknown_instruction_is_answered_rather_than_ignored() {
+    #[tokio::test]
+    async fn an_unknown_instruction_is_answered_rather_than_ignored() {
         let (mut config, path) = scratch();
-        let Outcome::Failed(why) = run(&cmd("teleport"), &mut config, &path) else {
+        let Outcome::Failed(why) = run(&cmd("teleport"), &mut config, &path, None, &client()).await
+        else {
             panic!("expected a refusal")
         };
         assert!(

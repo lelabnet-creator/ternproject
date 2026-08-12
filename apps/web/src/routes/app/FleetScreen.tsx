@@ -1506,6 +1506,36 @@ export function AgentMenu({
   )
 }
 
+/**
+ * "There is a newer one, and it is this one."
+ *
+ * An arrow and a number rather than a word like "outdated": the operator's next
+ * question is always which version, and a badge that made them go and find out
+ * would be a notification rather than an answer. It sits inline in the caption,
+ * in the maintenance colour — this is neither an incident nor a failure, and
+ * painting it red would put an agent one patch behind next to a machine that
+ * has stopped reporting.
+ */
+function UpdateTag({ to }: { to: string }) {
+  return (
+    <span
+      title={`This instance ships ${to}. Use “Update to ${to}” on this row to move it.`}
+      style={{
+        marginLeft: 'var(--space-2)',
+        padding: '1px var(--space-2)',
+        borderRadius: 'var(--radius-sm)',
+        background: 'var(--status-maintenance-soft)',
+        border: '1px solid var(--status-maintenance)',
+        color: 'var(--color-fg)',
+        fontWeight: 600,
+        whiteSpace: 'nowrap',
+      }}
+    >
+      → {to} available
+    </span>
+  )
+}
+
 /** One row in an agent's overflow menu. */
 function MenuItem({
   onClick,
@@ -1771,6 +1801,42 @@ export function AgentRow({
         </div>
 
         <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
+          {/*
+            An update, offered where it is noticed.
+
+            In the row rather than behind the ⋯ menu, and it is the one
+            instruction that earns that: the others are things somebody came
+            here meaning to do, while this one is a fact the screen has just
+            told them. A menu they would have to think to open is the wrong
+            place for the answer to something they did not know until now.
+
+            It disappears on its own — `upgradeTo` goes null the moment the
+            agent reports the new version — so nothing has to remember to
+            withdraw it.
+          */}
+          {canWrite && !revoked && agent.upgradeTo && (
+            <Button
+              variant="primary"
+              busy={command.isPending}
+              ariaLabel={`Update ${agent.name} to ${agent.upgradeTo}`}
+              onClick={() => {
+                if (
+                  !window.confirm(
+                    `Update ${agent.name} to ${agent.upgradeTo}?\n\n` +
+                      'At its next check-in it downloads the build this instance ships, checks it ' +
+                      'against the published checksum, runs it once to see that it starts on that ' +
+                      'machine, and only then replaces itself and restarts.\n\n' +
+                      'Its probes, its page and its settings come back with it.',
+                  )
+                ) {
+                  return
+                }
+                command.mutate('upgrade')
+              }}
+            >
+              Update to {agent.upgradeTo}
+            </Button>
+          )}
           {/* The question a fleet screen is actually asked: what is this one
               doing? Answered here rather than by opening every control. */}
           <Button
@@ -1825,7 +1891,14 @@ export function AgentRow({
         }}
       >
         {agent.site ?? 'no site'} · {agent.os ?? 'unknown OS'}
-        {agent.arch ? `/${agent.arch}` : ''} · {agent.agentVersion ?? 'version unknown'} ·{' '}
+        {agent.arch ? `/${agent.arch}` : ''} · {agent.agentVersion ?? 'version unknown'}
+        {/*
+          The version this instance ships, said where the version it runs is
+          said. A fleet drifts one machine at a time and nothing on this screen
+          used to notice: the column showed `0.2.0` beside a server on `0.2.1`
+          and left the reader to remember which was which.
+        */}
+        {agent.upgradeTo && <UpdateTag to={agent.upgradeTo} />} ·{' '}
         {/* The address moved into the menu, where several can be listed. What
           stays here is what the machine turned out to be, plus when it was last
           heard from. */}
@@ -2172,9 +2245,16 @@ function CommandTrail({ commands }: { commands: AgentCommand[] }) {
  * No link when the agent reported none: the page is on loopback and can be
  * opened only from that machine. An offer to open it would be a lie in a green
  * box, which is the worst place for one.
+ *
+ * But "no link" is not the same as "nothing to say". It used to print one
+ * sentence about loopback and stop, which left somebody holding a password and
+ * no port to spend it on — and said "loopback" about pages that were bound to
+ * every interface, because the machine had failed to resolve an address rather
+ * than having none. So what it bound is named whenever the agent says.
  */
 function UiOnAnswer({ result }: { result: string }) {
-  const { password, address } = readUiOnResult(result)
+  const { password, address, listen } = readUiOnResult(result)
+  const loopback = /^(127\.|\[?::1\]?|localhost)/.test(listen ?? '')
 
   return (
     <div style={{ marginTop: 'var(--space-1)' }}>
@@ -2230,7 +2310,24 @@ function UiOnAnswer({ result }: { result: string }) {
             color: 'var(--color-fg-subtle)',
           }}
         >
-          Bound to loopback, so it can only be opened from that machine.
+          {listen === null ? (
+            // An agent too old to say what it bound. Naming the default would
+            // be a guess, and a guessed port is how somebody spends ten minutes
+            // on a connection that was never going to answer.
+            <>
+              This agent did not say where it bound. Its page is on port 38788 unless it was told
+              otherwise.
+            </>
+          ) : loopback ? (
+            <>
+              Bound to <code>{listen}</code>, so it can only be opened from that machine.
+            </>
+          ) : (
+            <>
+              Bound to <code>{listen}</code>, but the machine could not work out which of its
+              addresses to offer. Open that port on any address you can reach it at.
+            </>
+          )}
         </p>
       )}
     </div>

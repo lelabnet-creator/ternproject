@@ -578,6 +578,7 @@ its own pace.
 | Turn its page on  | Turns the page on and hands the new password back, shown once               |
 | Fetch recent logs | The lines that process has emitted since it started                         |
 | Restart it        | It leaves, and the supervisor starts it again                               |
+| Update to _x.y.z_ | It replaces its own binary with the one this instance ships — see below     |
 | Pause measuring   | An agent runs no probes; a relay keeps its zone's points instead of sending |
 | Resume            | Undoes a pause, from here                                                   |
 | Stop it for good  | It reports nothing at all — see below                                       |
@@ -613,8 +614,35 @@ Whatever the supervisor said _about_ the process is not there.
 
 ### Updating an agent
 
-Re-run the installer with no `--pin`. It replaces the binary, keeps the config
-and the pairing, and restarts the service:
+**From the console.** An agent running an older build than this instance ships
+says so on its own row — `0.2.0 → 0.2.1 available` — next to a button that moves
+it. Nothing has to be turned on and nothing has to be watched: the badge and the
+button appear when the version column and this instance disagree, and both go
+away when the agent next reports the new version.
+
+The machine does the work, because it is the only party that can reach itself.
+At its next check-in it downloads the build from the server it already reports
+to — a zone agent from its relay, which serves the same files — and then, in
+order:
+
+1. checks it against the published `SHA256SUMS`;
+2. runs it once with `--version`, to see that it starts on that machine at all;
+3. checks that it really is newer than what is running.
+
+Only then does the file move, by a rename within its own directory, and the
+process leaves so its supervisor brings the new one back. Any of the three
+failing leaves the working agent exactly where it was and puts the reason in the
+trail under the row. Its probes, its page and its paused-or-not state come back
+with it: an upgrade changes what runs, not what it was told to do.
+
+Two rows never offer the button. A **relay** offers it and updates itself, but
+its zone does not update with it — each machine behind it has a row and a button
+of its own. And `Agent-local-tern` has nothing to download: this instance starts
+it from the very files an upgrade would fetch, so it moves forward when the
+instance does.
+
+**From the machine.** Re-run the installer with no `--pin`. It replaces the
+binary, keeps the config and the pairing, and restarts the service:
 
 ```sh
 curl -fsSL https://status.example.com/install.sh | sh -s -- --server https://status.example.com

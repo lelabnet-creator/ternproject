@@ -15,3 +15,4 @@ pub mod proxy;
 pub mod runner;
 pub mod transport;
 pub mod ui;
+pub mod upgrade;

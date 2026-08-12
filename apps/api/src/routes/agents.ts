@@ -26,6 +26,7 @@ import { authenticateApiKey, issueApiKey, touchAgent } from '../services/apikeys
 import { assignmentsFor, jobsForAgent } from '../services/jobs.js'
 import { holdFor, wake, waitForWork } from '../services/waiting.js'
 import { audit } from '../services/audit.js'
+import { upgradeFor } from '../services/agent-release.js'
 import { LOCAL_AGENT_NAME } from '../services/local-agent.js'
 
 /**
@@ -948,6 +949,22 @@ const routes: FastifyPluginAsyncZod = async (app) => {
         )
       }
 
+      /*
+       * And it cannot update itself, for a reason that is almost the opposite.
+       *
+       * It has nothing to download: this process starts it from the very files
+       * an upgrade would fetch, and picks the newest of them on every boot. An
+       * upgrade would overwrite that binary with a copy of itself while the
+       * supervisor holds it open. What moves this agent forward is upgrading
+       * the instance, which is a different button on a different screen.
+       */
+      if (agent.isLocal && req.body.kind === 'upgrade') {
+        throw app.httpErrors.conflict(
+          `${LOCAL_AGENT_NAME} runs the binary this instance ships, so there is nothing for it to ` +
+            `download. It moves forward when the instance does — see Platform.`,
+        )
+      }
+
       const [created] = await app.db
         .insert(schema.agentCommands)
         .values({
@@ -1232,6 +1249,17 @@ const routes: FastifyPluginAsyncZod = async (app) => {
               /** The instance's own agent, which cannot be revoked or deleted. */
               isLocal: z.boolean(),
               /**
+               * The version this instance would move it to, or null.
+               *
+               * One field for three conditions that all have to hold — it is
+               * behind, there is a binary here for its platform, and it is the
+               * kind of agent that can replace its own file. See `upgradeFor`.
+               * Null is far the commonest answer and means "offer nothing",
+               * which is why it is a version rather than a boolean: the button
+               * has to name where it is going before somebody presses it.
+               */
+              upgradeTo: z.string().nullable(),
+              /**
                * Which network the local agent measures from — `service:app` or
                * `host`. Null for every other agent, which sits on a machine this
                * server knows nothing about.
@@ -1291,6 +1319,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
           // Sent so the fleet screen can say why the delete button is missing,
           // rather than offering one that answers 409.
           isLocal: row.isLocal,
+          upgradeTo: upgradeFor(row),
           // Only meaningful for the local agent: it is this process's own
           // environment. A remote agent's network is its host's business, and
           // guessing at it here would be worse than saying nothing.

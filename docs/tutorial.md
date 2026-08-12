@@ -237,8 +237,7 @@ relay's own address already in it:
 │  1. In the admin, Agents → Add an agent → An agent behind a relay.
 │     It shows a PIN, good for five minutes.
 │  2. Run this on the isolated machine, with that PIN in place of PIN:
-│     curl -fsSL http://192.168.1.157:38787/install.sh | sh -s -- \
-│       --server http://192.168.1.157:38787 --pin PIN
+│     curl -fsSL http://192.168.1.157:38787/install.sh | sh -s -- --server http://192.168.1.157:38787 --pin PIN
 └────────────────────────────────────────────────────────
 ```
 

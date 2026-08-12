@@ -175,6 +175,8 @@ pub enum CommandKind {
     Logs,
     UiOn,
     UiOff,
+    /// Replace this binary with the one the server ships, then restart.
+    Upgrade,
     Unknown(String),
 }
 
@@ -188,6 +190,7 @@ impl From<String> for CommandKind {
             "logs" => Self::Logs,
             "ui-on" => Self::UiOn,
             "ui-off" => Self::UiOff,
+            "upgrade" => Self::Upgrade,
             _ => Self::Unknown(kind),
         }
     }
@@ -209,6 +212,7 @@ impl std::fmt::Display for CommandKind {
             Self::Logs => "logs",
             Self::UiOn => "ui-on",
             Self::UiOff => "ui-off",
+            Self::Upgrade => "upgrade",
             Self::Unknown(kind) => kind,
         })
     }

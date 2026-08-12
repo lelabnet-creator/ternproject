@@ -3,6 +3,12 @@ import { join } from 'node:path'
 import { z } from 'zod'
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod'
 import { config } from '../config.js'
+import {
+  AGENT_BINARIES,
+  availableBinaries,
+  binDirectory,
+  shippedAgentVersion,
+} from '../services/agent-release.js'
 
 /**
  * Shipping the agent with the server that needs it.
@@ -17,31 +23,13 @@ import { config } from '../config.js'
  * endpoints say so plainly rather than serving a 404 nobody can interpret.
  */
 
-/** Only these names are servable. The path never comes from the request. */
-const BINARIES = [
-  'tern-agent-x86_64-unknown-linux-musl',
-  'tern-agent-aarch64-unknown-linux-musl',
-  'tern-agent-aarch64-apple-darwin',
-  'tern-agent-x86_64-apple-darwin',
-  'tern-agent-x86_64-pc-windows-msvc.exe',
-  'tern-proxy-x86_64-unknown-linux-musl',
-  'tern-proxy-aarch64-unknown-linux-musl',
-  'tern-proxy-aarch64-apple-darwin',
-  'tern-proxy-x86_64-apple-darwin',
-  'tern-proxy-x86_64-pc-windows-msvc.exe',
-  'SHA256SUMS',
-] as const
-
-function binDirectory(): string {
-  // Resolved from the repository root rather than from `import.meta.url`, so it
-  // is the same path whether the API runs from source or from a build.
-  return join(process.cwd(), '..', '..', 'clients', 'agent', 'bin')
-}
-
-function available(): string[] {
-  const dir = binDirectory()
-  return BINARIES.filter((name) => existsSync(join(dir, name)))
-}
+/*
+ * The shipping list lives in `services/agent-release`, beside the question
+ * "which of these would replace that agent" — the fleet screen needs the second
+ * one to decide whether an upgrade is even offerable, and two copies of the
+ * platform naming is how the two answers would come to disagree.
+ */
+const BINARIES = AGENT_BINARIES
 
 const routes: FastifyPluginAsyncZod = async (app) => {
   /** What this instance can serve, so a client need not guess. */
@@ -52,6 +40,15 @@ const routes: FastifyPluginAsyncZod = async (app) => {
         response: {
           200: z.object({
             available: z.array(z.string()),
+            /**
+             * The version these binaries are, or null for a build with no tag.
+             *
+             * The agent reads it to say what an upgrade would move it to before
+             * downloading anything — and to refuse an upgrade that would move
+             * it backwards, which is what a stale mirror or a rolled-back
+             * instance would otherwise ask of it.
+             */
+            version: z.string().nullable(),
             installUrl: z.string(),
             installPsUrl: z.string(),
           }),
@@ -59,7 +56,8 @@ const routes: FastifyPluginAsyncZod = async (app) => {
       },
     },
     async () => ({
-      available: available(),
+      available: availableBinaries(),
+      version: shippedAgentVersion(),
       installUrl: `${base()}/install.sh`,
       installPsUrl: `${base()}/install.ps1`,
     }),

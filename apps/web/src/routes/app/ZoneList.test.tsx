@@ -40,6 +40,7 @@ function agent(over: Partial<Agent> & { id: string; name: string }): Agent {
     scopeControlIds: [],
     isLocal: false,
     networkMode: null,
+    upgradeTo: null,
     ...over,
   }
 }

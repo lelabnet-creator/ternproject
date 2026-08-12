@@ -477,7 +477,9 @@ pub async fn run(
         client: Arc::new(client),
         flush: Arc::new(tokio::sync::Notify::new()),
         zone_woken: Arc::new(tokio::sync::watch::Sender::new(0)),
-        ui: crate::ui::UiState::new(config.ui.as_ref().and_then(|u| u.credential.clone())),
+        // Empty here, filled by the `reconcile` below: one place decides what
+        // the page is guarded by, whether that is a startup or an instruction.
+        ui: crate::ui::UiState::new(None),
     };
 
     /*
@@ -491,13 +493,10 @@ pub async fn run(
      * loopback while the zone stays open, which is the arrangement that makes
      * sense on a relay.
      */
-    if let Some(settings) = config.ui.clone() {
-        let ui_state = state.ui.clone();
-        tokio::spawn(async move {
-            if let Err(error) = crate::ui::serve(ui_state, &settings.listen).await {
-                warn!(%error, "the local page stopped");
-            }
-        });
+    if let Err(why) = crate::ui::reconcile(&state.ui, config.ui.as_ref()).await {
+        // Not fatal: a relay whose page cannot bind must still relay, which is
+        // the job. The zone does not stop because a convenience did.
+        warn!(%why, "the relay page is not up — the relay runs on without it");
     }
 
     let app = Router::new()
@@ -633,7 +632,15 @@ async fn apply_own_commands(state: &AppState, key: &str, commands: &[crate::tran
         )
     };
 
-    let restart = crate::commands::apply(&state.client, key, commands, &mut settings, &path).await;
+    let restart = crate::commands::apply(
+        &state.client,
+        key,
+        commands,
+        &mut settings,
+        &path,
+        Some(&state.ui),
+    )
+    .await;
 
     let saved = {
         let mut inner = state.inner.lock().await;
@@ -1792,6 +1799,26 @@ pub fn outbound_address(upstream: &str) -> Option<std::net::IpAddr> {
     socket.local_addr().ok().map(|address| address.ip())
 }
 
+/**
+ * The address this machine reaches the wider network on.
+ *
+ * The same routing-table question as `outbound_address`, asked of nowhere in
+ * particular. It exists for the case that one cannot answer: when the server is
+ * on this very machine, the interface facing it is loopback, and a page bound
+ * to every interface would be reported as unreachable — which is how the
+ * instance's own agent ended up with no link and no port on the fleet screen.
+ *
+ * `192.0.2.1` is TEST-NET-1, reserved by RFC 5737 for documentation. Nothing
+ * answers there and nothing is sent: connecting a UDP socket only picks the
+ * route. A reserved address rather than a real one so that no packet can ever
+ * leave for somebody else's host because an agent wanted to know its own IP.
+ */
+pub fn default_route_address() -> Option<std::net::IpAddr> {
+    let socket = std::net::UdpSocket::bind("0.0.0.0:0").ok()?;
+    socket.connect(("192.0.2.1", 1)).ok()?;
+    socket.local_addr().ok().map(|address| address.ip())
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct PendingPin {
     hash: String,
@@ -1959,8 +1986,17 @@ pub async fn init(server: &str, pin: &str, config_path: &Path, setup: ZoneSetup)
     println!("{dim}│{reset}  2. Run this on the isolated machine, with that PIN in place");
     println!("{dim}│{reset}     of {red}PIN{reset}:");
     println!("{dim}│{reset}");
-    println!("{dim}│{reset}     {green}curl -fsSL {origin}/install.sh | sh -s -- \\{reset}");
-    println!("{dim}│{reset}       {green}--server {origin} --pin {reset}{red}PIN{reset}");
+    /*
+     * One line, however long it gets.
+     *
+     * It was two, joined by a backslash, so that it fitted the frame. But a
+     * frame is drawn with `│` down the left, and selecting a wrapped command
+     * out of one takes the frame with it: what arrives in the shell is
+     * `--server … │` on the second line, and the paste fails on a character the
+     * reader never typed. A line that runs past the frame is untidy; a line
+     * that cannot be copied is broken.
+     */
+    println!("{dim}│{reset}     {green}curl -fsSL {origin}/install.sh | sh -s -- --server {origin} --pin {reset}{red}PIN{reset}");
     println!("{dim}│{reset}");
     println!("{dim}└────────────────────────────────────────────────────────{reset}");
     println!();
@@ -2019,6 +2055,9 @@ impl crate::commands::Controllable for ProxyConfig {
         // queue is what makes that safe — it delays history rather than losing
         // it, up to its own bound.
         "the zone's points are kept here, none are sent on"
+    }
+    fn binary_name(&self) -> &'static str {
+        "tern-proxy"
     }
 }
 
@@ -2199,8 +2238,8 @@ mod tests {
         assert_eq!(keys.len(), 1, "remplacée, pas ajoutée");
     }
 
-    #[test]
-    fn an_instruction_cannot_erase_the_zone_it_serves() {
+    #[tokio::test]
+    async fn an_instruction_cannot_erase_the_zone_it_serves() {
         let mut config = config_with_one_agent();
         assert_eq!(config.local_keys.len(), 1);
 
@@ -2230,7 +2269,10 @@ mod tests {
             },
             &mut settings,
             std::path::Path::new("/nonexistent"),
-        );
+            None,
+            &crate::transport::Client::new("https://x.example").unwrap(),
+        )
+        .await;
 
         // Merged the way the relay merges it.
         config.ui = settings.ui;

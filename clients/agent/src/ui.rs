@@ -65,7 +65,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
-use tracing::info;
+use tracing::{info, warn};
 
 /// What the page reports. Written by the runner, read by the handlers.
 #[derive(Debug, Default, Clone, Serialize)]
@@ -116,11 +116,31 @@ pub struct Snapshot {
 pub struct UiState {
     pub snapshot: Mutex<Snapshot>,
     started: Instant,
-    credential: Option<Credential>,
+    /**
+     * The password, when there is one.
+     *
+     * Behind a lock because the console can mint a new one at any moment, and
+     * this used to be a plain field read once at startup. So `ui-on` wrote a
+     * fresh password into the config, the running process kept checking against
+     * the one it had loaded, and every password the console handed out was
+     * refused by the page it was minted for. The config said the page was on;
+     * the process had never been told.
+     */
+    credential: Mutex<Option<Credential>>,
     /// Live session tokens. In memory only: a restart signs everyone out, and
     /// nothing about who was signed in survives on disk.
     sessions: Mutex<Vec<String>>,
     attempts: Mutex<Attempts>,
+    /// The listener, when one is up. `None` is a page that is off — which is
+    /// not the same as a page with no password, and the difference is why
+    /// `ui-off` has to stop this rather than merely clear the credential.
+    serving: Mutex<Option<Serving>>,
+}
+
+/// A listener that is up: where it is bound, and how to ask it to stop.
+struct Serving {
+    listen: String,
+    stop: Arc<tokio::sync::Notify>,
 }
 
 /// How many passwords have been got wrong lately, and whether to keep listening.
@@ -213,12 +233,13 @@ impl UiState {
         Arc::new(UiState {
             snapshot: Mutex::new(Snapshot::default()),
             started: Instant::now(),
-            credential,
+            credential: Mutex::new(credential),
             sessions: Mutex::new(Vec::new()),
             attempts: Mutex::new(Attempts {
                 failures: 0,
                 locked_until: None,
             }),
+            serving: Mutex::new(None),
         })
     }
 
@@ -227,8 +248,17 @@ impl UiState {
     /// An agent nobody set a password on serves its page open, on loopback,
     /// which is what makes the feature findable. Setting a password turns the
     /// check on; `tern-agent ui --listen` warns when a wider binding has none.
-    pub fn guarded(&self) -> bool {
-        self.credential.is_some()
+    pub async fn guarded(&self) -> bool {
+        self.credential.lock().await.is_some()
+    }
+
+    /// Where the page is bound right now, or `None` if it is off.
+    pub async fn bound(&self) -> Option<String> {
+        self.serving
+            .lock()
+            .await
+            .as_ref()
+            .map(|up| up.listen.clone())
     }
 
     /// Hands the runner a snapshot to mutate, stamping the uptime as it goes.
@@ -237,6 +267,108 @@ impl UiState {
         edit(&mut snapshot);
         snapshot.uptime_s = self.started.elapsed().as_secs();
     }
+
+    /// Forgets who is signed in, and reopens the door if guessing had shut it.
+    ///
+    /// Called whenever the password changes. A session opened with the old one
+    /// has to end with it — otherwise "ask again for a new password" would
+    /// rotate the credential and leave every door it had already opened ajar.
+    /// The lockout goes with it because the operator standing at the console
+    /// has just proved who they are; making them wait out somebody else's
+    /// guesses would punish the wrong person.
+    async fn forget_sessions(&self) {
+        self.sessions.lock().await.clear();
+        let mut attempts = self.attempts.lock().await;
+        attempts.succeed();
+    }
+}
+
+/**
+ * Brings the live page into line with what the config now says.
+ *
+ * The one function that turns a page on, off, or moves it — used at startup and
+ * by the console's `ui-on`, so the two cannot drift. They did: startup spawned
+ * a listener from the config it had just read, and the console's instruction
+ * only wrote the file. An agent whose page had never been on stayed off, an
+ * agent whose page was on kept its old password, and both answered the console
+ * with a password that opened nothing until somebody restarted the process.
+ *
+ * Binding happens before anything is let go, and the error comes back rather
+ * than being logged: an address already in use should reach the person who
+ * pressed the button, not a journal on a machine they are not standing at.
+ */
+pub async fn reconcile(
+    state: &Arc<UiState>,
+    settings: Option<&crate::config::UiSettings>,
+) -> Result<(), String> {
+    let mut serving = state.serving.lock().await;
+
+    let Some(settings) = settings else {
+        if let Some(previous) = serving.take() {
+            previous.stop.notify_one();
+            info!(address = %previous.listen, "the local page was turned off");
+        }
+        *state.credential.lock().await = None;
+        state.forget_sessions().await;
+        return Ok(());
+    };
+
+    // Already bound where it belongs: only the password changed, and rebinding
+    // a working listener to swap it would drop whoever is reading the page.
+    if serving
+        .as_ref()
+        .is_some_and(|up| up.listen == settings.listen)
+    {
+        *state.credential.lock().await = settings.credential.clone();
+        state.forget_sessions().await;
+        return Ok(());
+    }
+
+    /*
+     * The new listener first, the old one after.
+     *
+     * A bind that fails must leave the page exactly as it was. Stopping first
+     * would trade a page on the wrong port for no page at all, and the caller
+     * would have written a new password into the config for a listener that
+     * never came up.
+     */
+    let listener = tokio::net::TcpListener::bind(&settings.listen)
+        .await
+        .map_err(|error| format!("could not open the page on {}: {error}", settings.listen))?;
+
+    if let Some(previous) = serving.take() {
+        // `notify_one`, not `notify_waiters`: the task it is aimed at may not
+        // have reached its `await` yet, and `notify_waiters` wakes only who is
+        // already waiting — the signal would be dropped and the old listener
+        // would stay up for the life of the process. `notify_one` keeps a
+        // permit, so it lands whenever the task gets there.
+        previous.stop.notify_one();
+    }
+
+    *state.credential.lock().await = settings.credential.clone();
+    state.forget_sessions().await;
+
+    let stop = Arc::new(tokio::sync::Notify::new());
+    *serving = Some(Serving {
+        listen: settings.listen.clone(),
+        stop: stop.clone(),
+    });
+
+    let served = state.clone();
+    let address = settings.listen.clone();
+    tokio::spawn(async move {
+        info!(%address, "serving the agent page");
+        let served_on = address.clone();
+        let shutdown = async move { stop.notified().await };
+        if let Err(error) = axum::serve(listener, router(served))
+            .with_graceful_shutdown(shutdown)
+            .await
+        {
+            warn!(%error, address = %served_on, "the local page stopped");
+        }
+    });
+
+    Ok(())
 }
 
 /// Turns the page on with a fresh password, and says so.
@@ -303,26 +435,21 @@ pub fn announce(address: &str, password: &str) {
     println!("Restart it for this to take effect.");
 }
 
-/// Serves the page until the process ends.
-pub async fn serve(state: Arc<UiState>, listen: &str) -> anyhow::Result<()> {
-    let app = Router::new()
+/// What the page answers on.
+fn router(state: Arc<UiState>) -> Router {
+    Router::new()
         .route("/", get(page))
         .route("/state.json", get(state_json))
         .route("/login", axum::routing::post(login))
         .route("/logout", axum::routing::post(logout))
-        .with_state(state);
-
-    let listener = tokio::net::TcpListener::bind(listen).await?;
-    info!(address = %listen, "serving the agent page");
-    axum::serve(listener, app).await?;
-    Ok(())
+        .with_state(state)
 }
 
 const COOKIE: &str = "tern_ui";
 
 /// Whether this request carries a live session, or the page needs no one.
 async fn authorised(state: &UiState, headers: &header::HeaderMap) -> bool {
-    if state.credential.is_none() {
+    if state.credential.lock().await.is_none() {
         return true;
     }
     let Some(token) = session_cookie(headers) else {
@@ -363,7 +490,10 @@ struct LoginBody {
 /// was always ignored, and asking for something that is not read is how a form
 /// teaches somebody the wrong thing about what guards their machine.
 async fn login(State(state): State<Arc<UiState>>, Json(body): Json<LoginBody>) -> Response {
-    let Some(credential) = &state.credential else {
+    // Cloned out of the lock rather than held across the checks below, which
+    // take two more locks: a credential is two short strings, and holding this
+    // one while `attempts` is taken would be the shape a deadlock grows in.
+    let Some(credential) = state.credential.lock().await.clone() else {
         // Nothing is set, so nothing can be signed into. Said plainly rather
         // than answering "ok" to any password, which would be a lie the caller
         // could reasonably act on.
@@ -448,7 +578,7 @@ async fn state_json(State(state): State<Arc<UiState>>, headers: header::HeaderMa
 
     Json(Body {
         snapshot,
-        guarded: state.guarded(),
+        guarded: state.guarded().await,
     })
     .into_response()
 }
@@ -544,6 +674,108 @@ mod tests {
             Some("yes")
         );
         assert_eq!(session_cookie(&with_cookie("a=1; b=2")), None);
+    }
+
+    fn settings(listen: &str, password: &str) -> crate::config::UiSettings {
+        crate::config::UiSettings {
+            listen: listen.to_string(),
+            credential: Some(Credential::create(password)),
+        }
+    }
+
+    /// The defect this whole mechanism exists for.
+    ///
+    /// The console mints a password and says the page is on. Before this, the
+    /// running process learned neither fact — it had read its credential once at
+    /// startup and never bound a listener it had not been started with — so the
+    /// password was refused and the page was not there to refuse it.
+    #[tokio::test]
+    async fn a_page_that_was_off_comes_up_without_a_restart() {
+        let state = UiState::new(None);
+        assert_eq!(state.bound().await, None, "nothing is listening yet");
+
+        reconcile(&state, Some(&settings("127.0.0.1:0", "minted")))
+            .await
+            .expect("it binds");
+
+        assert_eq!(state.bound().await.as_deref(), Some("127.0.0.1:0"));
+        assert!(
+            state
+                .credential
+                .lock()
+                .await
+                .as_ref()
+                .expect("guarded now")
+                .matches("minted"),
+            "and the password the console handed out is the one it checks",
+        );
+    }
+
+    /// Asked twice, the second answer is the one that works.
+    #[tokio::test]
+    async fn a_fresh_password_replaces_the_one_the_process_started_with() {
+        let state = UiState::new(Some(Credential::create("first")));
+        reconcile(&state, Some(&settings("127.0.0.1:0", "second")))
+            .await
+            .expect("it binds");
+
+        let credential = state.credential.lock().await;
+        let credential = credential.as_ref().expect("still guarded");
+        assert!(credential.matches("second"));
+        assert!(!credential.matches("first"), "the old one is void");
+    }
+
+    /// Rotating the password closes what it had already opened.
+    #[tokio::test]
+    async fn a_new_password_ends_the_sessions_the_old_one_opened() {
+        let state = UiState::new(Some(Credential::create("first")));
+        state.sessions.lock().await.push("token-abc".to_string());
+
+        reconcile(&state, Some(&settings("127.0.0.1:0", "second")))
+            .await
+            .expect("it binds");
+
+        assert!(!authorised(&state, &with_cookie("tern_ui=token-abc")).await);
+    }
+
+    /// Off means off — not "open to anybody", which is what clearing the
+    /// credential alone would have meant on a page bound past loopback.
+    #[tokio::test]
+    async fn turning_it_off_stops_the_listener_rather_than_unguarding_it() {
+        let state = UiState::new(None);
+        reconcile(&state, Some(&settings("127.0.0.1:0", "minted")))
+            .await
+            .expect("it binds");
+
+        reconcile(&state, None).await.expect("it stops");
+
+        assert_eq!(state.bound().await, None);
+        assert!(!state.guarded().await);
+    }
+
+    /// A port somebody else holds is the caller's news, not the log's.
+    #[tokio::test]
+    async fn a_port_that_cannot_be_bound_is_reported_and_changes_nothing() {
+        let held = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let taken = held.local_addr().unwrap().to_string();
+
+        let state = UiState::new(Some(Credential::create("original")));
+        let why = reconcile(&state, Some(&settings(&taken, "wasted")))
+            .await
+            .expect_err("the port is taken");
+
+        assert!(why.contains(&taken), "it names the address: {why}");
+        assert_eq!(state.bound().await, None, "nothing came up");
+        assert!(
+            state
+                .credential
+                .lock()
+                .await
+                .as_ref()
+                .expect("untouched")
+                .matches("original"),
+            "and the password that already worked still does",
+        );
     }
 
     /// The reason a form needs something a browser dialog did not.

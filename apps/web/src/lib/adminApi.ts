@@ -312,6 +312,15 @@ export interface Agent {
   /** The instance's own agent — `Agent-local-tern`. Never revocable. */
   isLocal: boolean
   /**
+   * The version this instance would move it to, or null.
+   *
+   * Decided by the server, because three things have to hold at once and only
+   * one of them is visible here: the agent is behind, this instance has a
+   * binary for its platform, and it is the kind of agent that can replace its
+   * own file. See `upgradeFor` in the API. Null means offer nothing.
+   */
+  upgradeTo: string | null
+  /**
    * Which network the local agent measures from — `service:app` or `host`, and
    * the difference decides whether `localhost` in a check means this machine or
    * the agent's own container. Null for a remote agent, whose network is its

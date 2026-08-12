@@ -36,6 +36,19 @@ export const AGENT_COMMAND_KINDS = [
    */
   'ui-on',
   'ui-off',
+  /**
+   * Replace its own binary with the one this instance ships, then restart.
+   *
+   * The machine does the work, because it is the only one that can: nothing
+   * here can reach it, and an agent behind a relay has no route back at all. It
+   * downloads from the server it already reports to — a zone agent from its
+   * relay, which serves the same files — checks the published SHA-256, runs the
+   * new binary once to see that it starts on that machine, and only then puts
+   * it in place. Then it exits, and whatever supervises it brings it back.
+   *
+   * Offered only where `upgradeTo` on the row says it is worth offering.
+   */
+  'upgrade',
 ] as const
 
 export type AgentCommandKind = (typeof AGENT_COMMAND_KINDS)[number]
@@ -49,17 +62,24 @@ export const AGENT_COMMAND_LABEL: Record<AgentCommandKind, string> = {
   logs: 'Fetch recent logs',
   'ui-on': 'Turn its page on',
   'ui-off': 'Turn its page off',
+  upgrade: 'Update it',
 }
 
 /**
  * What `ui-on` answers with.
  *
- * Two facts rather than one, so the console can show the password and offer the
- * link in the same breath. The address is what the machine worked out to be
- * reachable — not what it bound: a page on `0.0.0.0:38788` is served on every
- * interface and is an address nobody can open, so the agent resolves the one
- * facing the server and answers null when there is none, which is the honest
- * answer for a page on loopback.
+ * Three facts rather than one, so the console can show the password and offer
+ * the link in the same breath — and say something useful when it cannot.
+ *
+ * - `password` is the one moment it exists anywhere but on the machine.
+ * - `address` is what the machine worked out to be *reachable*, not what it
+ *   bound: a page on `0.0.0.0:38788` is served on every interface and is an
+ *   address nobody can open, so the agent resolves one and answers null when
+ *   there genuinely is none — a page on loopback.
+ * - `listen` is what it bound, verbatim. It exists because null was the whole
+ *   answer for a while, and "no link" then had to stand in for both "on
+ *   loopback" and "on a port this screen cannot name" — leaving the operator
+ *   with a password and no port to use it on.
  *
  * Written by the agent as JSON in the command's result, read here. Anything
  * that fails to parse is shown as the plain text it is — an agent older than
@@ -68,6 +88,8 @@ export const AGENT_COMMAND_LABEL: Record<AgentCommandKind, string> = {
 export interface UiOnResult {
   password: string
   address: string | null
+  /** Null from an agent too old to say. */
+  listen: string | null
 }
 
 export function readUiOnResult(result: string): UiOnResult {
@@ -80,10 +102,14 @@ export function readUiOnResult(result: string): UiOnResult {
       typeof (parsed as UiOnResult).password === 'string'
     ) {
       const shaped = parsed as UiOnResult
-      return { password: shaped.password, address: shaped.address ?? null }
+      return {
+        password: shaped.password,
+        address: shaped.address ?? null,
+        listen: shaped.listen ?? null,
+      }
     }
   } catch {
     // Not JSON: an older agent, which answered with the password alone.
   }
-  return { password: result, address: null }
+  return { password: result, address: null, listen: null }
 }

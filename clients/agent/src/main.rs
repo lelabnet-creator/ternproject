@@ -506,12 +506,20 @@ async fn main() -> Result<()> {
                          */
                         if !response.commands.is_empty() {
                             let key = config.api_key.clone();
+                            /*
+                             * No live page to hand over: this runs before the
+                             * runner brings one up. That is not a gap — the
+                             * config this leaves behind is exactly what the
+                             * runner binds from a moment later, so a `ui-on`
+                             * carried out here takes effect on the same start.
+                             */
                             let restart = tern_agent::commands::apply(
                                 &client,
                                 &key,
                                 &response.commands,
                                 &mut config,
                                 &path,
+                                None,
                             )
                             .await;
                             if restart {

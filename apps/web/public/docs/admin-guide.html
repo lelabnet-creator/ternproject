@@ -805,6 +805,7 @@ tern-agent ui --listen 0.0.0.0:38788</code></pre></div>
 <tr><td>Turn its page on</td><td>Turns the page on and hands the new password back, shown once</td></tr>
 <tr><td>Fetch recent logs</td><td>The lines that process has emitted since it started</td></tr>
 <tr><td>Restart it</td><td>It leaves, and the supervisor starts it again</td></tr>
+<tr><td>Update to <em>x.y.z</em></td><td>It replaces its own binary with the one this instance ships — see below</td></tr>
 <tr><td>Pause measuring</td><td>An agent runs no probes; a relay keeps its zone's points instead of sending</td></tr>
 <tr><td>Resume</td><td>Undoes a pause, from here</td></tr>
 <tr><td>Stop it for good</td><td>It reports nothing at all — see below</td></tr>
@@ -825,7 +826,21 @@ tern-agent ui --listen 0.0.0.0:38788</code></pre></div>
 
 <h3 id="updating-an-agent"><a class="anchor" href="#updating-an-agent">Updating an agent</a></h3>
 
-<p>Re-run the installer with no <code>--pin</code>. It replaces the binary, keeps the config and the pairing, and restarts the service:</p>
+<p><strong>From the console.</strong> An agent running an older build than this instance ships says so on its own row — <code>0.2.0 → 0.2.1 available</code> — next to a button that moves it. Nothing has to be turned on and nothing has to be watched: the badge and the button appear when the version column and this instance disagree, and both go away when the agent next reports the new version.</p>
+
+<p>The machine does the work, because it is the only party that can reach itself. At its next check-in it downloads the build from the server it already reports to — a zone agent from its relay, which serves the same files — and then, in order:</p>
+
+<ol>
+<li>checks it against the published <code>SHA256SUMS</code>;</li>
+<li>runs it once with <code>--version</code>, to see that it starts on that machine at all;</li>
+<li>checks that it really is newer than what is running.</li>
+</ol>
+
+<p>Only then does the file move, by a rename within its own directory, and the process leaves so its supervisor brings the new one back. Any of the three failing leaves the working agent exactly where it was and puts the reason in the trail under the row. Its probes, its page and its paused-or-not state come back with it: an upgrade changes what runs, not what it was told to do.</p>
+
+<p>Two rows never offer the button. A <strong>relay</strong> offers it and updates itself, but its zone does not update with it — each machine behind it has a row and a button of its own. And <code>Agent-local-tern</code> has nothing to download: this instance starts it from the very files an upgrade would fetch, so it moves forward when the instance does.</p>
+
+<p><strong>From the machine.</strong> Re-run the installer with no <code>--pin</code>. It replaces the binary, keeps the config and the pairing, and restarts the service:</p>
 
 <div class="scroll-x"><pre data-language="sh"><code>curl -fsSL https://status.example.com/install.sh | sh -s -- --server https://status.example.com</code></pre></div>
 
