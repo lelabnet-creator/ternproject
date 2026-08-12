@@ -124,3 +124,37 @@ latérale et leurs ancres résolvent.
 Le mot de passe de la page se réinitialise désormais depuis la console — c'était
 au backlog depuis longtemps et attendait « un canal serveur→agent à concevoir ».
 L'ordre `ui-on` est ce canal.
+
+## 6. Le canal d'ordres rendu vivant (session du 12 août)
+
+- [x] **Le battement est retenu.** Un ordre mettait jusqu'à une minute à
+      atteindre une machine, deux derrière un relais : le canal est un sondage,
+      et rien ne pouvait aller plus vite que sa période. Le serveur garde
+      désormais la requête ouverte jusqu'à ce qu'il ait quelque chose à dire, et
+      l'agent redemande aussitôt. Le maintien est demandé, jamais imposé —
+      `waitSeconds` absent répond tout de suite, ce que fait tout agent
+      antérieur. Borné à 25 s côté serveur, 20 s demandées, 20 s pour la zone.
+      Mesuré sur le banc, console → machine sans aucune route vers le serveur :
+      **0,30 s**, contre 46 s.
+
+- [x] **Les quatre défauts que seul le banc montrait.** L'arrêt d'abord : un
+      redémarrage tombant pendant un maintien attendait le délai de systemd puis
+      SIGKILL, et un agent tué n'écrit pas sa file sur disque — 90 s et des
+      points perdus. Le relais tenait sa zone en otage 20 s à chaque
+      redémarrage. « Quelque chose attend » n'était honoré qu'à la minute
+      suivante. Et surtout l'agent _devinait_ si le serveur retenait, d'après le
+      temps de réponse — or un relais relâche ses battements en s'arrêtant, donc
+      sa zone en concluait « ne retient pas » et se taisait une minute, pile au
+      retour du relais : 57 s. Le serveur le dit maintenant (`holding`), et la
+      règle de cadence est une fonction seule avec ses quatre cas testés.
+      Vérifié après coup : 2,14 s constant à l'instant le plus défavorable.
+
+- [x] **Un seul agent par config.** Deux copies partageant un `agent.toml`
+      l'écrivent toutes les deux et la dernière gagne — c'est ainsi qu'un agent
+      ré-appairé repointait vers un ancien serveur. Le démarrage prend un
+      `flock` ; une seconde copie refuse en nommant pid, version et heure, et
+      propose le `kill` sans jamais le faire. `--once` reste possible et ne
+      touche pas la config. Prouvé sur arch et sur rocky.
+      Au passage, un test à moi était instable une fois sur dix : un `flock`
+      appartient à la description de fichier ouverte, qu'un `fork` d'un autre
+      thread duplique le temps d'un `exec`.
