@@ -67,7 +67,7 @@ const poll = (key: string) =>
     headers: { ...PROTO, authorization: `Bearer ${key}` },
   })
 
-const beat = (key: string, payload?: unknown) =>
+const beat = (key: string, payload?: Record<string, unknown>) =>
   fx.app.inject({
     method: 'POST',
     url: '/api/v1/agent/heartbeat',
