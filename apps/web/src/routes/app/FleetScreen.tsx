@@ -91,6 +91,9 @@ export function FleetScreen({ slug, canWrite }: { slug: string; canWrite: boolea
   const live = agents.data.filter((a) => a.status !== 'revoked')
   const now = Date.now()
   const quiet = live.filter((a) => freshnessOf(a, now) !== 'fresh')
+  const gone = sweepable(agents.data, now)
+  const sweptExactly =
+    gone.length > 0 && picked.size === gone.length && gone.every((a) => picked.has(a.id))
 
   return (
     <section style={{ paddingTop: 'var(--space-6)', display: 'grid', gap: 'var(--space-5)' }}>
@@ -111,13 +114,42 @@ export function FleetScreen({ slug, canWrite }: { slug: string; canWrite: boolea
             {quiet.length > 0 && ` · ${quiet.length} not reporting`}
           </p>
         </div>
-        {/* Adding an agent starts here, where the fleet is — not buried in a
-            control's Script step, which is where it used to be the only way. */}
-        {canWrite && (
-          <Button variant="primary" onClick={() => setPairing((v) => !v)}>
-            {pairing ? 'Cancel' : 'Add an agent'}
-          </Button>
-        )}
+        <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
+          {/*
+            Clearing out what is no longer a machine.
+
+            A fleet accumulates: every revoked row, every host rebuilt under a
+            new name, every zone entry that paired once and was never heard
+            from. Ticking eleven checkboxes to be rid of them is work nobody
+            does, so they stay — and the screen that should answer "is anything
+            wrong out there" fills up with things that are not out there at all.
+
+            It selects rather than deletes. One click puts exactly the right
+            rows in the selection and opens the same confirmation every other
+            delete goes through, so the checkboxes show what is about to go
+            before anything does, the zone question is asked in the one place it
+            is asked, and Clear undoes it. A button that removed eleven records
+            outright would be quicker and would be the wrong shape entirely.
+          */}
+          {canWrite && gone.length > 0 && (
+            <Button
+              ariaLabel={`Select the ${gone.length} agents that are revoked or have not reported for over ${GONE_AFTER_DAYS} days, ready to delete`}
+              onClick={() => {
+                setPicked(new Set(gone.map((agent) => agent.id)))
+                setConfirmBulk('delete')
+              }}
+            >
+              Clear out {gone.length} gone
+            </Button>
+          )}
+          {/* Adding an agent starts here, where the fleet is — not buried in a
+              control's Script step, which is where it used to be the only way. */}
+          {canWrite && (
+            <Button variant="primary" onClick={() => setPairing((v) => !v)}>
+              {pairing ? 'Cancel' : 'Add an agent'}
+            </Button>
+          )}
+        </div>
       </div>
 
       {pairing && (
@@ -160,6 +192,16 @@ export function FleetScreen({ slug, canWrite }: { slug: string; canWrite: boolea
                 {confirmBulk === 'revoke'
                   ? `Revoke ${picked.size} agent(s)? Their keys stop working immediately; the records stay, so the fleet still shows they existed.`
                   : `Delete ${picked.size} agent(s)? Their keys are revoked and the records are removed. The audit log keeps which ones — nothing else will.`}
+                {/* Named only when the selection is exactly what a tidy-up
+                    picked, because then nobody chose these rows one by one and
+                    the rule that chose them is the thing to check. */}
+                {confirmBulk === 'delete' && sweptExactly && (
+                  <>
+                    {' '}
+                    These are every agent that is revoked or has not reported for over{' '}
+                    {GONE_AFTER_DAYS} days.
+                  </>
+                )}
               </Banner>
 
               {/*
@@ -263,6 +305,51 @@ export function zonesOf(agents: Agent[]): Map<string, Agent[]> {
     zones.set(agent.parentAgentId, behind)
   }
   return zones
+}
+
+/**
+ * How long a machine has to be silent before its row is rubbish, not news.
+ *
+ * Seven days, and the number is chosen against the things that look like a dead
+ * agent and are not. A reboot is minutes. A weekend of maintenance is two days.
+ * A machine powered off over a public holiday is four. Anything past a week has
+ * either been rebuilt under another name or is genuinely gone, and in both cases
+ * the row is telling the fleet screen about a machine that no longer exists.
+ *
+ * The fleet's own "not reporting" line uses an hour, and deliberately does not
+ * use this: an hour is when to *look*, a week is when to stop keeping the row.
+ * Sweeping on the hour would delete a fleet every time a hypervisor rebooted.
+ */
+export const GONE_AFTER_DAYS = 7
+const GONE_AFTER_MS = GONE_AFTER_DAYS * 24 * 60 * 60 * 1000
+
+/**
+ * The rows a tidy-up would remove.
+ *
+ * Two kinds, and the second is the one nobody gets around to: a revoked agent,
+ * which is already an ex-agent by definition, and one that has not been heard
+ * from for longer than any working machine ever goes quiet.
+ *
+ * A row that never reported at all is judged from when it paired, which is what
+ * catches the zone entry that took a PIN, failed its install, and has sat at
+ * "never reported" ever since. Falling back to the pairing date rather than
+ * treating a null as gone is what stops an agent installed thirty seconds ago
+ * being swept before its first heartbeat arrives.
+ *
+ * Never the instance's own agent: it cannot be deleted, and putting it in a
+ * selection would poison the whole batch with a 409.
+ */
+export function sweepable(agents: Agent[], now: number): Agent[] {
+  return agents.filter((agent) => {
+    if (agent.isLocal) return false
+    if (agent.status === 'revoked') return true
+
+    const last = new Date(agent.lastSeenAt ?? agent.pairedAt).getTime()
+    // A date that cannot be read is not evidence of anything. `NaN` fails this
+    // comparison on its own, which is the answer we want, but it is worth
+    // saying out loud that unreadable means kept.
+    return now - last > GONE_AFTER_MS
+  })
 }
 
 /**
@@ -1756,7 +1843,21 @@ export function AgentRow({
           }}
         />
 
-        <div style={{ minWidth: 0, flex: 1 }}>
+        {/*
+          A floor under the name, which is what makes the row wrap instead of
+          crushing it.
+
+          `minWidth: 0` let this shrink to nothing, and a flex line only wraps
+          when its items cannot fit at their *base* size — so nothing ever
+          wrapped: the title was squeezed to a few pixels and its text spilled
+          out under the buttons. On a relay's row with four of them, "Update to
+          0.2.1" sat on top of `tern-proxy`.
+
+          With a basis of 10rem the buttons move to their own line first, and
+          the name then has the whole row. Only below that does anything have to
+          give, and by then the row is narrower than a phone.
+        */}
+        <div style={{ flex: '1 1 10rem' }}>
           <strong style={{ textDecoration: revoked ? 'line-through' : undefined }}>
             {agent.name}
           </strong>
@@ -1800,7 +1901,25 @@ export function AgentRow({
           {agent.isLocal && agent.networkMode && <Vantage mode={agent.networkMode} />}
         </div>
 
-        <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
+        {/*
+          `flexShrink: 0`, and it is not cosmetic.
+
+          The title beside this has `flex: 1`, so without it the browser shrank
+          the button group below the width of its own buttons and they spilled
+          left, painted over the agent's name. Seen the moment a fourth button
+          appeared on a relay's row: "Update to 0.2.1" sat on top of
+          `tern-proxy`. Wrapping is the right answer at that width — the row
+          already wraps — and shrinking never was.
+        */}
+        <div
+          style={{
+            display: 'flex',
+            gap: 'var(--space-2)',
+            flexShrink: 0,
+            flexWrap: 'wrap',
+            justifyContent: 'flex-end',
+          }}
+        >
           {/*
             An update, offered where it is noticed.
 

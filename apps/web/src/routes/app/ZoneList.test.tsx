@@ -8,7 +8,8 @@ Object.defineProperty(globalThis, 'window', {
   configurable: true,
 })
 
-const { AgentRow, AgentMenu, rootsOf, zonesOf, zoneBehind } = await import('./FleetScreen')
+const { AgentRow, AgentMenu, rootsOf, zonesOf, zoneBehind, sweepable, GONE_AFTER_DAYS } =
+  await import('./FleetScreen')
 
 /**
  * A relay and the machines behind it.
@@ -245,5 +246,79 @@ describe('opening an agent page', () => {
     // The exact shape of the bug: a container bridge gateway offered as a link.
     const html = menuFor({ uiAddress: null, pairedIp: '192.168.64.1', role: 'proxy' })
     expect(html).not.toContain('192.168.64.1:38788')
+  })
+})
+
+/**
+ * Clearing out what is no longer a machine.
+ *
+ * The danger in a sweep is not what it misses, it is what it takes: a fleet
+ * deleted because a hypervisor rebooted looks exactly like a fleet that worked.
+ * So every test here is about what stays.
+ */
+describe('sweepable', () => {
+  const now = Date.parse('2026-08-12T12:00:00Z')
+  const ago = (days: number) => new Date(now - days * 86_400_000).toISOString()
+
+  it('takes a revoked agent, whatever it last did', () => {
+    const swept = sweepable([agent({ id: 'a', name: 'gone', status: 'revoked' })], now)
+    expect(swept.map((a) => a.id)).toEqual(['a'])
+  })
+
+  it('takes one that has said nothing for longer than any machine goes quiet', () => {
+    const swept = sweepable(
+      [
+        agent({ id: 'old', name: 'old', lastSeenAt: ago(GONE_AFTER_DAYS + 1) }),
+        agent({ id: 'recent', name: 'recent', lastSeenAt: ago(GONE_AFTER_DAYS - 1) }),
+      ],
+      now,
+    )
+    expect(swept.map((a) => a.id)).toEqual(['old'])
+  })
+
+  it('leaves a machine that is merely rebooting, or away for a long weekend', () => {
+    // The whole reason the threshold is days and not the hour the fleet screen
+    // uses for "not reporting". An hour is when to look, not when to delete.
+    for (const days of [0, 1, 2, 4, 6]) {
+      const swept = sweepable([agent({ id: 'x', name: 'x', lastSeenAt: ago(days) })], now)
+      expect(swept, `${days} days quiet`).toEqual([])
+    }
+  })
+
+  it('takes the ghost that paired long ago and never reported', () => {
+    // A zone entry that took a PIN, failed its install, and has sat at "never
+    // reported" ever since. Judged from when it paired, for want of anything else.
+    const swept = sweepable(
+      [agent({ id: 'ghost', name: 'ghost', lastSeenAt: null, pairedAt: ago(30) })],
+      now,
+    )
+    expect(swept.map((a) => a.id)).toEqual(['ghost'])
+  })
+
+  it('and leaves the one installed thirty seconds ago', () => {
+    // Same null `lastSeenAt`, opposite answer: its first heartbeat has not had
+    // time to arrive, and sweeping it would delete an install as it happens.
+    const swept = sweepable(
+      [agent({ id: 'fresh', name: 'fresh', lastSeenAt: null, pairedAt: ago(0) })],
+      now,
+    )
+    expect(swept).toEqual([])
+  })
+
+  it('never the instance’s own agent', () => {
+    // It cannot be deleted, so putting it in a selection would answer 409 and
+    // take the rest of the batch down with it.
+    const swept = sweepable(
+      [agent({ id: 'local', name: 'Agent-local-tern', isLocal: true, lastSeenAt: ago(90) })],
+      now,
+    )
+    expect(swept).toEqual([])
+  })
+
+  it('keeps a row whose date cannot be read', () => {
+    // Unreadable is not evidence of anything, and the safe reading of "I do not
+    // know when this was last seen" is to keep it.
+    const swept = sweepable([agent({ id: 'odd', name: 'odd', lastSeenAt: 'not a date' })], now)
+    expect(swept).toEqual([])
   })
 })

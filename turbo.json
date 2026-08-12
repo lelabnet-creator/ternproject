@@ -11,7 +11,8 @@
     },
     "dev": {
       "cache": false,
-      "persistent": true
+      "persistent": true,
+      "passThroughEnv": ["TERN_VERSION", "TERN_REVISION"]
     }
   }
 }
