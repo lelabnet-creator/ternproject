@@ -145,6 +145,45 @@ fn default_config() -> PathBuf {
     tern_agent::config::config_dir().join("proxy.toml")
 }
 
+/**
+ * What a second copy is told, and what to do about it.
+ *
+ * The kill is offered, never performed: a new copy that reaped the running one
+ * would be one restart loop away from a fight it always wins and never
+ * resolves — and a relay that loses that fight takes a whole zone with it.
+ */
+fn already_running(path: &std::path::Path, other: &tern_agent::lock::Held) -> String {
+    let mut lines = vec![format!(
+        "Another tern-proxy is already using {}.",
+        path.display()
+    )];
+    if let Some(pid) = other.pid {
+        let version = other
+            .version
+            .as_deref()
+            .map(|v| format!(" (tern-proxy {v})"))
+            .unwrap_or_default();
+        lines.push(format!("  process   {pid}{version}"));
+    }
+    if let Some(since) = &other.since {
+        lines.push(format!("  started   {since}"));
+    }
+    lines.push(String::new());
+    lines.push(
+        "Two copies sharing one config overwrite each other's changes, so this one is stopping."
+            .into(),
+    );
+    if let Some(pid) = other.pid {
+        lines.push(
+            "If that one is a leftover — an older version started by hand, say — stop it first:"
+                .into(),
+        );
+        lines.push(format!("  kill {pid}"));
+    }
+    lines.push("Under a supervisor, restart the service instead of starting a second copy.".into());
+    lines.join("\n")
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     use tracing_subscriber::prelude::*;
@@ -210,6 +249,26 @@ async fn main() -> Result<()> {
             listen,
         } => {
             let path = config.unwrap_or_else(default_config);
+
+            /*
+             * One relay per config, for the same reason as the agent: two
+             * copies both write it, and the last writer wins with whatever it
+             * was holding. Worse here — a relay also binds a port, so the loser
+             * of the race serves nothing while the winner's zone keys go
+             * missing. See `lock`.
+             */
+            let _lock = match tern_agent::lock::take(&path, env!("CARGO_PKG_VERSION")) {
+                tern_agent::lock::Outcome::Taken(lock) => Some(lock),
+                tern_agent::lock::Outcome::Unavailable(why) => {
+                    eprintln!("Could not take the lock ({why}) — continuing without it");
+                    None
+                }
+                tern_agent::lock::Outcome::Busy(other) => {
+                    eprintln!("{}", already_running(&path, &other));
+                    std::process::exit(1);
+                }
+            };
+
             let queue_path = queue.unwrap_or_else(|| path.with_extension("queue.json"));
             proxy::run(path, queue_path, listen).await
         }

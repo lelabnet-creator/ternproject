@@ -180,6 +180,47 @@ enum Command {
     },
 }
 
+/**
+ * What a second copy is told, and what to do about it.
+ *
+ * Names the holder rather than saying "already running", because the whole
+ * point of refusing is that somebody has to decide which of the two should
+ * live — and they cannot decide without knowing what the other one is. The kill
+ * is offered, never performed: a new copy that reaped the running one would be
+ * one restart loop away from a fight it always wins and never resolves.
+ */
+fn already_running(path: &std::path::Path, other: &tern_agent::lock::Held) -> String {
+    let mut lines = vec![format!(
+        "Another tern-agent is already using {}.",
+        path.display()
+    )];
+    if let Some(pid) = other.pid {
+        let version = other
+            .version
+            .as_deref()
+            .map(|v| format!(" (tern-agent {v})"))
+            .unwrap_or_default();
+        lines.push(format!("  process   {pid}{version}"));
+    }
+    if let Some(since) = &other.since {
+        lines.push(format!("  started   {since}"));
+    }
+    lines.push(String::new());
+    lines.push(
+        "Two copies sharing one config overwrite each other's changes, so this one is stopping."
+            .into(),
+    );
+    if let Some(pid) = other.pid {
+        lines.push(
+            "If that one is a leftover — an older version started by hand, say — stop it first:"
+                .into(),
+        );
+        lines.push(format!("  kill {pid}"));
+    }
+    lines.push("Under a supervisor, restart the service instead of starting a second copy.".into());
+    lines.join("\n")
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
@@ -376,6 +417,50 @@ async fn main() -> Result<()> {
                 println!("{} appeared — starting", path.display());
             }
 
+            /*
+             * One agent per config, taken before anything is read or written.
+             *
+             * Two copies sharing one `agent.toml` both write it — a refreshed
+             * assignment, a rotated key, the page's password — and the last
+             * writer wins with whatever it happened to be holding. See `lock`
+             * for why an `flock` and not a PID file, and why this refuses
+             * rather than reaping the other one.
+             */
+            let held = tern_agent::lock::take(&path, env!("CARGO_PKG_VERSION"));
+            let _lock = match held {
+                tern_agent::lock::Outcome::Taken(lock) => Some(lock),
+                tern_agent::lock::Outcome::Unavailable(why) => {
+                    // Said, not fatal: refusing to monitor because a lock file
+                    // could not be created trades a rare conflict for a certain
+                    // outage.
+                    eprintln!("Could not take the lock ({why}) — continuing without it");
+                    None
+                }
+                tern_agent::lock::Outcome::Busy(other) => {
+                    /*
+                     * `--once` is a diagnostic somebody runs *while* the
+                     * service is up, and answering "no" to that would be
+                     * useless. What it must not do is write the config — so it
+                     * runs, and the startup refresh below is what stands down.
+                     */
+                    if !once {
+                        eprintln!("{}", already_running(&path, &other));
+                        std::process::exit(1);
+                    }
+                    eprintln!(
+                        "Another tern-agent{} is using {} — measuring without refreshing it.",
+                        other
+                            .pid
+                            .map(|pid| format!(" (pid {pid})"))
+                            .unwrap_or_default(),
+                        path.display()
+                    );
+                    None
+                }
+            };
+            // Whether this process may write the config at all.
+            let owns_config = _lock.is_some();
+
             let mut config = Config::load(&path)?;
 
             // An agent paired last month otherwise runs last month's probes.
@@ -401,7 +486,7 @@ async fn main() -> Result<()> {
                     "Undo it here with: tern-agent resume --config {}",
                     path.display()
                 );
-            } else if !no_refresh {
+            } else if !no_refresh && owns_config {
                 let client = Client::new(&config.server)?;
                 match client.jobs(&config.api_key).await {
                     Ok(response) => {
