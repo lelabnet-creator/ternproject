@@ -397,9 +397,28 @@ pub async fn run(
 
     // Fetched once at start so the zone is usable immediately; refreshed on a
     // timer after that.
+    let mut startup_commands = Vec::new();
+    let mut startup_zone = Vec::new();
     let (jobs, tenant_slug) = match client.jobs(&config.api_key).await {
         Ok(response) => {
             info!(jobs = response.jobs.len(), tenant = %response.tenant_slug, "assignment loaded");
+            /*
+             * Kept, not dropped.
+             *
+             * The server marks an instruction handed over the moment it hands
+             * it over, and cannot tell this poll from the loop's — so reading
+             * the field here and throwing it away destroyed the instruction for
+             * good. It is also the likely path: somebody restarts a relay
+             * precisely to make it pick something up sooner, and the restart is
+             * what ate it. Exactly the defect already found and fixed on the
+             * agent, and missed here. Measured: `ui-on` handed over, never
+             * carried out, nothing in the relay's log.
+             *
+             * Applied after the state exists, because carrying one out needs
+             * the client and the config path this is still building.
+             */
+            startup_commands = response.commands;
+            startup_zone = response.zone_commands;
             (response.jobs, response.tenant_slug)
         }
         Err(error) => {
@@ -492,6 +511,26 @@ pub async fn run(
                 snapshot.queue_bytes = inner.queue.bytes();
             })
             .await;
+    }
+
+    // Anything that arrived on the startup poll, now that there is somewhere to
+    // put it and something to carry it out with.
+    if !startup_zone.is_empty() {
+        info!(waiting = startup_zone.len(), "instructions for the zone");
+        state.inner.lock().await.zone_commands.extend(startup_zone);
+    }
+    if !startup_commands.is_empty() {
+        let (path, mut own) = {
+            let inner = state.inner.lock().await;
+            (inner.config_path.clone(), inner.config.clone())
+        };
+        let key = own.api_key.clone();
+        let restart =
+            crate::commands::apply(&state.client, &key, &startup_commands, &mut own, &path).await;
+        state.inner.lock().await.config = own;
+        if restart {
+            crate::commands::leave_for_restart();
+        }
     }
 
     // Two background loops: one to refresh the assignment, one to drain the

@@ -1575,7 +1575,22 @@ export function AgentRow({
   const commands = useQuery({
     queryKey: ['agent-commands', slug, agent.id],
     queryFn: () => adminApi.agentCommands(slug, agent.id),
-    enabled: false,
+    /*
+     * Asked for on load, and only where something could have been asked.
+     *
+     * It started as `enabled: false` — fetched only after a mutation — which
+     * meant the trail existed for the few minutes after clicking and vanished
+     * on the next page load. Somebody who asked for logs, went to look at
+     * something else and came back saw nothing at all, which reads as "it never
+     * happened" rather than "it is not shown".
+     *
+     * A revoked row and this instance's own agent can hold none, so they are
+     * not asked about. The rest is one small request per row, kept for a minute
+     * — a fleet screen is not reopened every few seconds, and the answer is
+     * almost always an empty list.
+     */
+    enabled: agent.status !== 'revoked' && !agent.isLocal,
+    staleTime: 60_000,
   })
 
   const pending = (commands.data ?? []).filter((c) => !c.completedAt)
@@ -1780,9 +1795,6 @@ export function AgentRow({
         </div>
       </div>
 
-      {/* What was asked of the machine, and what came back. */}
-      <CommandTrail commands={commands.data ?? []} />
-
       {/*
         Under the buttons, not beside the name.
 
@@ -1807,6 +1819,12 @@ export function AgentRow({
           heard from. */}
         {lastSeen(agent, now)}
       </div>
+
+      {/* What was asked of the machine, and what came back. After the caption
+          rather than before it: the caption belongs with the name above it, and
+          slipping a log dump between the two broke a line somebody reads at a
+          glance. */}
+      <CommandTrail commands={commands.data ?? []} />
 
       {open && agent.controls.length > 0 && (
         <ul
@@ -2051,9 +2069,25 @@ function CommandTrail({ commands }: { commands: AgentCommand[] }) {
   if (commands.length === 0) return null
 
   return (
-    <div style={{ marginTop: 'var(--space-3)', display: 'grid', gap: 'var(--space-2)' }}>
+    /*
+     * `minWidth: 0` at both levels, and it is not decorative.
+     *
+     * A grid item defaults to `min-width: auto`, which means "never narrower
+     * than my content". The log block inside has `overflow-x: auto` and would
+     * have scrolled, but it was never asked to: it simply grew, and pushed
+     * every ancestor wide until the whole page scrolled sideways. Seen on
+     * screen — 1644px of document in a 1238px window — not in the markup.
+     */
+    <div
+      style={{
+        marginTop: 'var(--space-3)',
+        display: 'grid',
+        gap: 'var(--space-2)',
+        minWidth: 0,
+      }}
+    >
       {commands.slice(0, 5).map((c) => (
-        <div key={c.id} style={{ fontSize: 'var(--text-sm)' }}>
+        <div key={c.id} style={{ fontSize: 'var(--text-sm)', minWidth: 0 }}>
           <span style={{ fontWeight: 600 }}>{LABEL[c.kind] ?? c.kind}</span>{' '}
           <span style={{ color: 'var(--color-fg-subtle)' }}>
             {c.error

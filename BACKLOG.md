@@ -23,11 +23,15 @@ le canal d'ordres non publié. Ordonné par ce qui bloque, puis par ce qui n'a p
       la reprise. Le libellé de la pause dépend maintenant du rôle — un relais
       ne mesure rien, il retient.
 
-- [ ] **L'affichage des retours n'a pas été vu à l'écran.** `CommandTrail` —
-      mot de passe montré une fois, bloc de logs, états « en attente / pris /
-      répondu » — est écrit et compilé, jamais regardé avec de vrais retours.
-      C'est exactement le genre d'endroit où j'ai déjà eu des assertions vraies
-      sur une page fausse.
+- [x] **L'affichage des retours vu à l'écran, avec de vrais résultats.** Trois
+      défauts que seule la capture montrait : le fil n'était jamais chargé à
+      l'ouverture de la page (`enabled: false`), donc l'historique disparaissait
+      dès qu'on revenait ; le bloc de logs élargissait toute la page au lieu de
+      défiler dans sa boîte (1644 px de document dans 1238 px de fenêtre —
+      `min-width: auto` d'un élément de grille) ; et le fil s'insérait entre le
+      nom et sa légende. Corrigés. Le mot de passe s'affiche avec sa phrase
+      « shown once » et son bouton de copie, et un ordre pris sans réponse se
+      lit « taken, no answer yet » — distinct de « done ».
 
 ## 2. Publier, et rattraper l'existant
 
