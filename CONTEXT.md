@@ -2,29 +2,20 @@
 
 ## Current Task
 
-Rien en cours. `BACKLOG.md` entièrement coché ; `v0.1.32` publiée. Ne restent
-que deux gestes qui demandent les machines de Jacques — mettre à jour l'agent de
-.170, et supprimer les doublons déjà en base.
+Release v0.2.0 en cours : le protocole agent v1 — schémas partagés, RFC 9457,
+`X-Tern-Protocol`, correction de la latence de zone, `docs/protocol.md`.
 
 ## Key Decisions
 
-- **Un canal d'ordres**, parce que rien n'atteint un agent : ils interrogent, et
-  un agent de zone n'a aucune route de retour. Six ordres — page, logs,
-  redémarrage, pause, reprise, arrêt — pris au prochain sondage. Le relais porte
-  ceux de sa zone et fait remonter les réponses sous sa clé.
-- **Pause et stop** ne diffèrent que par ce qui continue d'écouter. Arrêté, rien
-  n'entend une reprise : c'est ce qui le rend définitif, et la seule porte de
-  sortie est `tern-agent resume` sur la machine. Les deux états sont dans la
-  config, parce que le superviseur relance à toute sortie.
-- **Le mot de passe de la page** revient comme réponse à `ui-on` : haché à
-  l'écriture, c'est le seul instant où il existe ailleurs que sur la machine.
-- **Les sondages de démarrage avalaient les ordres** — sur l'agent puis sur le
-  relais. Le serveur les marque livrés en les livrant, donc ils étaient
-  détruits. C'était le chemin le plus probable : on redémarre pour hâter.
+- **Rupture assumée** : serveur, relais et agents se mettent à jour ensemble ;
+  un désaccord de version répond `protocol-mismatch` en nommant les deux côtés.
+- **Une seule définition des messages** (`@tern/shared/agent-protocol`),
+  tenue côté Rust par les fixtures de `schemas/conformance/protocol/`.
+- **v0.2.0, pas 0.1.33** : la rupture mérite le cran mineur, et le crate agent
+  est bumpé aussi pour que la flotte distingue migré / à migrer.
 
 ## Next Steps
 
-- Latence jusqu'à 5 min sur les ordres — piste : cadence courte tant qu'un ordre
-  attend, ou signal sur le heartbeat qui bat toutes les minutes.
-- Documentation : ordres, `resume`, page du relais, mise à jour, identifiant
-  d'installation.
+- Mettre à jour l'agent de .170 (rupture : il parlera `protocol-mismatch` sinon).
+- Supprimer les doublons déjà en base (demande les machines de Jacques).
+- Fumée réelle : ordre `restart` via relais (~1 min), `TERN_PROTOCOL_TRACE=1`.

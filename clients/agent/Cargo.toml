@@ -1,6 +1,6 @@
 [package]
 name = "tern-agent"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 # 1.82 for `is_some_and`/`is_none_or`: writing around them produces code clippy
 # itself flags, and 1.82 is old enough that requiring it costs nobody anything.
