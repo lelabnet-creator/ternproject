@@ -14,9 +14,14 @@ le canal d'ordres non publié. Ordonné par ce qui bloque, puis par ce qui n'a p
       rendant un mot de passe qui ouvre réellement sa page (`/login` → 204).
       Au passage `pause`, `stop` et `ui-on` valent aussi pour un relais.
 
-- [ ] **Le canal d'ordres n'a jamais été exercé sur un relais.** Six ordres
-      testés sur la VM ubuntu (agent direct), zéro sur rocky. `tern-proxy` a la
-      même boucle de rafraîchissement mais pas le même code de démarrage.
+- [x] **Le canal d'ordres exercé sur un relais.** Deux défauts trouvés là :
+      son binaire n'avait pas le tampon de logs, donc `logs` répondait « fait »
+      sur zéro octet — la pire façon d'échouer ; et il n'honorait pas l'état,
+      donc « pause » n'était qu'un mot écrit dans un fichier. Corrigés tous
+      deux. Prouvé sur rocky : `logs` rend 427 octets, et un point poussé par
+      la zone pendant la pause **n'arrive pas** au serveur puis y arrive après
+      la reprise. Le libellé de la pause dépend maintenant du rôle — un relais
+      ne mesure rien, il retient.
 
 - [ ] **L'affichage des retours n'a pas été vu à l'écran.** `CommandTrail` —
       mot de passe montré une fois, bloc de logs, états « en attente / pris /

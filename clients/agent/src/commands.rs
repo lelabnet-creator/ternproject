@@ -36,6 +36,17 @@ pub trait Controllable {
     fn state(&self) -> Running;
     fn set_state(&mut self, state: Running);
     fn write(&self, path: &std::path::Path) -> anyhow::Result<()>;
+
+    /**
+     * What pausing this thing actually stops.
+     *
+     * On the trait rather than a fixed sentence, because the two answers are
+     * genuinely different: an agent stops measuring, and a relay has nothing to
+     * measure — it stops sending, and its zone's points pile up in the queue
+     * instead. The console repeats this back, so a single wording would tell
+     * one of the two something untrue.
+     */
+    fn paused_means(&self) -> &'static str;
 }
 
 /// What carrying out an instruction did, and what to do next.
@@ -58,7 +69,10 @@ pub enum Outcome {
 /// this agent is doing.
 pub fn run<C: Controllable>(command: &Command, config: &mut C, path: &std::path::Path) -> Outcome {
     match command.kind.as_str() {
-        "pause" => set_state(config, path, Running::Paused, "paused — no probes will run"),
+        "pause" => {
+            let said = format!("paused — {}", config.paused_means());
+            set_state(config, path, Running::Paused, &said)
+        }
         "resume" => set_state(config, path, Running::Active, "resumed"),
 
         /*
@@ -78,7 +92,7 @@ pub fn run<C: Controllable>(command: &Command, config: &mut C, path: &std::path:
             config,
             path,
             Running::Stopped,
-            "stopped — reporting nothing until `tern-agent resume` is run here",
+            "stopped — reporting nothing until `resume` is run on the machine",
         ),
 
         "restart" => Outcome::Restart,

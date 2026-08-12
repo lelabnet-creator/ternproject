@@ -528,7 +528,21 @@ fn spawn_refresh(state: AppState, every_s: u64) {
 
         loop {
             ticker.tick().await;
-            let key = { state.inner.lock().await.config.api_key.clone() };
+
+            /*
+             * A stopped relay says nothing upstream, and that includes asking
+             * for instructions — which is what makes the state final in the way
+             * the console promised. Its zone keeps being served: a relay that
+             * stopped talking to TERN must not also stop being a relay, or
+             * stopping one would take a whole network's agents down with it.
+             */
+            let (key, state_now) = {
+                let inner = state.inner.lock().await;
+                (inner.config.api_key.clone(), inner.config.state)
+            };
+            if !state_now.reports() {
+                continue;
+            }
 
             match state.client.jobs(&key).await {
                 Ok(response) => {
@@ -715,11 +729,24 @@ fn spawn_flush(state: AppState, every_s: u64) {
                 _ = state.flush.notified() => {}
             }
 
-            let (key, batch) = {
+            let (key, batch, state_now) = {
                 let inner = state.inner.lock().await;
-                (inner.config.api_key.clone(), inner.queue.peek(200))
+                (
+                    inner.config.api_key.clone(),
+                    inner.queue.peek(200),
+                    inner.config.state,
+                )
             };
-            if batch.is_empty() {
+            /*
+             * Paused or stopped: the zone's points stay in the queue.
+             *
+             * This is what `pause` means for a relay — it measures nothing of
+             * its own, so the only thing it can stop is sending. The queue is
+             * what makes that safe: it delays history rather than losing it,
+             * up to its own bound, and the bound is already what protects the
+             * disk of a machine that was put there to watch other machines.
+             */
+            if !state_now.measures() || batch.is_empty() {
                 continue;
             }
 
@@ -1522,6 +1549,12 @@ impl crate::commands::Controllable for ProxyConfig {
     }
     fn write(&self, path: &Path) -> anyhow::Result<()> {
         self.save(path)
+    }
+    fn paused_means(&self) -> &'static str {
+        // Its zone keeps reporting to it; nothing leaves for upstream. The
+        // queue is what makes that safe — it delays history rather than losing
+        // it, up to its own bound.
+        "the zone's points are kept here, none are sent on"
     }
 }
 

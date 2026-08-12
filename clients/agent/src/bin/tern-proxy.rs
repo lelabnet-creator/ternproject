@@ -147,6 +147,8 @@ fn default_config() -> PathBuf {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    use tracing_subscriber::prelude::*;
+
     let cli = Cli::parse();
 
     let filter = match &cli.log_level {
@@ -154,13 +156,25 @@ async fn main() -> Result<()> {
         None => tracing_subscriber::EnvFilter::try_from_default_env()
             .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
     };
+    /*
+     * stderr as before, and a copy into the ring the console can ask for.
+     *
+     * The agent's binary got this and this one did not, so `logs` asked of a
+     * relay answered with nought bytes — successfully, which is the worst way
+     * to fail: the console showed "done" over an empty box and nothing said the
+     * buffer had never been filled. Found by asking a real relay for its logs.
+     */
+    let registry = tracing_subscriber::registry().with(filter).with(
+        tracing_subscriber::fmt::layer()
+            .with_ansi(false)
+            .with_writer(tern_agent::logbuf::RingWriter),
+    );
     if cli.log_json {
-        tracing_subscriber::fmt()
-            .json()
-            .with_env_filter(filter)
+        registry
+            .with(tracing_subscriber::fmt::layer().json())
             .init();
     } else {
-        tracing_subscriber::fmt().with_env_filter(filter).init();
+        registry.with(tracing_subscriber::fmt::layer()).init();
     }
 
     match cli.command {
