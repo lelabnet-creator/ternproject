@@ -139,6 +139,49 @@ describe('asking', () => {
     }
   })
 
+  /**
+   * The enum, the shared list and the console have to agree.
+   *
+   * They have drifted before — the column learned `ui-on`, the route's schema
+   * did not, and the console asked for something the database allowed and got
+   * a 400 naming five kinds it had never heard of. A new kind is a migration as
+   * well as an edit, and a request that reaches the insert is what proves the
+   * migration ran.
+   */
+  it('accepts an upgrade, which needs the enum to have learned it', async () => {
+    const [agent] = await fx.app.db
+      .insert(schema.agents)
+      .values({ tenantId: fx.tenantId, name: 'behind' })
+      .returning({ id: schema.agents.id })
+
+    const response = await fx.app.inject({
+      method: 'POST',
+      url: `/api/v1/${fx.slug}/agents/${agent!.id}/commands`,
+      headers: { cookie },
+      payload: { kind: 'upgrade' },
+    })
+    expect(response.statusCode).toBe(200)
+  })
+
+  it('refuses to update the local agent, and says where it does move forward', async () => {
+    // It has nothing to download: this process starts it from the very files an
+    // upgrade would fetch. Refusing with a sentence beats a button that answers
+    // with a download failure minutes later.
+    const [local] = await fx.app.db
+      .insert(schema.agents)
+      .values({ tenantId: fx.tenantId, name: 'Agent-local-tern', isLocal: true })
+      .returning({ id: schema.agents.id })
+
+    const response = await fx.app.inject({
+      method: 'POST',
+      url: `/api/v1/${fx.slug}/agents/${local!.id}/commands`,
+      headers: { cookie },
+      payload: { kind: 'upgrade' },
+    })
+    expect(response.statusCode).toBe(409)
+    expect(response.json().detail).toMatch(/Platform/)
+  })
+
   it('refuses to stop the local agent, and says why', async () => {
     // A stopped agent listens for nothing, so nothing here could start it
     // again — and this is the one that watches the instance itself.
