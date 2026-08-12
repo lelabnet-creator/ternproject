@@ -41,13 +41,24 @@ le canal d'ordres non publié. Ordonné par ce qui bloque, puis par ce qui n'a p
       de logs global et mesurait tout l'instantané — vert seul, rouge à deux.
       La logique sort désormais dans un `Ring` que chaque test instancie.
 
-- [ ] **Mettre à jour l'agent de `192.168.1.170`.** Il sert encore `Basic
-realm` — d'où la popup du navigateur. Procédure prouvée sur les deux VM ;
-      il n'y a que l'exécution qui manque, et je n'ai pas d'accès à cette
-      machine.
+## Ce qui t'attend — je n'y ai pas accès
 
-- [ ] **Supprimer les doublons déjà en base.** Ils ont été créés avant
-      l'identifiant d'installation et ne se résorbent pas seuls.
+Ces deux-là ne sont pas des tâches en attente de mon côté : elles demandent la
+machine ou l'instance, et je n'ai ni l'un ni l'autre. `ssh 192.168.1.170` refuse
+ma clé, et toucher à ton instance est ce que tu m'as demandé de ne pas faire.
+
+- **Mettre à jour l'agent de `192.168.1.170`.** Il sert encore `Basic realm`,
+  d'où la popup. Une commande, prouvée sur les deux VM du banc :
+
+  ```sh
+  CONF=$(ls ~/.config/tern/agent.toml ~/.config/tern/proxy.toml /etc/tern/*.toml 2>/dev/null | head -1)
+  SERVER=$(sed -n 's/^server *= *"\(.*\)"/\1/p' "$CONF")
+  curl -fsSL "$SERVER/install.sh" | sh -s -- --server "$SERVER"
+  ```
+
+- **Supprimer les doublons déjà en base.** Créés avant l'identifiant
+  d'installation, ils ne se résorbent pas seuls. Depuis la console, cases à
+  cocher puis Delete.
 
 ## 3. Ce qui rend les ordres pénibles à l'usage
 
