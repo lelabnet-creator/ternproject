@@ -1356,26 +1356,18 @@ export function AgentMenu({
   const [open, setOpen] = useState(defaultOpen)
 
   /*
-   * Asking, with one question in the way.
+   * Asking, and letting the row do the asking back.
    *
-   * Every instruction here closes the menu, and one of them asks first. `stop`
-   * is the only one that cannot be undone from this screen — nothing is left
-   * listening afterwards — so the sentence says exactly that, and names the
-   * command that undoes it on the machine. The rest are reversible from the
-   * same menu and asking about each would train somebody to click through.
+   * The menu closes and hands the instruction up. Whether one of them needs a
+   * question first — `stop` and `upgrade` do — is decided by the row, which is
+   * where the answer can be drawn: a `window.confirm` puts the browser's own
+   * grey box over the page, headed `localhost:5180 says`, in a typeface and a
+   * language this admin does not control, and it cannot show the agent's name
+   * as anything but plain text. The row already has the shape for this — it is
+   * what Revoke and the bulk delete use — so this one uses it too.
    */
   const ask = (kind: AgentCommandKind) => {
     setOpen(false)
-    if (
-      kind === 'stop' &&
-      !window.confirm(
-        `Stop ${agent.name} for good?\n\n` +
-          'It will report nothing at all, so it cannot be resumed from here. ' +
-          'Getting it back needs a shell on that machine: tern-agent resume.',
-      )
-    ) {
-      return
-    }
     onCommand?.(kind)
   }
   const menu = useRef<HTMLDivElement>(null)
@@ -1781,6 +1773,15 @@ export function AgentRow({
   })
 
   const [confirming, setConfirming] = useState(false)
+  /**
+   * The instruction this row is asking about, if any.
+   *
+   * Two of them are worth a question, and no more: `stop`, which cannot be
+   * undone from this screen at all, and `upgrade`, which replaces a working
+   * binary. The rest are reversible from the same menu, and asking about each
+   * is how somebody is trained to click through the one that matters.
+   */
+  const [asking, setAsking] = useState<AgentCommandKind | null>(null)
   const [open, setOpen] = useState(false)
   // Open, unlike the probe list below it, and open even when the zone is empty.
   // Both things it holds are the reason a relay card is worth looking at: which
@@ -1938,20 +1939,7 @@ export function AgentRow({
               variant="primary"
               busy={command.isPending}
               ariaLabel={`Update ${agent.name} to ${agent.upgradeTo}`}
-              onClick={() => {
-                if (
-                  !window.confirm(
-                    `Update ${agent.name} to ${agent.upgradeTo}?\n\n` +
-                      'At its next check-in it downloads the build this instance ships, checks it ' +
-                      'against the published checksum, runs it once to see that it starts on that ' +
-                      'machine, and only then replaces itself and restarts.\n\n' +
-                      'Its probes, its page and its settings come back with it.',
-                  )
-                ) {
-                  return
-                }
-                command.mutate('upgrade')
-              }}
+              onClick={() => setAsking('upgrade')}
             >
               Update to {agent.upgradeTo}
             </Button>
@@ -1987,10 +1975,67 @@ export function AgentRow({
             revoked={revoked}
             onRename={() => setEditing((v) => !v)}
             onRevoke={() => setConfirming(true)}
-            onCommand={(kind) => command.mutate(kind)}
+            onCommand={(kind) =>
+              kind === 'stop' || kind === 'upgrade' ? setAsking(kind) : command.mutate(kind)
+            }
           />
         </div>
       </div>
+
+      {/*
+        The question, in the page rather than over it.
+
+        Same shape as Revoke below and as the bulk delete above: a banner in the
+        row it concerns, and two buttons that name what they do. A browser
+        `confirm()` would have been three fewer lines and would have been a grey
+        box headed `localhost:5180 says`, unstyleable, untranslatable, unable to
+        show the agent's name as anything but plain text, and it blocks the whole
+        tab while it is up. It also reads as something the browser is asking,
+        which is exactly the wrong impression for an instruction that is about to
+        replace a binary on somebody else's machine.
+
+        Directly under the buttons, unlike Revoke's — which comes from the menu
+        and can afford to sit at the foot of the card. This one answers a button
+        in the row above it, and on a relay the card carries three paragraphs
+        about the zone: put at the bottom, the question was three hundred pixels
+        from the thing that asked it, which is far enough to look like nothing
+        happened.
+      */}
+      {asking && (
+        <div style={{ marginTop: 'var(--space-3)' }}>
+          <Banner tone={asking === 'stop' ? 'down' : 'maintenance'}>
+            {asking === 'stop' ? (
+              <>
+                Stop “{agent.name}” for good? It will report nothing at all, so it cannot be resumed
+                from here. Getting it back needs a shell on that machine:{' '}
+                <code>tern-agent resume</code>.
+              </>
+            ) : (
+              <>
+                Update “{agent.name}” to {agent.upgradeTo}? At its next check-in it downloads the
+                build this instance ships, checks it against the published checksum, runs it once to
+                see that it starts on that machine, and only then replaces itself and restarts. Its
+                probes, its page and its settings come back with it.
+              </>
+            )}
+          </Banner>
+          <div style={{ display: 'flex', gap: 'var(--space-2)', marginTop: 'var(--space-2)' }}>
+            <Button
+              variant={asking === 'stop' ? 'danger' : 'primary'}
+              busy={command.isPending}
+              onClick={() => {
+                command.mutate(asking)
+                setAsking(null)
+              }}
+            >
+              {asking === 'stop' ? 'Stop it' : `Update to ${agent.upgradeTo}`}
+            </Button>
+            <Button onClick={() => setAsking(null)}>
+              {asking === 'stop' ? 'Keep it running' : 'Not now'}
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/*
         Under the buttons, not beside the name.
